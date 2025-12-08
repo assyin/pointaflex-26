@@ -8,14 +8,16 @@ import {
   Delete,
   Query,
   UseGuards,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
-import { UpdateTenantSettingsDto } from './dto/tenant-settings.dto';
+import { UpdateTenantSettingsDto } from './dto/update-tenant-settings.dto';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Tenants')
@@ -74,12 +76,26 @@ export class TenantsController {
   }
 
   @Patch(':id/settings')
-  @Roles(Role.ADMIN_RH)
   @ApiOperation({ summary: 'Update tenant settings' })
   updateSettings(
+    @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: UpdateTenantSettingsDto,
   ) {
+    // Permettre à ADMIN_RH et SUPER_ADMIN de modifier n'importe quel tenant
+    // Permettre à tout utilisateur authentifié de modifier son propre tenant
+    if (!user) {
+      throw new ForbiddenException('User not authenticated');
+    }
+
+    const allowedRoles = [Role.ADMIN_RH, Role.SUPER_ADMIN];
+    const isAdmin = allowedRoles.includes(user.role);
+    const isOwnTenant = user.tenantId === id;
+
+    if (!isAdmin && !isOwnTenant) {
+      throw new ForbiddenException('You can only update settings for your own tenant');
+    }
+
     return this.tenantsService.updateSettings(id, dto);
   }
 }

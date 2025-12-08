@@ -167,6 +167,7 @@ export class SchedulesService {
       employeeId?: string;
       teamId?: string;
       shiftId?: string;
+      siteId?: string;
       startDate?: string;
       endDate?: string;
     },
@@ -185,6 +186,12 @@ export class SchedulesService {
 
     if (filters?.shiftId) {
       where.shiftId = filters.shiftId;
+    }
+
+    if (filters?.siteId) {
+      where.employee = {
+        siteId: filters.siteId,
+      };
     }
 
     if (filters?.startDate || filters?.endDate) {
@@ -209,6 +216,19 @@ export class SchedulesService {
               firstName: true,
               lastName: true,
               matricule: true,
+              position: true,
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             },
           },
           shift: true,
@@ -220,7 +240,7 @@ export class SchedulesService {
             },
           },
         },
-        orderBy: [{ date: 'desc' }, { employee: { lastName: 'asc' } }],
+        orderBy: [{ date: 'asc' }, { employee: { lastName: 'asc' } }],
       }),
       this.prisma.schedule.count({ where }),
     ]);

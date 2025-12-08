@@ -1,858 +1,885 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO } from 'date-fns';
+import React, { useState, useMemo, useEffect } from 'react';
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { fr } from 'date-fns/locale';
+import { useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Select } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
-  Search, Download, Printer, Plus, Calendar, AlertTriangle, ArrowRight, Clock, Loader2, Upload, ChevronLeft, ChevronRight, Trash2, CheckSquare, Square
+  Search, Download, Printer, Plus, Calendar, AlertTriangle, Clock, Loader2, Upload,
+  ChevronLeft, ChevronRight, Filter, X, Users, Building2, Eye, EyeOff, Grid3x3, List
 } from 'lucide-react';
 import {
-  useWeekSchedule,
-  useMonthSchedule,
+  useSchedules,
   useScheduleAlerts,
-  useReplacements,
-  useApproveReplacement,
-  useRejectReplacement,
   useCreateSchedule,
   useDeleteSchedule,
   useBulkDeleteSchedules,
 } from '@/lib/hooks/useSchedules';
-import { useShifts, useCreateShift } from '@/lib/hooks/useShifts';
+import { useShifts } from '@/lib/hooks/useShifts';
 import { useTeams } from '@/lib/hooks/useTeams';
 import { useEmployees } from '@/lib/hooks/useEmployees';
-import { AlertBanner } from '@/components/schedules/AlertBanner';
+import { useSites } from '@/lib/hooks/useSites';
 import { ImportSchedulesModal } from '@/components/schedules/ImportSchedulesModal';
-import { X } from 'lucide-react';
 import { formatErrorAlert } from '@/lib/utils/errorMessages';
 import { toast } from 'sonner';
+import { schedulesApi, type CreateScheduleDto } from '@/lib/api/schedules';
 
-interface ShiftEntry {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeeInfo: string;
-  shifts: {
-    date: string;
-    type: 'matin' | 'soir' | 'nuit' | 'leave' | 'absent' | 'swap';
-    startTime?: string;
-    endTime?: string;
-    status?: string;
-    detail?: string;
-    scheduleId?: string;
-  }[];
+interface GroupedSchedule {
+  shiftId: string;
+  shiftName: string;
+  shiftCode: string;
+  shiftType: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'CUSTOM';
+  startTime: string;
+  endTime: string;
+  color?: string;
+  employeeCount: number;
+  scheduleCount: number;
+  sites: string[]; // Liste des sites uniques des employés
+  teams: string[]; // Liste des équipes uniques des employés
+  employees: Array<{
+    id: string;
+    name: string;
+    matricule: string;
+    department?: string;
+    site?: string;
+    team?: string;
+    schedules: Array<{
+      id: string;
+      date: string;
+      customStartTime?: string;
+      customEndTime?: string;
+    }>;
+  }>;
 }
 
 export default function ShiftsPlanningPage() {
-  // Date management
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [selectedPeriod, setSelectedPeriod] = useState('semaine');
-  const [selectedTeam, setSelectedTeam] = useState<string>('');
-  const [selectedSite, setSelectedSite] = useState<string>('');
-  const [selectedShiftType, setSelectedShiftType] = useState('tous');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const router = useRouter();
+  
+  // View state
+  const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const [selectedDateRange, setSelectedDateRange] = useState<{ start: Date; end: Date }>({
+    start: startOfWeek(new Date(), { weekStartsOn: 1 }),
+    end: endOfWeek(new Date(), { weekStartsOn: 1 }),
+  });
 
-  const [calendarView, setCalendarView] = useState<'today' | 'day' | 'week' | 'month'>('week');
-  const [replacementTab, setReplacementTab] = useState<'pending' | 'history'>('pending');
+  // Filters
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterTeam, setFilterTeam] = useState<string>('');
+  const [filterSite, setFilterSite] = useState<string>('');
+  const [filterShift, setFilterShift] = useState<string>('');
+  const [filterDateStart, setFilterDateStart] = useState<string>(format(selectedDateRange.start, 'yyyy-MM-dd'));
+  const [filterDateEnd, setFilterDateEnd] = useState<string>(format(selectedDateRange.end, 'yyyy-MM-dd'));
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Selection
+  const [selectedSchedules, setSelectedSchedules] = useState<Set<string>>(new Set());
   const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
-  const [showShiftDetail, setShowShiftDetail] = useState(false);
-  const [showCreateShiftModal, setShowCreateShiftModal] = useState(false);
+  // Pagination for detailed view
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
+
+  // Modals
   const [showImportModal, setShowImportModal] = useState(false);
-  const [newShiftFormData, setNewShiftFormData] = useState({
-    name: '',
-    code: '',
-    startTime: '08:00',
-    endTime: '16:00',
-    breakDuration: 60,
-    isNightShift: false,
-    color: '#3B82F6',
-  });
-  const [shiftFormData, setShiftFormData] = useState({
-    employeeId: '',
-    shiftId: '',
-    dateDebut: format(new Date(), 'yyyy-MM-dd'),
-    dateFin: '',
-    teamId: '',
-    customStartTime: '',
-    customEndTime: '',
-    notes: '',
-  });
-  const [scheduleType, setScheduleType] = useState<'single' | 'range'>('single');
-  const [selectedSchedules, setSelectedSchedules] = useState<Set<string>>(new Set());
-  const [selectAll, setSelectAll] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Calculate week/month dates
-  const weekStart = useMemo(() => startOfWeek(selectedDate, { weekStartsOn: 1 }), [selectedDate]);
-  const weekEnd = useMemo(() => endOfWeek(selectedDate, { weekStartsOn: 1 }), [selectedDate]);
-  const monthStart = useMemo(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1), [selectedDate]);
-  const monthEnd = useMemo(() => new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0), [selectedDate]);
+  // API hooks - use direct API call for date range
+  const [schedulesData, setSchedulesData] = useState<any[]>([]);
+  const [schedulesLoading, setSchedulesLoading] = useState(false);
+  const [schedulesError, setSchedulesError] = useState<any>(null);
 
-  // API hooks
-  const { data: weekData, isLoading: weekLoading, error: weekError } = useWeekSchedule(
-    format(selectedDate, 'yyyy-MM-dd'),
-    {
-      teamId: selectedTeam || undefined,
-      siteId: selectedSite || undefined,
-    }
-  );
-  
-  const createScheduleMutation = useCreateSchedule();
-  const deleteScheduleMutation = useDeleteSchedule();
-  const bulkDeleteSchedulesMutation = useBulkDeleteSchedules();
+  useEffect(() => {
+    const fetchSchedules = async () => {
+      setSchedulesLoading(true);
+      setSchedulesError(null);
+      try {
+        const response = await schedulesApi.getByDateRange(
+          filterDateStart,
+          filterDateEnd,
+          {
+            teamId: filterTeam || undefined,
+            shiftId: filterShift || undefined,
+            siteId: filterSite || undefined,
+          }
+        );
+        // L'API retourne { data: [...], meta: {...} }
+        const schedules = Array.isArray(response) ? response : (response?.data || []);
+        setSchedulesData(schedules);
+      } catch (error: any) {
+        console.error('Error fetching schedules:', error);
+        setSchedulesError(error);
+        setSchedulesData([]);
+      } finally {
+        setSchedulesLoading(false);
+      }
+    };
+    fetchSchedules();
+  }, [filterDateStart, filterDateEnd, filterTeam, filterShift, filterSite]);
 
-  const { data: monthData, isLoading: monthLoading } = useMonthSchedule(
-    format(selectedDate, 'yyyy-MM-dd'),
-    {
-      teamId: selectedTeam || undefined,
-      siteId: selectedSite || undefined,
-    }
-  );
-
-  const { data: alertsData } = useScheduleAlerts(
-    format(weekStart, 'yyyy-MM-dd'),
-    format(weekEnd, 'yyyy-MM-dd')
-  );
-
-  const { data: replacementsData, isLoading: replacementsLoading } = useReplacements({
-    status: replacementTab === 'pending' ? 'PENDING' : undefined,
-    startDate: format(weekStart, 'yyyy-MM-dd'),
-    endDate: format(weekEnd, 'yyyy-MM-dd'),
-  });
+  const refetch = () => {
+    const fetchSchedules = async () => {
+      setSchedulesLoading(true);
+      setSchedulesError(null);
+      try {
+        const response = await schedulesApi.getByDateRange(
+          filterDateStart,
+          filterDateEnd,
+          {
+            teamId: filterTeam || undefined,
+            shiftId: filterShift || undefined,
+            siteId: filterSite || undefined,
+          }
+        );
+        const schedules = Array.isArray(response) ? response : (response?.data || []);
+        setSchedulesData(schedules);
+      } catch (error: any) {
+        console.error('Error refetching schedules:', error);
+        setSchedulesError(error);
+        setSchedulesData([]);
+      } finally {
+        setSchedulesLoading(false);
+      }
+    };
+    fetchSchedules();
+  };
 
   const { data: shiftsData, isLoading: shiftsLoading } = useShifts();
-  const { data: teamsData, isLoading: teamsLoading } = useTeams();
-  const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useEmployees();
-  const createShiftMutation = useCreateShift();
+  const { data: teamsData } = useTeams();
+  const { data: employeesData } = useEmployees();
+  const { data: sitesResponse, isLoading: sitesLoading } = useSites();
+  
+  // Extract sites from response
+  const sitesData = sitesResponse?.data || sitesResponse || [];
+  const { data: alertsData } = useScheduleAlerts(
+    filterDateStart,
+    filterDateEnd
+  );
 
-  // Supprimé les logs de debug pour éviter les erreurs dans la console
-  const approveReplacementMutation = useApproveReplacement();
-  const rejectReplacementMutation = useRejectReplacement();
+  const deleteScheduleMutation = useDeleteSchedule();
+  const bulkDeleteMutation = useBulkDeleteSchedules();
+  const createScheduleMutation = useCreateSchedule();
 
-  // Filter alerts (remove dismissed)
+  // Update date range when filters change
+  useEffect(() => {
+    setSelectedDateRange({
+      start: parseISO(filterDateStart),
+      end: parseISO(filterDateEnd),
+    });
+  }, [filterDateStart, filterDateEnd]);
+
+  // Group schedules by shift
+  const groupedSchedules: GroupedSchedule[] = useMemo(() => {
+    console.log('Grouping schedules, data:', schedulesData);
+    if (!schedulesData || !Array.isArray(schedulesData) || schedulesData.length === 0) {
+      console.log('No schedules data to group');
+      return [];
+    }
+
+    const shiftMap = new Map<string, GroupedSchedule>();
+    const employeeMap = new Map<string, GroupedSchedule['employees'][0]>();
+
+    schedulesData.forEach((schedule: any) => {
+      // Apply filters
+      if (filterShift && schedule.shiftId !== filterShift) return;
+      if (filterSite && schedule.employee?.site?.id !== filterSite) return;
+      if (filterTeam && schedule.teamId !== filterTeam) return;
+
+      const shiftId = schedule.shiftId;
+      const shift = schedule.shift;
+
+      if (!shift) {
+        return;
+      }
+
+      if (!shiftMap.has(shiftId)) {
+        shiftMap.set(shiftId, {
+          shiftId,
+          shiftName: shift.name || 'Shift inconnu',
+          shiftCode: shift.code || '',
+          shiftType: shift.type || 'CUSTOM',
+          startTime: shift.startTime || '08:00',
+          endTime: shift.endTime || '16:00',
+          color: shift.color,
+          employeeCount: 0,
+          scheduleCount: 0,
+          sites: [],
+          teams: [],
+          employees: [],
+        });
+      }
+
+      const group = shiftMap.get(shiftId)!;
+      group.scheduleCount++;
+
+      const employeeId = schedule.employeeId;
+      const employee = schedule.employee;
+
+      if (!employee) return;
+
+      const employeeKey = `${shiftId}-${employeeId}`;
+      if (!employeeMap.has(employeeKey)) {
+        const emp = {
+          id: employeeId,
+          name: `${employee.firstName || ''} ${employee.lastName || ''}`.trim(),
+          matricule: employee.matricule || '',
+          department: employee.department?.name,
+          site: employee.site?.name,
+          team: schedule.team?.name || employee.team?.name,
+          schedules: [],
+        };
+        employeeMap.set(employeeKey, emp);
+        group.employees.push(emp);
+        group.employeeCount++;
+        
+        // Ajouter le site à la liste des sites uniques du groupe
+        if (emp.site && !group.sites.includes(emp.site)) {
+          group.sites.push(emp.site);
+        }
+        
+        // Ajouter l'équipe à la liste des équipes uniques du groupe
+        if (emp.team && !group.teams.includes(emp.team)) {
+          group.teams.push(emp.team);
+        }
+      }
+
+      const emp = employeeMap.get(employeeKey)!;
+      emp.schedules.push({
+        id: schedule.id,
+        date: schedule.date,
+        customStartTime: schedule.customStartTime,
+        customEndTime: schedule.customEndTime,
+      });
+    });
+
+    // Apply search filter
+    let result = Array.from(shiftMap.values());
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.map(group => ({
+        ...group,
+        employees: group.employees.filter(emp =>
+          emp.name.toLowerCase().includes(query) ||
+          emp.matricule.toLowerCase().includes(query) ||
+          emp.department?.toLowerCase().includes(query) ||
+          emp.site?.toLowerCase().includes(query)
+        ),
+      })).filter(group => group.employees.length > 0);
+    }
+
+    // Sort by shift type and name
+    result.sort((a, b) => {
+      const typeOrder = { MORNING: 1, AFTERNOON: 2, NIGHT: 3, CUSTOM: 4 };
+      const aOrder = typeOrder[a.shiftType] || 99;
+      const bOrder = typeOrder[b.shiftType] || 99;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.shiftName.localeCompare(b.shiftName);
+    });
+
+    return result;
+  }, [schedulesData, filterShift, filterSite, filterTeam, searchQuery]);
+
+  // Get selected shift details
+  const selectedShiftDetails = useMemo(() => {
+    if (!selectedShiftId) return null;
+    return groupedSchedules.find(g => g.shiftId === selectedShiftId) || null;
+  }, [selectedShiftId, groupedSchedules]);
+
+  // Paginated employees for detailed view
+  const paginatedEmployees = useMemo(() => {
+    if (!selectedShiftDetails) return [];
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+    return selectedShiftDetails.employees.slice(startIndex, endIndex);
+  }, [selectedShiftDetails, currentPage, itemsPerPage]);
+
+  const totalPages = selectedShiftDetails
+    ? Math.ceil(selectedShiftDetails.employees.length / itemsPerPage)
+    : 0;
+
+  // Reset to first page when shift changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedShiftId]);
+
+  // Generate date range days - use filter dates directly to ensure sync
+  const dateRangeDays = useMemo(() => {
+    if (!filterDateStart || !filterDateEnd) return [];
+    try {
+      const start = parseISO(filterDateStart);
+      const end = parseISO(filterDateEnd);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) return [];
+      return eachDayOfInterval({
+        start: startOfDay(start),
+        end: endOfDay(end),
+      });
+    } catch (error) {
+      console.error('Error generating date range days:', error);
+      return [];
+    }
+  }, [filterDateStart, filterDateEnd]);
+
+  // Filter alerts
   const filteredAlerts = useMemo(() => {
     if (!alertsData) return [];
     return alertsData.filter((alert) => !dismissedAlerts.has(alert.id));
   }, [alertsData, dismissedAlerts]);
 
-  // Transform API data to ShiftEntry format
-  const shiftEntries: ShiftEntry[] = useMemo(() => {
-    if (!weekData?.schedules) return [];
-
-    // Group schedules by employee
-    const employeeMap = new Map<string, ShiftEntry>();
-
-    weekData.schedules.forEach((schedule: any) => {
-      const employeeId = schedule.employeeId;
-      const employee = schedule.employee;
-
-      if (!employeeMap.has(employeeId)) {
-        employeeMap.set(employeeId, {
-          id: employeeId,
-          employeeId,
-          employeeName: `${employee.firstName} ${employee.lastName}`,
-          employeeInfo: [
-            employee.department?.name,
-            schedule.shift?.name,
-            employee.site?.name,
-          ].filter(Boolean).join(' - '),
-          shifts: [],
-        });
-      }
-
-      const entry = employeeMap.get(employeeId)!;
-      const scheduleDate = parseISO(schedule.date);
-      const dayName = format(scheduleDate, 'EEE d', { locale: fr });
-
-      // Determine shift type from shift name
-      let shiftType: 'matin' | 'soir' | 'nuit' = 'matin';
-      if (schedule.shift) {
-        const shiftName = schedule.shift.name.toLowerCase();
-        if (shiftName.includes('soir')) shiftType = 'soir';
-        else if (shiftName.includes('nuit')) shiftType = 'nuit';
-      }
-
-      entry.shifts.push({
-        date: dayName,
-        type: shiftType,
-        startTime: schedule.customStartTime || schedule.shift?.startTime,
-        endTime: schedule.customEndTime || schedule.shift?.endTime,
-        scheduleId: schedule.id,
-      });
-    });
-
-    // Add leaves
-    weekData.leaves?.forEach((leave: any) => {
-      const employeeId = leave.employeeId;
-      if (employeeMap.has(employeeId)) {
-        const entry = employeeMap.get(employeeId)!;
-        const leaveStart = parseISO(leave.startDate);
-        const leaveEnd = parseISO(leave.endDate);
-        const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
-
-        weekDays.forEach((day) => {
-          if (day >= leaveStart && day <= leaveEnd) {
-            const dayName = format(day, 'EEE d', { locale: fr });
-            entry.shifts.push({
-              date: dayName,
-              type: 'leave',
-              status: 'Congé validé',
-            });
-          }
-        });
-      }
-    });
-
-    // Add replacements
-    weekData.replacements?.forEach((replacement: any) => {
-      const employeeId = replacement.originalEmployeeId;
-      if (employeeMap.has(employeeId)) {
-        const entry = employeeMap.get(employeeId)!;
-        const replacementDate = parseISO(replacement.date);
-        const dayName = format(replacementDate, 'EEE d', { locale: fr });
-        entry.shifts.push({
-          date: dayName,
-          type: 'swap',
-          status: `Échange avec ${replacement.replacementEmployee?.firstName} ${replacement.replacementEmployee?.lastName}`,
-          detail: replacement.status === 'PENDING' ? 'En attente validation' : '',
-        });
-      }
-    });
-
-    // Sort shifts by date
-    employeeMap.forEach((entry) => {
-      entry.shifts.sort((a, b) => {
-        const dateA = parseISO(a.date);
-        const dateB = parseISO(b.date);
-        return dateA.getTime() - dateB.getTime();
-      });
-    });
-
-    return Array.from(employeeMap.values());
-  }, [weekData, weekStart, weekEnd]);
-
-  // Generate week days headers
-  const weekDays = useMemo(() => {
-    const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-    return days.map((day) => format(day, 'EEE d', { locale: fr }));
-  }, [weekStart, weekEnd]);
-
-  // Filter shift entries by search
-  const filteredShiftEntries = useMemo(() => {
-    if (!searchQuery) return shiftEntries;
-    const query = searchQuery.toLowerCase();
-    return shiftEntries.filter(
-      (entry) =>
-        entry.employeeName.toLowerCase().includes(query) ||
-        entry.employeeInfo.toLowerCase().includes(query)
-    );
-  }, [shiftEntries, searchQuery]);
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredShiftEntries.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedShiftEntries = filteredShiftEntries.slice(startIndex, endIndex);
-
-  // Reset to first page when search query changes
-  React.useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
-  // Handle select all
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      const allScheduleIds = new Set<string>();
-      paginatedShiftEntries.forEach((entry) => {
-        entry.shifts.forEach((shift) => {
-          if (shift.scheduleId) {
-            allScheduleIds.add(shift.scheduleId);
-          }
-        });
-      });
-      setSelectedSchedules(allScheduleIds);
-      setSelectAll(true);
-    } else {
-      setSelectedSchedules(new Set());
-      setSelectAll(false);
-    }
+  // Handlers
+  const handleSelectShift = (shiftId: string) => {
+    setSelectedShiftId(shiftId);
+    setViewMode('detailed');
   };
 
-  // Handle individual schedule selection
-  const handleToggleSchedule = (scheduleId: string) => {
-    const newSelected = new Set(selectedSchedules);
-    if (newSelected.has(scheduleId)) {
-      newSelected.delete(scheduleId);
-    } else {
-      newSelected.add(scheduleId);
-    }
-    setSelectedSchedules(newSelected);
-    
-    // Update select all state
-    const allScheduleIds = new Set<string>();
-    paginatedShiftEntries.forEach((entry) => {
-      entry.shifts.forEach((shift) => {
-        if (shift.scheduleId) {
-          allScheduleIds.add(shift.scheduleId);
-        }
-      });
-    });
-    setSelectAll(newSelected.size === allScheduleIds.size && allScheduleIds.size > 0);
+  const handleBackToGrouped = () => {
+    setSelectedShiftId(null);
+    setViewMode('grouped');
   };
 
-  // Handle delete single schedule
   const handleDeleteSchedule = async (scheduleId: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer ce planning ?')) {
       await deleteScheduleMutation.mutateAsync(scheduleId);
-      // Remove from selection if selected
-      if (selectedSchedules.has(scheduleId)) {
-        const newSelected = new Set(selectedSchedules);
-        newSelected.delete(scheduleId);
-        setSelectedSchedules(newSelected);
-      }
+      refetch();
     }
   };
 
-  // Handle bulk delete
   const handleBulkDelete = async () => {
-    if (selectedSchedules.size === 0) {
-      toast.error('Veuillez sélectionner au moins un planning à supprimer');
-      return;
-    }
-
+    if (selectedSchedules.size === 0) return;
     if (confirm(`Êtes-vous sûr de vouloir supprimer ${selectedSchedules.size} planning(s) ?`)) {
-      await bulkDeleteSchedulesMutation.mutateAsync(Array.from(selectedSchedules));
+      await bulkDeleteMutation.mutateAsync(Array.from(selectedSchedules));
       setSelectedSchedules(new Set());
-      setSelectAll(false);
+      refetch();
     }
   };
 
-  const getShiftBadgeClass = (type: string) => {
+  const handleResetFilters = () => {
+    setFilterTeam('');
+    setFilterSite('');
+    setFilterShift('');
+    setSearchQuery('');
+    const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
+    setFilterDateStart(format(weekStart, 'yyyy-MM-dd'));
+    setFilterDateEnd(format(weekEnd, 'yyyy-MM-dd'));
+  };
+
+  const getShiftTypeColor = (type: string) => {
     switch (type) {
-      case 'matin':
-        return 'bg-shift-matin text-white';
-      case 'soir':
-        return 'bg-shift-soir text-white';
-      case 'nuit':
-        return 'bg-shift-nuit text-white';
-      case 'leave':
-        return 'bg-warning text-white';
-      case 'absent':
-        return 'bg-danger text-white';
-      case 'swap':
-        return 'bg-info text-white';
+      case 'MORNING':
+        return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'AFTERNOON':
+        return 'bg-orange-100 text-orange-800 border-orange-300';
+      case 'NIGHT':
+        return 'bg-gray-800 text-white border-gray-600';
       default:
-        return 'bg-gray-200 text-text-secondary';
+        return 'bg-gray-100 text-gray-800 border-gray-300';
     }
   };
 
-  const getReplacementStatusBadge = (status: string) => {
-    switch (status) {
-      case 'PENDING':
-        return <Badge variant="warning">En attente manager</Badge>;
-      case 'APPROVED':
-        return <Badge variant="success">Validé RH</Badge>;
-      case 'REJECTED':
-        return <Badge variant="danger">Refusé manager</Badge>;
+  const getShiftTypeLabel = (type: string) => {
+    switch (type) {
+      case 'MORNING':
+        return 'Matin';
+      case 'AFTERNOON':
+        return 'Après-midi';
+      case 'NIGHT':
+        return 'Nuit';
       default:
-        return null;
-    }
-  };
-
-  const handleCreateSchedule = async () => {
-    if (!shiftFormData.employeeId || !shiftFormData.shiftId || !shiftFormData.dateDebut) {
-      return;
-    }
-
-    // Validate date range if range mode
-    if (scheduleType === 'range' && !shiftFormData.dateFin) {
-      toast.error('Veuillez sélectionner une date de fin pour l\'intervalle');
-      return;
-    }
-
-    if (scheduleType === 'range' && shiftFormData.dateFin < shiftFormData.dateDebut) {
-      toast.error('La date de fin doit être supérieure ou égale à la date de début');
-      return;
-    }
-
-    // Prepare data object, only include fields that have values
-    const scheduleData: any = {
-      employeeId: shiftFormData.employeeId,
-      shiftId: shiftFormData.shiftId,
-      dateDebut: shiftFormData.dateDebut,
-    };
-
-    // Add dateFin only if range mode
-    if (scheduleType === 'range' && shiftFormData.dateFin) {
-      scheduleData.dateFin = shiftFormData.dateFin;
-    }
-
-    // Only add optional fields if they have values
-    if (shiftFormData.teamId && shiftFormData.teamId.trim() !== '') {
-      scheduleData.teamId = shiftFormData.teamId;
-    }
-    if (shiftFormData.customStartTime && shiftFormData.customStartTime.trim() !== '') {
-      scheduleData.customStartTime = shiftFormData.customStartTime;
-    }
-    if (shiftFormData.customEndTime && shiftFormData.customEndTime.trim() !== '') {
-      scheduleData.customEndTime = shiftFormData.customEndTime;
-    }
-    if (shiftFormData.notes && shiftFormData.notes.trim() !== '') {
-      scheduleData.notes = shiftFormData.notes;
-    }
-
-    try {
-      await createScheduleMutation.mutateAsync(scheduleData);
-
-      // Reset form only on success
-      setShiftFormData({
-        employeeId: '',
-        shiftId: '',
-        dateDebut: format(new Date(), 'yyyy-MM-dd'),
-        dateFin: '',
-        teamId: '',
-        customStartTime: '',
-        customEndTime: '',
-        notes: '',
-      });
-      setScheduleType('single');
-    } catch (error) {
-      // Error is already handled by the mutation hook with toast
-      // Ne pas logger en console pour éviter les messages en anglais
-    }
-  };
-
-  const handleApproveReplacement = async (id: string) => {
-    await approveReplacementMutation.mutateAsync(id);
-  };
-
-  const handleRejectReplacement = async (id: string) => {
-    await rejectReplacementMutation.mutateAsync(id);
-  };
-
-  const handleCreateShift = async () => {
-    if (!newShiftFormData.name || !newShiftFormData.code) {
-      return;
-    }
-
-    try {
-      await createShiftMutation.mutateAsync({
-        name: newShiftFormData.name,
-        code: newShiftFormData.code,
-        startTime: newShiftFormData.startTime,
-        endTime: newShiftFormData.endTime,
-        breakDuration: newShiftFormData.breakDuration,
-        isNightShift: newShiftFormData.isNightShift,
-        color: newShiftFormData.color,
-      });
-
-      // Reset form and close modal
-      setNewShiftFormData({
-        name: '',
-        code: '',
-        startTime: '08:00',
-        endTime: '16:00',
-        breakDuration: 60,
-        isNightShift: false,
-        color: '#3B82F6',
-      });
-      setShowCreateShiftModal(false);
-    } catch (error) {
-      // Error is already handled by the mutation hook with toast
-      // Ne pas logger en console pour éviter les messages en anglais
+        return 'Personnalisé';
     }
   };
 
   return (
     <DashboardLayout
       title="Shifts & Planning"
-      subtitle="Planifier les équipes, gérer les remplacements et les rotations"
+      subtitle="Planification des équipes et gestion des plannings"
     >
       <div className="space-y-6">
-        {/* Alert Banner */}
+        {/* Alert Summary Banner */}
         {filteredAlerts.length > 0 && (
-          <AlertBanner
-            alerts={filteredAlerts}
-            onDismiss={(alertId) => {
-              setDismissedAlerts((prev) => new Set([...prev, alertId]));
-            }}
-          />
+          <Alert className="border-primary bg-primary/5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <AlertTriangle className="h-5 w-5 text-primary" />
+                <div>
+                  <AlertDescription className="font-semibold text-text-primary">
+                    {filteredAlerts.filter(a => a.type === 'CRITICAL').length} alerte(s) critique(s) et{' '}
+                    {filteredAlerts.filter(a => a.type === 'WARNING').length} avertissement(s) détecté(s)
+                  </AlertDescription>
+                  <AlertDescription className="text-sm text-text-secondary mt-1">
+                    Consultez la page dédiée pour plus de détails et la gestion des alertes
+                  </AlertDescription>
+                </div>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => router.push('/schedule-alerts')}
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                Voir les alertes
+              </Button>
+            </div>
+          </Alert>
         )}
 
-        {/* Actions bar */}
+        {/* Filters and Actions */}
+        <Card>
+          <CardHeader>
         <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Filtres et actions</CardTitle>
           <div className="flex items-center gap-2">
-            {selectedSchedules.size > 0 && (
-              <>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleBulkDelete}
-                  disabled={bulkDeleteSchedulesMutation.isPending}
-                  className="text-danger hover:text-danger hover:bg-danger/10"
+                  onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
                 >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Supprimer ({selectedSchedules.size})
+                  <Filter className="h-4 w-4 mr-2" />
+                  {showAdvancedFilters ? 'Masquer' : 'Filtres avancés'}
                 </Button>
                 <Button
-                  variant="ghost"
+                  variant="primary"
                   size="sm"
-                  onClick={() => {
-                    setSelectedSchedules(new Set());
-                    setSelectAll(false);
-                  }}
+                  onClick={() => setShowCreateModal(true)}
                 >
-                  Annuler sélection
+                  <Plus className="h-4 w-4 mr-2" />
+                  Créer un planning
                 </Button>
-              </>
-            )}
-          </div>
-          <div className="flex gap-3">
-            <Button variant="outline" size="sm">
-              <Download className="h-4 w-4 mr-2" />
-              Exporter planning
-            </Button>
-            <Button variant="outline" size="sm">
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimer
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowImportModal(true)}
+                >
               <Upload className="h-4 w-4 mr-2" />
-              Importer plannings
-            </Button>
-            <Button variant="primary" size="sm" onClick={() => setShowCreateShiftModal(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Créer un shift
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowShiftDetail(!showShiftDetail)}>
-              <Plus className="h-4 w-4 mr-2" />
-              {showShiftDetail ? 'Masquer' : 'Afficher'} formulaire planning
+                  Importer
             </Button>
           </div>
         </div>
-
-        {/* Filters */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4 flex-wrap">
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Basic filters */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <p className="text-sm font-medium text-text-secondary">Filtrer</p>
+                  <Label htmlFor="search">Recherche</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-secondary" />
+                    <Input
+                      id="search"
+                      placeholder="Nom, matricule..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-10"
+                    />
               </div>
-
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-text-secondary">Date :</label>
+                </div>
+                <div>
+                  <Label htmlFor="dateStart">Date début</Label>
                 <Input
+                    id="dateStart"
                   type="date"
-                  value={format(selectedDate, 'yyyy-MM-dd')}
-                  onChange={(e) => setSelectedDate(parseISO(e.target.value))}
-                  className="w-40"
-                />
+                    value={filterDateStart}
+                    onChange={(e) => setFilterDateStart(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="dateEnd">Date fin</Label>
+                  <Input
+                    id="dateEnd"
+                    type="date"
+                    value={filterDateEnd}
+                    onChange={(e) => setFilterDateEnd(e.target.value)}
+                    min={filterDateStart}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    variant="outline"
+                    onClick={handleResetFilters}
+                    className="w-full"
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Réinitialiser
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-text-secondary">Équipe :</label>
-                <Select
-                  value={selectedTeam}
-                  onChange={(e) => setSelectedTeam(e.target.value)}
-                  className="w-40"
-                >
-                  <option value="">Toutes</option>
-                  {teamsData?.data && Array.isArray(teamsData.data) ? (
-                    teamsData.data.map((team: any) => (
+              {/* Advanced filters */}
+              {showAdvancedFilters && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
+                  <div>
+                    <Label htmlFor="filterTeam">Équipe</Label>
+                    <select
+                      id="filterTeam"
+                      value={filterTeam}
+                      onChange={(e) => setFilterTeam(e.target.value)}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="">Toutes les équipes</option>
+                      {teamsData?.data?.map((team: any) => (
                       <option key={team.id} value={team.id}>
                         {team.name}
                       </option>
-                    ))
-                  ) : null}
-                </Select>
+                      ))}
+                    </select>
               </div>
-
-              <div className="flex-1 min-w-[200px]">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-                  <Input
-                    type="text"
-                    placeholder="Rechercher employé, équipe..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10"
-                  />
+                  <div>
+                    <Label htmlFor="filterShift">Shift</Label>
+                    <select
+                      id="filterShift"
+                      value={filterShift}
+                      onChange={(e) => setFilterShift(e.target.value)}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="">Tous les shifts</option>
+                      {shiftsData?.data?.map((shift: any) => (
+                        <option key={shift.id} value={shift.id}>
+                          {shift.name} ({shift.code})
+                        </option>
+                      ))}
+                    </select>
                 </div>
+                  <div>
+                    <Label htmlFor="filterSite">Site</Label>
+                    <select
+                      id="filterSite"
+                      value={filterSite}
+                      onChange={(e) => setFilterSite(e.target.value)}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                      disabled={sitesLoading}
+                    >
+                      <option value="">Tous les sites</option>
+                      {sitesData.map((site: any) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name} {site.code ? `(${site.code})` : ''}
+                        </option>
+                      ))}
+                    </select>
               </div>
+                </div>
+              )}
+
+              {/* Bulk actions */}
+              {selectedSchedules.size > 0 && (
+                <div className="flex items-center justify-between p-3 bg-primary/10 rounded-md border border-primary/20">
+                  <span className="text-sm font-medium text-primary">
+                    {selectedSchedules.size} planning(s) sélectionné(s)
+                  </span>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleBulkDelete}
+                    disabled={bulkDeleteMutation.isPending}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Supprimer sélection
+                  </Button>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          {/* Calendar section */}
-          <div className="space-y-6">
+        {/* Main Content */}
+        {schedulesLoading ? (
             <Card>
-              <CardContent className="p-6">
-                <div className="space-y-6">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-h4 font-semibold text-text-primary">
-                        Planning équipes
-                      </h3>
-                      <p className="text-small text-text-secondary">
-                        Vue hebdomadaire des shifts et remplacements
-                      </p>
+            <CardContent className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </CardContent>
+          </Card>
+        ) : schedulesError ? (
+          <Alert variant="danger">
+            <AlertTriangle className="h-5 w-5" />
+            <AlertDescription>
+              <p className="font-semibold">{formatErrorAlert(schedulesError).title}</p>
+              <p className="text-sm mt-1">{formatErrorAlert(schedulesError).description}</p>
+              {process.env.NODE_ENV === 'development' && (
+                <pre className="text-xs mt-2 overflow-auto">
+                  {JSON.stringify(schedulesError, null, 2)}
+                </pre>
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : viewMode === 'grouped' ? (
+          /* Grouped View */
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {groupedSchedules.length === 0 ? (
+              <Card className="col-span-full">
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <Calendar className="h-12 w-12 text-text-secondary mb-4" />
+                  <p className="text-text-primary font-medium mb-2">
+                    Aucun planning trouvé
+                  </p>
+                  <p className="text-sm text-text-secondary text-center mb-4">
+                    {schedulesData.length === 0
+                      ? `Aucun planning n'a été créé pour la période du ${format(parseISO(filterDateStart), 'dd/MM/yyyy', { locale: fr })} au ${format(parseISO(filterDateEnd), 'dd/MM/yyyy', { locale: fr })}.`
+                      : 'Aucun planning ne correspond aux filtres sélectionnés.'}
+                  </p>
+                  {process.env.NODE_ENV === 'development' && (
+                    <div className="text-xs text-text-secondary mb-4 p-3 bg-gray-50 rounded">
+                      <p>Données reçues: {schedulesData.length} planning(s)</p>
+                      <p>Période: {filterDateStart} à {filterDateEnd}</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-medium text-text-primary">
-                        Semaine du
-                      </p>
-                      <p className="text-sm text-text-secondary">
-                        {format(weekStart, 'd MMM', { locale: fr })} au{' '}
-                        {format(weekEnd, 'd MMM yyyy', { locale: fr })}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* View toggles */}
+                  )}
                   <div className="flex gap-2">
                     <Button
-                      variant={calendarView === 'today' ? 'primary' : 'outline'}
-                      size="sm"
-                      onClick={() => setCalendarView('today')}
+                      variant="outline"
+                      onClick={handleResetFilters}
                     >
-                      Aujourd'hui
+                      Réinitialiser les filtres
                     </Button>
                     <Button
-                      variant={calendarView === 'day' ? 'primary' : 'outline'}
-                      size="sm"
-                      onClick={() => setCalendarView('day')}
+                      variant="primary"
+                      onClick={() => setShowCreateModal(true)}
                     >
-                      Jour
-                    </Button>
-                    <Button
-                      variant={calendarView === 'week' ? 'primary' : 'outline'}
-                      size="sm"
-                      onClick={() => setCalendarView('week')}
-                    >
-                      Semaine
-                    </Button>
-                    <Button
-                      variant={calendarView === 'month' ? 'primary' : 'outline'}
-                      size="sm"
-                      onClick={() => setCalendarView('month')}
-                    >
-                      Mois
+                      <Plus className="h-4 w-4 mr-2" />
+                      Créer un planning
                     </Button>
                   </div>
-
-                  {/* Legend */}
-                  <div className="flex items-center gap-4 flex-wrap text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-shift-matin"></div>
-                      <span className="text-text-secondary">Shift matin</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-shift-soir"></div>
-                      <span className="text-text-secondary">Shift soir</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-shift-nuit"></div>
-                      <span className="text-text-secondary">Shift nuit</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-warning"></div>
-                      <span className="text-text-secondary">Congé / absence validée</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-danger"></div>
-                      <span className="text-text-secondary">Absence non planifiée</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-info"></div>
-                      <span className="text-text-secondary">Remplacement / swap</span>
-                    </div>
-                  </div>
-
-                  {/* Calendar grid */}
-                  {weekLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    </div>
-                  ) : weekError ? (
-                    <Alert variant="danger" className="border-red-500 bg-red-50">
-                      <AlertTriangle className="h-5 w-5 text-red-600" />
+                </CardContent>
+              </Card>
+            ) : (
+              groupedSchedules.map((group) => (
+                <Card
+                  key={group.shiftId}
+                  className="hover:shadow-lg transition-shadow cursor-pointer"
+                  onClick={() => handleSelectShift(group.shiftId)}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <AlertDescription>
-                          <p className="font-semibold text-red-800 mb-1">
-                            {formatErrorAlert(weekError).title}
-                          </p>
-                          <p className="text-sm text-red-700">
-                            {formatErrorAlert(weekError).description}
-                          </p>
-                          <p className="text-xs text-red-600 mt-2">
-                            Veuillez rafraîchir la page ou réessayer plus tard.
-                          </p>
-                        </AlertDescription>
+                        <CardTitle className="text-lg mb-1">{group.shiftName}</CardTitle>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className={getShiftTypeColor(group.shiftType)}>
+                            {getShiftTypeLabel(group.shiftType)}
+                          </Badge>
+                          {group.shiftCode && (
+                            <Badge variant="default">{group.shiftCode}</Badge>
+                          )}
+                  </div>
+                    </div>
+                      <div
+                        className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold"
+                        style={{
+                          backgroundColor: group.color || '#3B82F6',
+                        }}
+                      >
+                        <Clock className="h-6 w-6" />
+                    </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">Horaires</span>
+                        <span className="font-medium">
+                          {group.startTime} - {group.endTime}
+                        </span>
+                    </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary flex items-center gap-1">
+                          <Users className="h-4 w-4" />
+                          Employés
+                        </span>
+                        <span className="font-medium">{group.employeeCount}</span>
+                    </div>
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary flex items-center gap-1">
+                          <Calendar className="h-4 w-4" />
+                          Plannings
+                        </span>
+                        <span className="font-medium">{group.scheduleCount}</span>
+                    </div>
+                      {group.sites.length > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-text-secondary flex items-center gap-1">
+                            <Building2 className="h-4 w-4" />
+                            Site{group.sites.length > 1 ? 's' : ''}
+                          </span>
+                          <span className="font-medium text-right max-w-[60%]">
+                            {group.sites.join(', ')}
+                          </span>
+                        </div>
+                      )}
+                      {group.teams.length > 0 && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-text-secondary flex items-center gap-1">
+                            <Users className="h-4 w-4" />
+                            Équipe{group.teams.length > 1 ? 's' : ''}
+                          </span>
+                          <span className="font-medium text-right max-w-[60%]">
+                            {group.teams.join(', ')}
+                          </span>
+                        </div>
+                      )}
+                      <div className="pt-2 border-t">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectShift(group.shiftId);
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Voir les détails
+                        </Button>
+                  </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
                       </div>
-                    </Alert>
-                  ) : (
+        ) : (
+          /* Detailed View */
+          selectedShiftDetails && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleBackToGrouped}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-2" />
+                      Retour
+                    </Button>
+                    <div>
+                      <CardTitle className="text-xl">
+                        {selectedShiftDetails.shiftName}
+                      </CardTitle>
+                      <p className="text-sm text-text-secondary mt-1">
+                        {selectedShiftDetails.startTime} - {selectedShiftDetails.endTime}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className={getShiftTypeColor(selectedShiftDetails.shiftType)}>
+                    {getShiftTypeLabel(selectedShiftDetails.shiftType)}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
                     <div className="overflow-x-auto">
                       <table className="w-full border-collapse">
                         <thead>
                           <tr className="bg-table-header">
                             <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border w-12">
-                              <button
-                                onClick={() => handleSelectAll(!selectAll)}
-                                className="flex items-center justify-center w-5 h-5"
-                                title={selectAll ? 'Désélectionner tout' : 'Sélectionner tout'}
-                              >
-                                {selectAll ? (
-                                  <CheckSquare className="h-4 w-4 text-primary" />
-                                ) : (
-                                  <Square className="h-4 w-4 text-text-secondary" />
-                                )}
-                              </button>
+                          <input
+                            type="checkbox"
+                            checked={selectedSchedules.size === selectedShiftDetails.employees.reduce((acc, emp) => acc + emp.schedules.length, 0)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const allIds = new Set<string>();
+                                selectedShiftDetails.employees.forEach(emp => {
+                                  emp.schedules.forEach(s => allIds.add(s.id));
+                                });
+                                setSelectedSchedules(allIds);
+                              } else {
+                                setSelectedSchedules(new Set());
+                              }
+                            }}
+                          />
                             </th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
-                              Employé / Équipe
+                          Employé
                             </th>
-                            {weekDays.map((day) => (
-                              <th
-                                key={day}
-                                className="px-4 py-3 text-center text-xs font-medium text-text-secondary border"
-                              >
-                                {day}
+                        <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
+                          Matricule
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
+                          Département
+                        </th>
+                        {dateRangeDays.map((day) => (
+                          <th
+                            key={day.toISOString()}
+                            className="px-3 py-3 text-center text-xs font-medium text-text-secondary border min-w-[100px]"
+                          >
+                            {format(day, 'EEE d', { locale: fr })}
                               </th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          {paginatedShiftEntries.length === 0 ? (
-                            <tr>
-                              <td colSpan={weekDays.length + 2} className="px-4 py-8 text-center text-text-secondary">
-                                Aucun planning trouvé pour cette période
-                              </td>
-                            </tr>
-                          ) : (
-                            paginatedShiftEntries.map((entry) => (
-                              <tr key={entry.id} className="hover:bg-table-hover">
-                                <td className="px-4 py-3 border">
-                                  {/* Checkbox for row selection - only show if entry has schedules */}
-                                  {entry.shifts.some((s) => s.scheduleId) && (
-                                    <button
-                                      onClick={() => {
-                                        // Toggle all schedules for this employee
-                                        const scheduleIds = entry.shifts
-                                          .filter((s) => s.scheduleId)
-                                          .map((s) => s.scheduleId!);
-                                        const allSelected = scheduleIds.every((id) =>
-                                          selectedSchedules.has(id)
-                                        );
-                                        if (allSelected) {
-                                          scheduleIds.forEach((id) => {
+                      {paginatedEmployees.map((employee) => (
+                        <tr key={employee.id} className="hover:bg-table-hover">
+                          <td className="px-4 py-3 border text-center">
+                            <input
+                              type="checkbox"
+                              checked={employee.schedules.every(s => selectedSchedules.has(s.id))}
+                              onChange={(e) => {
                                             const newSelected = new Set(selectedSchedules);
-                                            newSelected.delete(id);
-                                            setSelectedSchedules(newSelected);
-                                          });
+                                if (e.target.checked) {
+                                  employee.schedules.forEach(s => newSelected.add(s.id));
                                         } else {
-                                          const newSelected = new Set(selectedSchedules);
-                                          scheduleIds.forEach((id) => newSelected.add(id));
-                                          setSelectedSchedules(newSelected);
-                                        }
-                                      }}
-                                      className="flex items-center justify-center w-5 h-5"
-                                    >
-                                      {entry.shifts
-                                        .filter((s) => s.scheduleId)
-                                        .every((s) => selectedSchedules.has(s.scheduleId!)) &&
-                                      entry.shifts.some((s) => s.scheduleId) ? (
-                                        <CheckSquare className="h-4 w-4 text-primary" />
-                                      ) : (
-                                        <Square className="h-4 w-4 text-text-secondary" />
-                                      )}
-                                    </button>
-                                  )}
+                                  employee.schedules.forEach(s => newSelected.delete(s.id));
+                                }
+                                setSelectedSchedules(newSelected);
+                              }}
+                            />
                                 </td>
-                                <td className="px-4 py-3 border">
-                                  <div>
-                                    <p className="font-semibold text-sm text-text-primary">
-                                      {entry.employeeName}
-                                    </p>
-                                    <p className="text-xs text-text-secondary">
-                                      {entry.employeeInfo}
-                                    </p>
-                                  </div>
-                                </td>
-                                {weekDays.map((dayName) => {
-                                  const shift = entry.shifts.find((s) => s.date === dayName);
+                          <td className="px-4 py-3 border font-medium">{employee.name}</td>
+                          <td className="px-4 py-3 border text-sm text-text-secondary">{employee.matricule}</td>
+                          <td className="px-4 py-3 border text-sm text-text-secondary">{employee.department || '-'}</td>
+                          {dateRangeDays.map((day) => {
+                            const schedule = employee.schedules.find(s => {
+                              const scheduleDate = parseISO(s.date);
+                              return isWithinInterval(scheduleDate, {
+                                start: startOfDay(day),
+                                end: endOfDay(day),
+                              });
+                            });
                                   return (
-                                    <td key={dayName} className="px-2 py-3 border text-center relative group">
-                                      {shift ? (
-                                        shift.startTime && shift.endTime ? (
-                                          <div className="relative">
-                                            <div
-                                              className={`inline-flex flex-col items-center justify-center rounded-full px-3 py-2 ${getShiftBadgeClass(
-                                                shift.type
-                                              )}`}
-                                            >
-                                              <span className="text-xs font-semibold">
-                                                {shift.startTime}
-                                              </span>
-                                              <span className="text-xs capitalize">{shift.type}</span>
-                                              <span className="text-xs">-</span>
-                                              <span className="text-xs">{shift.endTime}</span>
+                              <td key={day.toISOString()} className="px-3 py-3 border text-center">
+                                {schedule ? (
+                                  <div className="flex flex-col items-center gap-1">
+                                    <div
+                                      className="px-2 py-1 rounded text-xs font-medium text-white"
+                                      style={{
+                                        backgroundColor: selectedShiftDetails.color || '#3B82F6',
+                                      }}
+                                    >
+                                      {schedule.customStartTime || selectedShiftDetails.startTime}
                                             </div>
-                                            {shift.scheduleId && (
-                                              <button
-                                                onClick={() => handleDeleteSchedule(shift.scheduleId!)}
-                                                className="absolute -top-1 -right-1 bg-danger text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-danger/80"
-                                                title="Supprimer ce planning"
-                                                disabled={deleteScheduleMutation.isPending}
+                                    <div className="text-xs text-text-secondary">
+                                      {schedule.customEndTime || selectedShiftDetails.endTime}
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="mt-1 h-6 px-2 text-xs"
+                                      onClick={() => handleDeleteSchedule(schedule.id)}
                                               >
                                                 <X className="h-3 w-3" />
-                                              </button>
-                                            )}
+                                    </Button>
                                           </div>
-                                        ) : shift.status ? (
-                                          <div>
-                                            <div
-                                              className={`inline-flex items-center justify-center rounded-full px-3 py-2 text-xs font-semibold ${getShiftBadgeClass(
-                                                shift.type
-                                              )}`}
-                                            >
-                                              {shift.status}
-                                            </div>
-                                            {shift.detail && (
-                                              <p className="text-xs text-text-secondary mt-1">
-                                                {shift.detail}
-                                              </p>
-                                            )}
-                                          </div>
-                                        ) : null
-                                      ) : null}
+                                ) : (
+                                  <span className="text-text-secondary text-xs">-</span>
+                                )}
                                     </td>
                                   );
                                 })}
                               </tr>
-                            ))
-                          )}
+                      ))}
                         </tbody>
                       </table>
                     </div>
-                  )}
 
                   {/* Pagination Controls */}
-                  {filteredShiftEntries.length > 0 && (
+                {selectedShiftDetails.employees.length > 0 && (
                     <div className="mt-4 flex items-center justify-between border-t border-table-border pt-4">
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-text-secondary">
-                          Affichage de {startIndex + 1} à {Math.min(endIndex, filteredShiftEntries.length)} sur {filteredShiftEntries.length} employé(s)
+                        Affichage de {((currentPage - 1) * itemsPerPage) + 1} à {Math.min(currentPage * itemsPerPage, selectedShiftDetails.employees.length)} sur {selectedShiftDetails.employees.length} employé(s)
                         </span>
                       </div>
 
@@ -884,25 +911,25 @@ export default function ShiftsPlanningPage() {
                         </Button>
 
                         <div className="flex items-center gap-1">
-                          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
                             let pageNum;
-                            if (totalPages <= 5) {
+                          if (totalPages <= 7) {
                               pageNum = i + 1;
-                            } else if (currentPage <= 3) {
+                          } else if (currentPage <= 4) {
                               pageNum = i + 1;
-                            } else if (currentPage >= totalPages - 2) {
-                              pageNum = totalPages - 4 + i;
+                          } else if (currentPage >= totalPages - 3) {
+                            pageNum = totalPages - 6 + i;
                             } else {
-                              pageNum = currentPage - 2 + i;
+                            pageNum = currentPage - 3 + i;
                             }
 
                             return (
                               <Button
                                 key={pageNum}
-                                variant={currentPage === pageNum ? 'primary' : 'outline'}
+                              variant={currentPage === pageNum ? "primary" : "outline"}
                                 size="sm"
                                 onClick={() => setCurrentPage(pageNum)}
-                                className="min-w-[2.5rem]"
+                              className="min-w-[40px]"
                               >
                                 {pageNum}
                               </Button>
@@ -921,513 +948,270 @@ export default function ShiftsPlanningPage() {
                       </div>
                     </div>
                   )}
-                </div>
               </CardContent>
             </Card>
+          )
+        )}
 
-            {/* Replacements section */}
-            <Card>
-              <CardContent className="p-6">
-                <div className="space-y-6">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-h4 font-semibold text-text-primary">
-                        Remplacements & swaps
-                      </h3>
-                      <p className="text-small text-text-secondary">
-                        Suivi des échanges de shifts et validations
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant={replacementTab === 'pending' ? 'primary' : 'outline'}
-                        size="sm"
-                        onClick={() => setReplacementTab('pending')}
-                      >
-                        En attente
-                      </Button>
-                      <Button
-                        variant={replacementTab === 'history' ? 'primary' : 'outline'}
-                        size="sm"
-                        onClick={() => setReplacementTab('history')}
-                      >
-                        Historique
-                      </Button>
-                    </div>
-                  </div>
+        {/* Create Schedule Modal */}
+        {showCreateModal && (
+          <CreateScheduleModalComponent
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={() => {
+              setShowCreateModal(false);
+              refetch();
+            }}
+            shiftsData={shiftsData}
+            employeesData={employeesData}
+            teamsData={teamsData}
+            createScheduleMutation={createScheduleMutation}
+          />
+        )}
 
-                  {/* Replacements list */}
-                  {replacementsLoading ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {!replacementsData || replacementsData.length === 0 ? (
-                        <p className="text-center text-text-secondary py-8">
-                          Aucun remplacement trouvé
-                        </p>
-                      ) : (
-                        replacementsData.map((replacement: any) => (
-                          <div key={replacement.id} className="bg-gray-50 rounded-lg p-4">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <p className="font-semibold text-text-primary">
-                                    {replacement.originalEmployee?.firstName}{' '}
-                                    {replacement.originalEmployee?.lastName}{' '}
-                                    <ArrowRight className="inline h-4 w-4" />{' '}
-                                    {replacement.replacementEmployee?.firstName}{' '}
-                                    {replacement.replacementEmployee?.lastName}
-                                  </p>
-                                  {getReplacementStatusBadge(replacement.status)}
-                                </div>
-                                <p className="text-sm text-text-secondary">
-                                  Swap du {format(parseISO(replacement.date), 'EEEE d MMMM', { locale: fr })}
-                                  {replacement.shift && ` - ${replacement.shift.name}`} -{' '}
-                                  {replacement.reason || 'Aucune raison spécifiée'}
-                                </p>
-                              </div>
-                              <div className="flex gap-2">
-                                {replacement.status === 'PENDING' && (
-                                  <>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => handleRejectReplacement(replacement.id)}
-                                      disabled={rejectReplacementMutation.isPending}
-                                    >
-                                      Rejeter
-                                    </Button>
-                                    <Button
-                                      variant="primary"
-                                      size="sm"
-                                      onClick={() => handleApproveReplacement(replacement.id)}
-                                      disabled={approveReplacementMutation.isPending}
-                                    >
-                                      Valider
-                                    </Button>
-                                  </>
+        {/* Import Modal */}
+        {showImportModal && (
+          <ImportSchedulesModal
+            onClose={() => setShowImportModal(false)}
+            onSuccess={() => {
+              setShowImportModal(false);
+              refetch();
+            }}
+          />
                                 )}
                               </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+    </DashboardLayout>
+  );
+}
 
-          {/* Shift detail panel - Moved to bottom */}
-          {showShiftDetail && (
-            <Card>
-              <CardContent className="p-6">
-                <div className="space-y-6">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-h4 font-semibold text-text-primary">
-                        Créer un planning
-                      </h3>
-                      <p className="text-small text-text-secondary">
-                        Assigner un shift à un employé pour une date spécifique
-                      </p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowShiftDetail(false)}
-                    >
+// Create Schedule Modal Component
+function CreateScheduleModalComponent({
+  onClose,
+  onSuccess,
+  shiftsData,
+  employeesData,
+  teamsData,
+  createScheduleMutation,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+  shiftsData: any;
+  employeesData: any;
+  teamsData: any;
+  createScheduleMutation: any;
+}) {
+  const [formData, setFormData] = useState<CreateScheduleDto>({
+    employeeId: '',
+    shiftId: '',
+    dateDebut: format(new Date(), 'yyyy-MM-dd'),
+    dateFin: '',
+    teamId: '',
+    customStartTime: '',
+    customEndTime: '',
+    notes: '',
+  });
+  const [scheduleType, setScheduleType] = useState<'single' | 'range'>('single');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.employeeId || !formData.shiftId || !formData.dateDebut) {
+      toast.error('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+
+    if (scheduleType === 'range' && !formData.dateFin) {
+      toast.error('Veuillez sélectionner une date de fin');
+      return;
+    }
+
+    try {
+      const data: CreateScheduleDto = {
+        employeeId: formData.employeeId,
+        shiftId: formData.shiftId,
+        dateDebut: formData.dateDebut,
+        ...(scheduleType === 'range' && formData.dateFin ? { dateFin: formData.dateFin } : {}),
+        ...(formData.teamId ? { teamId: formData.teamId } : {}),
+        ...(formData.customStartTime ? { customStartTime: formData.customStartTime } : {}),
+        ...(formData.customEndTime ? { customEndTime: formData.customEndTime } : {}),
+        ...(formData.notes ? { notes: formData.notes } : {}),
+      };
+      await createScheduleMutation.mutateAsync(data);
+      onSuccess();
+    } catch (error) {
+      // Error handled by mutation
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-auto">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Créer un planning</CardTitle>
+          <Button variant="outline" size="sm" onClick={onClose}>
                       <X className="h-4 w-4" />
                     </Button>
-                  </div>
-
-                    {/* Form */}
-                    <div className="space-y-4">
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
                       <div>
                         <Label htmlFor="employeeId">Employé *</Label>
-                        <Select
-                          value={shiftFormData.employeeId}
-                          onChange={(e) =>
-                            setShiftFormData({ ...shiftFormData, employeeId: e.target.value })
-                          }
-                          disabled={employeesLoading}
+              <select
+                id="employeeId"
+                required
+                value={formData.employeeId}
+                onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+                className="w-full border border-border rounded-md px-3 py-2 text-sm"
                         >
                           <option value="">Sélectionner un employé</option>
-                          {employeesLoading ? (
-                            <option value="" disabled>Chargement...</option>
-                          ) : employeesError ? (
-                            <option value="" disabled>Erreur de chargement</option>
-                          ) : Array.isArray(employeesData) && employeesData.length > 0 ? (
-                            employeesData.map((employee: any) => (
-                              <option key={employee.id} value={employee.id}>
-                                {employee.firstName} {employee.lastName} ({employee.matricule})
+                {employeesData?.data?.map((emp: any) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.firstName} {emp.lastName} ({emp.matricule})
                               </option>
-                            ))
-                          ) : (
-                            <option value="" disabled>Aucun employé disponible</option>
-                          )}
-                        </Select>
+                ))}
+              </select>
                       </div>
 
                       <div>
-                        <div className="flex items-center justify-between mb-2">
                           <Label htmlFor="shiftId">Shift *</Label>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowCreateShiftModal(true)}
-                            className="text-xs h-6"
-                          >
-                            <Plus className="h-3 w-3 mr-1" />
-                            Créer un shift
-                          </Button>
-                        </div>
-                        <Select
-                          value={shiftFormData.shiftId}
-                          onChange={(e) =>
-                            setShiftFormData({ ...shiftFormData, shiftId: e.target.value })
-                          }
-                          disabled={shiftsLoading}
+              <select
+                id="shiftId"
+                required
+                value={formData.shiftId}
+                onChange={(e) => setFormData({ ...formData, shiftId: e.target.value })}
+                className="w-full border border-border rounded-md px-3 py-2 text-sm"
                         >
                           <option value="">Sélectionner un shift</option>
-                          {shiftsLoading ? (
-                            <option value="" disabled>Chargement...</option>
-                          ) : shiftsData?.data && Array.isArray(shiftsData.data) && shiftsData.data.length > 0 ? (
-                            shiftsData.data.map((shift: any) => (
+                {shiftsData?.data?.map((shift: any) => (
                               <option key={shift.id} value={shift.id}>
-                                {shift.name} ({shift.startTime} - {shift.endTime})
+                    {shift.name} ({shift.code}) - {shift.startTime} à {shift.endTime}
                               </option>
-                            ))
-                          ) : (
-                            <option value="" disabled>
-                              {shiftsData ? 'Aucun shift disponible' : 'Chargement...'}
-                            </option>
-                          )}
-                        </Select>
+                ))}
+              </select>
                       </div>
 
-                      {/* Type de création */}
                       <div>
-                        <Label>Type de création</Label>
+              <Label>Type de planning</Label>
                         <div className="flex gap-4 mt-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center">
                             <input
                               type="radio"
-                              name="scheduleType"
                               value="single"
                               checked={scheduleType === 'single'}
-                              onChange={(e) => {
-                                setScheduleType('single');
-                                setShiftFormData({ ...shiftFormData, dateFin: '' });
-                              }}
-                              className="h-4 w-4 text-primary focus:ring-primary"
-                            />
-                            <span className="text-sm">Une journée</span>
+                    onChange={(e) => setScheduleType(e.target.value as 'single' | 'range')}
+                    className="mr-2"
+                  />
+                  Jour unique
                           </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
+                <label className="flex items-center">
                             <input
                               type="radio"
-                              name="scheduleType"
                               value="range"
                               checked={scheduleType === 'range'}
-                              onChange={(e) => setScheduleType('range')}
-                              className="h-4 w-4 text-primary focus:ring-primary"
+                    onChange={(e) => setScheduleType(e.target.value as 'single' | 'range')}
+                    className="mr-2"
                             />
-                            <span className="text-sm">Intervalle de dates</span>
+                  Intervalle
                           </label>
                         </div>
                       </div>
 
-                      {/* Date(s) */}
-                      <div className={scheduleType === 'range' ? 'grid grid-cols-2 gap-4' : ''}>
                         <div>
-                          <Label htmlFor="dateDebut">
-                            {scheduleType === 'range' ? 'Date de début *' : 'Date *'}
-                          </Label>
+              <Label htmlFor="dateDebut">Date de début *</Label>
                           <Input
                             id="dateDebut"
                             type="date"
-                            value={shiftFormData.dateDebut}
-                            onChange={(e) =>
-                              setShiftFormData({ ...shiftFormData, dateDebut: e.target.value })
-                            }
+                required
+                value={formData.dateDebut}
+                onChange={(e) => setFormData({ ...formData, dateDebut: e.target.value })}
                           />
                         </div>
+
                         {scheduleType === 'range' && (
                           <div>
                             <Label htmlFor="dateFin">Date de fin *</Label>
                             <Input
                               id="dateFin"
                               type="date"
-                              value={shiftFormData.dateFin}
-                              min={shiftFormData.dateDebut}
-                              onChange={(e) =>
-                                setShiftFormData({ ...shiftFormData, dateFin: e.target.value })
-                              }
-                            />
-                            {shiftFormData.dateDebut && shiftFormData.dateFin && (
-                              <p className="text-xs text-text-secondary mt-1">
-                                {Math.ceil(
-                                  (new Date(shiftFormData.dateFin).getTime() -
-                                    new Date(shiftFormData.dateDebut).getTime()) /
-                                    (1000 * 60 * 60 * 24)
-                                ) + 1}{' '}
-                                jour(s) seront créés
-                              </p>
-                            )}
+                  required={scheduleType === 'range'}
+                  value={formData.dateFin}
+                  onChange={(e) => setFormData({ ...formData, dateFin: e.target.value })}
+                  min={formData.dateDebut}
+                />
                           </div>
                         )}
-                      </div>
 
-                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="customStartTime">
-                            Heure début personnalisée (optionnel)
-                          </Label>
-                          <Input
-                            id="customStartTime"
-                            type="time"
-                            value={shiftFormData.customStartTime}
-                            onChange={(e) =>
-                              setShiftFormData({ ...shiftFormData, customStartTime: e.target.value })
-                            }
-                          />
-                          <p className="text-xs text-text-secondary mt-1">
-                            Override l'heure du shift standard
-                          </p>
-                        </div>
-                        <div>
-                          <Label htmlFor="customEndTime">
-                            Heure fin personnalisée (optionnel)
-                          </Label>
-                          <Input
-                            id="customEndTime"
-                            type="time"
-                            value={shiftFormData.customEndTime}
-                            onChange={(e) =>
-                              setShiftFormData({ ...shiftFormData, customEndTime: e.target.value })
-                            }
-                          />
-                          <p className="text-xs text-text-secondary mt-1">
-                            Override l'heure du shift standard
-                          </p>
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="teamId">Équipe (optionnel)</Label>
-                        <Select
-                          value={shiftFormData.teamId}
-                          onChange={(e) =>
-                            setShiftFormData({ ...shiftFormData, teamId: e.target.value })
-                          }
-                          disabled={teamsLoading}
+              <Label htmlFor="teamId">Équipe</Label>
+              <select
+                id="teamId"
+                value={formData.teamId}
+                onChange={(e) => setFormData({ ...formData, teamId: e.target.value })}
+                className="w-full border border-border rounded-md px-3 py-2 text-sm"
                         >
                           <option value="">Aucune équipe</option>
-                          {teamsLoading ? (
-                            <option value="" disabled>Chargement...</option>
-                          ) : teamsData?.data && Array.isArray(teamsData.data) && teamsData.data.length > 0 ? (
-                            teamsData.data.map((team: any) => (
+                {teamsData?.data?.map((team: any) => (
                               <option key={team.id} value={team.id}>
                                 {team.name}
                               </option>
-                            ))
-                          ) : (
-                            <option value="" disabled>
-                              {teamsData ? 'Aucune équipe disponible' : 'Chargement...'}
-                            </option>
-                          )}
-                        </Select>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="notes">Notes (optionnel)</Label>
-                        <Input
-                          id="notes"
-                          value={shiftFormData.notes}
-                          onChange={(e) =>
-                            setShiftFormData({ ...shiftFormData, notes: e.target.value })
-                          }
-                          placeholder="Notes supplémentaires"
-                        />
-                      </div>
-
-                      <div className="flex gap-3 pt-4">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => setShowShiftDetail(false)}
-                        >
-                          Annuler
-                        </Button>
-                        <Button
-                          variant="primary"
-                          className="flex-1"
-                          onClick={handleCreateSchedule}
-                          disabled={
-                            createScheduleMutation.isPending ||
-                            !shiftFormData.employeeId ||
-                            !shiftFormData.shiftId ||
-                            !shiftFormData.dateDebut ||
-                            (scheduleType === 'range' && !shiftFormData.dateFin)
-                          }
-                        >
-                          {createScheduleMutation.isPending ? (
-                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          ) : null}
-                          Enregistrer
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-          )}
-
-          {/* Create Shift Modal */}
-          {showCreateShiftModal && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <Card className="w-full max-w-md">
-                <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Créer un nouveau shift</CardTitle>
-                  <Button variant="ghost" size="sm" onClick={() => setShowCreateShiftModal(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label htmlFor="shiftName">Nom du shift *</Label>
-                    <Input
-                      id="shiftName"
-                      value={newShiftFormData.name}
-                      onChange={(e) =>
-                        setNewShiftFormData({ ...newShiftFormData, name: e.target.value })
-                      }
-                      placeholder="Ex: Matin, Soir, Nuit"
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="shiftCode">Code du shift *</Label>
-                    <Input
-                      id="shiftCode"
-                      value={newShiftFormData.code}
-                      onChange={(e) =>
-                        setNewShiftFormData({ ...newShiftFormData, code: e.target.value.toUpperCase() })
-                      }
-                      placeholder="Ex: M, S, N"
-                      maxLength={5}
-                    />
-                    <p className="text-xs text-text-secondary mt-1">
-                      Code court (ex: M pour Matin, S pour Soir)
-                    </p>
+                ))}
+              </select>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="shiftStartTime">Heure début *</Label>
+                <Label htmlFor="customStartTime">Heure de début personnalisée</Label>
                       <Input
-                        id="shiftStartTime"
+                  id="customStartTime"
                         type="time"
-                        value={newShiftFormData.startTime}
-                        onChange={(e) =>
-                          setNewShiftFormData({ ...newShiftFormData, startTime: e.target.value })
-                        }
+                  value={formData.customStartTime}
+                  onChange={(e) => setFormData({ ...formData, customStartTime: e.target.value })}
                       />
                     </div>
                     <div>
-                      <Label htmlFor="shiftEndTime">Heure fin *</Label>
+                <Label htmlFor="customEndTime">Heure de fin personnalisée</Label>
                       <Input
-                        id="shiftEndTime"
+                  id="customEndTime"
                         type="time"
-                        value={newShiftFormData.endTime}
-                        onChange={(e) =>
-                          setNewShiftFormData({ ...newShiftFormData, endTime: e.target.value })
-                        }
+                  value={formData.customEndTime}
+                  onChange={(e) => setFormData({ ...formData, customEndTime: e.target.value })}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <Label htmlFor="breakDuration">Durée pause (minutes)</Label>
+              <Label htmlFor="notes">Notes</Label>
                     <Input
-                      id="breakDuration"
-                      type="number"
-                      min="0"
-                      value={newShiftFormData.breakDuration}
-                      onChange={(e) =>
-                        setNewShiftFormData({
-                          ...newShiftFormData,
-                          breakDuration: parseInt(e.target.value) || 60,
-                        })
-                      }
+                id="notes"
+                value={formData.notes}
+                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                placeholder="Notes optionnelles..."
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="isNightShift"
-                      type="checkbox"
-                      checked={newShiftFormData.isNightShift}
-                      onChange={(e) =>
-                        setNewShiftFormData({
-                          ...newShiftFormData,
-                          isNightShift: e.target.checked,
-                        })
-                      }
-                      className="h-4 w-4 text-primary focus:ring-primary border-gray-300 rounded"
-                    />
-                    <Label htmlFor="isNightShift" className="cursor-pointer font-normal">
-                      Shift de nuit
-                    </Label>
-                  </div>
-
-                  <div className="flex gap-3 pt-4">
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => setShowCreateShiftModal(false)}
-                    >
+            <div className="flex justify-end gap-2 pt-4">
+              <Button type="button" variant="outline" onClick={onClose}>
                       Annuler
                     </Button>
                     <Button
+                type="submit"
                       variant="primary"
-                      className="flex-1"
-                      onClick={handleCreateShift}
-                      disabled={
-                        createShiftMutation.isPending ||
-                        !newShiftFormData.name ||
-                        !newShiftFormData.code
-                      }
-                    >
-                      {createShiftMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : null}
-                      Créer le shift
+                disabled={createScheduleMutation.isPending}
+              >
+                {createScheduleMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Création...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Créer
+                  </>
+                )}
                     </Button>
                   </div>
+          </form>
                 </CardContent>
               </Card>
             </div>
-          )}
-
-          {/* Import Schedules Modal */}
-          {showImportModal && (
-            <ImportSchedulesModal
-              onClose={() => setShowImportModal(false)}
-              onSuccess={() => {
-                setShowImportModal(false);
-                // Schedules will be refreshed automatically by React Query
-              }}
-            />
-          )}
-        </div>
-      </div>
-    </DashboardLayout>
   );
 }

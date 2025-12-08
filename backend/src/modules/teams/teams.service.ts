@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
+import { AddMemberDto } from './dto/add-member.dto';
+import { BulkMembersDto } from './dto/bulk-members.dto';
 
 @Injectable()
 export class TeamsService {
@@ -18,6 +20,32 @@ export class TeamsService {
 
     if (existing) {
       throw new ConflictException('Team code already exists');
+    }
+
+    // Validate manager if provided
+    if (dto.managerId) {
+      const manager = await this.prisma.employee.findFirst({
+        where: {
+          id: dto.managerId,
+          tenantId,
+        },
+        include: {
+          user: {
+            select: {
+              role: true,
+            },
+          },
+        },
+      });
+
+      if (!manager) {
+        throw new NotFoundException('Manager not found');
+      }
+
+      // Optional: Check if manager has appropriate role
+      // if (manager.user?.role !== 'MANAGER' && manager.user?.role !== 'ADMIN_RH') {
+      //   throw new BadRequestException('Manager must have MANAGER or ADMIN_RH role');
+      // }
     }
 
     return this.prisma.team.create({
@@ -71,6 +99,14 @@ export class TeamsService {
         take: limit,
         include: {
           employees: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              matricule: true,
+            },
+          },
+          manager: {
             select: {
               id: true,
               firstName: true,
@@ -152,6 +188,20 @@ export class TeamsService {
       }
     }
 
+    // Validate manager if provided
+    if (dto.managerId) {
+      const manager = await this.prisma.employee.findFirst({
+        where: {
+          id: dto.managerId,
+          tenantId,
+        },
+      });
+
+      if (!manager) {
+        throw new NotFoundException('Manager not found');
+      }
+    }
+
     return this.prisma.team.update({
       where: { id },
       data: dto,
@@ -174,5 +224,249 @@ export class TeamsService {
     return this.prisma.team.delete({
       where: { id },
     });
+  }
+
+  async addMember(tenantId: string, teamId: string, dto: AddMemberDto) {
+    // Verify team exists
+    const team = await this.findOne(tenantId, teamId);
+
+    // Verify employee exists and belongs to tenant
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: dto.employeeId,
+        tenantId,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Check if employee is already in this team
+    if (employee.teamId === teamId) {
+      throw new ConflictException('Employee is already a member of this team');
+    }
+
+    // Update employee's team
+    await this.prisma.employee.update({
+      where: { id: dto.employeeId },
+      data: { teamId },
+    });
+
+    // Return updated team
+    return this.findOne(tenantId, teamId);
+  }
+
+  async removeMember(tenantId: string, teamId: string, employeeId: string) {
+    // Verify team exists
+    await this.findOne(tenantId, teamId);
+
+    // Verify employee exists and belongs to tenant
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        tenantId,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // Check if employee is in this team
+    if (employee.teamId !== teamId) {
+      throw new BadRequestException('Employee is not a member of this team');
+    }
+
+    // Remove employee from team
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { teamId: null },
+    });
+
+    // Return updated team
+    return this.findOne(tenantId, teamId);
+  }
+
+  async addMembersBulk(tenantId: string, teamId: string, dto: BulkMembersDto) {
+    // Verify team exists
+    await this.findOne(tenantId, teamId);
+
+    // Verify all employees exist and belong to tenant
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        id: { in: dto.employeeIds },
+        tenantId,
+      },
+    });
+
+    if (employees.length !== dto.employeeIds.length) {
+      throw new NotFoundException('One or more employees not found');
+    }
+
+    // Check for employees already in a team
+    const employeesInTeam = employees.filter(emp => emp.teamId === teamId);
+    if (employeesInTeam.length > 0) {
+      throw new ConflictException(
+        `${employeesInTeam.length} employee(s) are already members of this team`
+      );
+    }
+
+    // Update all employees' team
+    await this.prisma.employee.updateMany({
+      where: {
+        id: { in: dto.employeeIds },
+        tenantId,
+      },
+      data: { teamId },
+    });
+
+    // Return updated team
+    return this.findOne(tenantId, teamId);
+  }
+
+  async removeMembersBulk(tenantId: string, teamId: string, dto: BulkMembersDto) {
+    // Verify team exists
+    await this.findOne(tenantId, teamId);
+
+    // Verify all employees exist and belong to tenant
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        id: { in: dto.employeeIds },
+        tenantId,
+      },
+    });
+
+    if (employees.length !== dto.employeeIds.length) {
+      throw new NotFoundException('One or more employees not found');
+    }
+
+    // Check for employees not in this team
+    const employeesNotInTeam = employees.filter(emp => emp.teamId !== teamId);
+    if (employeesNotInTeam.length > 0) {
+      throw new BadRequestException(
+        `${employeesNotInTeam.length} employee(s) are not members of this team`
+      );
+    }
+
+    // Remove all employees from team
+    await this.prisma.employee.updateMany({
+      where: {
+        id: { in: dto.employeeIds },
+        tenantId,
+      },
+      data: { teamId: null },
+    });
+
+    // Return updated team
+    return this.findOne(tenantId, teamId);
+  }
+
+  async getTeamStats(tenantId: string, teamId: string) {
+    // Verify team exists
+    const team = await this.findOne(tenantId, teamId);
+
+    // Get current date for presence calculation
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Get schedules for today
+    const todaySchedules = await this.prisma.schedule.findMany({
+      where: {
+        teamId,
+        date: today,
+        tenantId,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Get schedules for current month
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    const monthSchedules = await this.prisma.schedule.findMany({
+      where: {
+        teamId,
+        date: {
+          gte: monthStart,
+          lte: monthEnd,
+        },
+        tenantId,
+      },
+    });
+
+    // Get shift distribution
+    const shiftDistribution = await this.prisma.schedule.groupBy({
+      by: ['shiftId'],
+      where: {
+        teamId,
+        date: {
+          gte: monthStart,
+          lte: monthEnd,
+        },
+        tenantId,
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    // Get shift details
+    const shiftIds = shiftDistribution.map(s => s.shiftId);
+    const shifts = await this.prisma.shift.findMany({
+      where: {
+        id: { in: shiftIds },
+        tenantId,
+      },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+      },
+    });
+
+    const shiftStats = shiftDistribution.map(dist => {
+      const shift = shifts.find(s => s.id === dist.shiftId);
+      return {
+        shiftId: dist.shiftId,
+        shiftName: shift?.name || 'Unknown',
+        shiftType: shift?.code || 'CUSTOM',
+        count: dist._count.id,
+      };
+    });
+
+    const totalSchedules = monthSchedules.length;
+    const shiftTotal = shiftStats.reduce((sum, s) => sum + s.count, 0);
+    const shiftPercentages = shiftStats.map(s => ({
+      ...s,
+      percentage: shiftTotal > 0 ? Math.round((s.count / shiftTotal) * 100) : 0,
+    }));
+
+    return {
+      team: {
+        id: team.id,
+        name: team.name,
+        code: team.code,
+      },
+      members: {
+        total: team._count.employees,
+        presentToday: todaySchedules.length,
+        absentToday: team._count.employees - todaySchedules.length,
+      },
+      schedules: {
+        total: team._count.schedules,
+        thisMonth: totalSchedules,
+        today: todaySchedules.length,
+      },
+      shiftDistribution: shiftPercentages,
+    };
   }
 }

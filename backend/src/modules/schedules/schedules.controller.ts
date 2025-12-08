@@ -61,6 +61,7 @@ export class SchedulesController {
     @Query('employeeId') employeeId?: string,
     @Query('teamId') teamId?: string,
     @Query('shiftId') shiftId?: string,
+    @Query('siteId') siteId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {
@@ -72,6 +73,7 @@ export class SchedulesController {
         employeeId,
         teamId,
         shiftId,
+        siteId,
         startDate,
         endDate,
       },

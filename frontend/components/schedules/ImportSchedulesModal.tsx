@@ -105,7 +105,7 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
             <FileSpreadsheet className="h-5 w-5" />
             Importer des Plannings depuis Excel
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </CardHeader>
@@ -160,7 +160,7 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
                   {(selectedFile.size / 1024).toFixed(2)} KB
                 </p>
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={(e) => {
                     e.stopPropagation();

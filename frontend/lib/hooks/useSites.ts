@@ -22,7 +22,15 @@ export function useCreateSite() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: { name: string; address?: string; city?: string }) => sitesApi.create(data),
+    mutationFn: (data: {
+      code: string;
+      name: string;
+      address?: string;
+      city?: string;
+      phone?: string;
+      workingDays?: string[];
+      timezone?: string;
+    }) => sitesApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sites'] });
       toast.success('Site créé avec succès');
@@ -37,7 +45,18 @@ export function useUpdateSite() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; address?: string; city?: string } }) =>
+    mutationFn: ({ id, data }: {
+      id: string;
+      data: {
+        code?: string;
+        name?: string;
+        address?: string;
+        city?: string;
+        phone?: string;
+        workingDays?: string[];
+        timezone?: string;
+      }
+    }) =>
       sitesApi.update(id, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['sites'] });

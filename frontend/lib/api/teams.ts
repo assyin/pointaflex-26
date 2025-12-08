@@ -3,6 +3,7 @@ import apiClient from './client';
 export interface Team {
   id: string;
   name: string;
+  code: string;
   description?: string;
   rotationEnabled: boolean;
   rotationCycleDays?: number;
@@ -10,15 +11,22 @@ export interface Team {
   managerId?: string;
   createdAt: string;
   updatedAt: string;
-  manager?: any;
-  members?: any[];
+  manager?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    matricule: string;
+  };
+  employees?: any[];
   _count?: {
-    members: number;
+    employees: number;
+    schedules: number;
   };
 }
 
 export interface CreateTeamDto {
   name: string;
+  code: string;
   description?: string;
   rotationEnabled: boolean;
   rotationCycleDays?: number;
@@ -58,6 +66,21 @@ export const teamsApi = {
 
   removeMember: async (teamId: string, employeeId: string) => {
     const response = await apiClient.delete(`/teams/${teamId}/members/${employeeId}`);
+    return response.data;
+  },
+
+  addMembersBulk: async (teamId: string, employeeIds: string[]) => {
+    const response = await apiClient.post(`/teams/${teamId}/members/bulk`, { employeeIds });
+    return response.data;
+  },
+
+  removeMembersBulk: async (teamId: string, employeeIds: string[]) => {
+    const response = await apiClient.delete(`/teams/${teamId}/members/bulk`, { data: { employeeIds } });
+    return response.data;
+  },
+
+  getStats: async (teamId: string) => {
+    const response = await apiClient.get(`/teams/${teamId}/stats`);
     return response.data;
   },
 };

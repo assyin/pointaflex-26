@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Users, Clock, AlertTriangle, Calendar, TrendingUp } from 'lucide-react';
+import { Users, Clock, AlertTriangle, Calendar, TrendingUp, Activity } from 'lucide-react';
 import { useDashboardStats } from '@/lib/hooks/useDashboardStats';
 import {
   BarChart,
@@ -29,10 +29,10 @@ const COLORS = {
   warning: '#FFC107',
   danger: '#DC3545',
   info: '#17A2B8',
-  matin: '#00A3FF',
-  soir: '#0052CC',
-  nuit: '#212529',
 };
+
+// Couleurs pour le pie chart (shifts)
+const SHIFT_COLORS = ['#00A3FF', '#0052CC', '#212529', '#FFC107', '#DC3545'];
 
 export default function DashboardPage() {
   const [selectedPeriod, setSelectedPeriod] = useState('semaine');
@@ -59,40 +59,32 @@ export default function DashboardPage() {
   // Fetch dashboard stats
   const { data: stats, isLoading } = useDashboardStats(dateFilters);
 
-  // Mock data for charts (would come from API in production)
-  const weeklyAttendanceData = [
-    { day: 'Lun', retards: 4, absences: 2 },
-    { day: 'Mar', retards: 3, absences: 1 },
-    { day: 'Mer', retards: 5, absences: 3 },
-    { day: 'Jeu', retards: 2, absences: 1 },
-    { day: 'Ven', retards: 6, absences: 4 },
-    { day: 'Sam', retards: 1, absences: 0 },
-    { day: 'Dim', retards: 0, absences: 0 },
-  ];
+  // Calculate attendance rate
+  const attendanceRate = useMemo(() => {
+    if (!stats?.employees?.total || stats.employees.total === 0) return 0;
+    return (stats.employees.activeToday / stats.employees.total) * 100;
+  }, [stats]);
 
-  const shiftDistribution = [
-    { name: 'Matin (6h-14h)', value: 45, color: COLORS.matin },
-    { name: 'Soir (14h-22h)', value: 35, color: COLORS.soir },
-    { name: 'Nuit (22h-6h)', value: 20, color: COLORS.nuit },
-  ];
-
-  const overtimeData = [
-    { semaine: 'S1', heures: 12 },
-    { semaine: 'S2', heures: 15 },
-    { semaine: 'S3', heures: 18 },
-    { semaine: 'S4', heures: 14 },
-  ];
+  if (isLoading) {
+    return (
+      <DashboardLayout title="Tableau de Bord" subtitle="Chargement...">
+        <div className="flex items-center justify-center h-96">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
-    <DashboardLayout title="Tableau de Bord" subtitle="Vue d'ensemble de la gestion RH">
+    <DashboardLayout title="Tableau de Bord" subtitle="Vue d'ensemble de la gestion des présences">
       <div className="space-y-6">
         {/* Period Selector */}
-        <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-text-secondary">Période:</label>
+        <div className="flex items-center gap-4 bg-white p-4 rounded-lg shadow-sm">
+          <label className="text-sm font-medium text-gray-700">Période:</label>
           <select
             value={selectedPeriod}
             onChange={(e) => setSelectedPeriod(e.target.value)}
-            className="px-3 py-2 border border-border rounded-lg text-sm"
+            className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
           >
             <option value="aujourd-hui">Aujourd'hui</option>
             <option value="semaine">Cette semaine</option>
@@ -101,56 +93,66 @@ export default function DashboardPage() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <Card className="hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-text-secondary">Taux de présence</p>
-                <Users className="h-5 w-5 text-primary" />
+                <p className="text-sm font-medium text-gray-600">Taux de présence</p>
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <Users className="h-5 w-5 text-green-600" />
+                </div>
               </div>
-              <h3 className="text-3xl font-bold text-text-primary mb-2">
-                {stats?.attendanceRate || 0}%
+              <h3 className="text-3xl font-bold text-gray-900 mb-2">
+                {attendanceRate.toFixed(1)}%
               </h3>
-              <Badge variant="success">+2.5% vs hier</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="success">En temps réel</Badge>
+              </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-text-secondary">Retards</p>
-                <Clock className="h-5 w-5 text-warning" />
+                <p className="text-sm font-medium text-gray-600">Retards (7j)</p>
+                <div className="p-2 bg-yellow-100 rounded-lg">
+                  <Clock className="h-5 w-5 text-yellow-600" />
+                </div>
               </div>
-              <h3 className="text-3xl font-bold text-text-primary mb-2">
-                {stats?.lates || 14}
+              <h3 className="text-3xl font-bold text-gray-900 mb-2">
+                0
               </h3>
-              <Badge variant="warning">-3 vs semaine dernière</Badge>
+              <p className="text-xs text-gray-500">Derniers 7 jours</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-text-secondary">Pointages</p>
-                <Calendar className="h-5 w-5 text-info" />
+                <p className="text-sm font-medium text-gray-600">Total pointages</p>
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Activity className="h-5 w-5 text-blue-600" />
+                </div>
               </div>
-              <h3 className="text-3xl font-bold text-text-primary mb-2">
-                {stats?.totalPointages || 248}
+              <h3 className="text-3xl font-bold text-gray-900 mb-2">
+                {stats?.attendance?.total || 0}
               </h3>
-              <Badge variant="info">Aujourd'hui</Badge>
+              <p className="text-xs text-gray-500">Période sélectionnée</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="hover:shadow-lg transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-sm text-text-secondary">Heures sup</p>
-                <TrendingUp className="h-5 w-5 text-success" />
+                <p className="text-sm font-medium text-gray-600">Heures sup</p>
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <TrendingUp className="h-5 w-5 text-purple-600" />
+                </div>
               </div>
-              <h3 className="text-3xl font-bold text-text-primary mb-2">
-                {stats?.overtimeHours || 59}h
+              <h3 className="text-3xl font-bold text-gray-900 mb-2">
+                {stats?.overtime?.totalHours || 0}h
               </h3>
-              <Badge variant="default">Cette semaine</Badge>
+              <p className="text-xs text-gray-500">Approuvées</p>
             </CardContent>
           </Card>
         </div>
@@ -158,75 +160,116 @@ export default function DashboardPage() {
         {/* Charts Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Bar Chart - Retards & Absences */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Retards & Absences (7 derniers jours)</CardTitle>
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader className="border-b">
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Retards & Absences (7 derniers jours)
+              </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-6">
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={weeklyAttendanceData}>
+                <BarChart data={[]}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="day" stroke="#6C757D" />
-                  <YAxis stroke="#6C757D" />
+                  <XAxis
+                    dataKey="day"
+                    stroke="#6C757D"
+                    style={{ fontSize: '12px' }}
+                  />
+                  <YAxis
+                    stroke="#6C757D"
+                    style={{ fontSize: '12px' }}
+                  />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#fff',
-                      border: '1px solid #ddd',
+                      border: '1px solid #e0e0e0',
                       borderRadius: '8px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                     }}
                   />
                   <Legend />
-                  <Bar dataKey="retards" fill={COLORS.warning} name="Retards" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="absences" fill={COLORS.danger} name="Absences" radius={[4, 4, 0, 0]} />
+                  <Bar
+                    dataKey="retards"
+                    fill={COLORS.warning}
+                    name="Retards"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Bar
+                    dataKey="absences"
+                    fill={COLORS.danger}
+                    name="Absences"
+                    radius={[4, 4, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
 
           {/* Pie Chart - Distribution des Shifts */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Répartition des Shifts</CardTitle>
+          <Card className="hover:shadow-lg transition-shadow">
+            <CardHeader className="border-b">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-primary" />
+                Répartition des Shifts
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={shiftDistribution}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={100}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {shiftDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+            <CardContent className="pt-6">
+              {false ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={[]}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, value }) => `${name}: ${value}`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-[300px] text-gray-500">
+                  <div className="text-center">
+                    <Users className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                    <p>Aucun shift configuré</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Line Chart - Heures Supplémentaires */}
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Évolution des Heures Supplémentaires</CardTitle>
+          <Card className="lg:col-span-2 hover:shadow-lg transition-shadow">
+            <CardHeader className="border-b">
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Évolution des Heures Supplémentaires (4 dernières semaines)
+              </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-6">
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={overtimeData}>
+                <LineChart data={[]}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="semaine" stroke="#6C757D" />
-                  <YAxis stroke="#6C757D" />
+                  <XAxis
+                    dataKey="semaine"
+                    stroke="#6C757D"
+                    style={{ fontSize: '12px' }}
+                  />
+                  <YAxis
+                    stroke="#6C757D"
+                    style={{ fontSize: '12px' }}
+                  />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#fff',
-                      border: '1px solid #ddd',
+                      border: '1px solid #e0e0e0',
                       borderRadius: '8px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                     }}
                   />
                   <Legend />
@@ -236,6 +279,7 @@ export default function DashboardPage() {
                     stroke={COLORS.primary}
                     strokeWidth={3}
                     dot={{ fill: COLORS.primary, r: 6 }}
+                    activeDot={{ r: 8 }}
                     name="Heures sup"
                   />
                 </LineChart>
@@ -245,45 +289,54 @@ export default function DashboardPage() {
         </div>
 
         {/* Quick Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-blue-500">
+            <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-text-secondary">Employés actifs</p>
-                  <p className="text-2xl font-bold text-text-primary mt-1">
+                  <p className="text-sm font-medium text-gray-600">Employés actifs</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">
                     {stats?.employees?.total || 0}
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {stats?.employees?.activeToday || 0} présents aujourd'hui
+                  </p>
                 </div>
-                <Users className="h-10 w-10 text-primary opacity-20" />
+                <Users className="h-12 w-12 text-blue-500 opacity-30" />
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-4">
+          <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-green-500">
+            <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-text-secondary">Congés en cours</p>
-                  <p className="text-2xl font-bold text-text-primary mt-1">
-                    {stats?.leaves?.current || 0}
+                  <p className="text-sm font-medium text-gray-600">Congés en cours</p>
+                  <p className="text-3xl font-bold text-gray-900 mt-2">
+                    {stats?.leaves?.totalRequests || 0}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {stats?.pendingApprovals?.leaves || 0} en attente
                   </p>
                 </div>
-                <Calendar className="h-10 w-10 text-info opacity-20" />
+                <Calendar className="h-12 w-12 text-green-500 opacity-30" />
               </div>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardContent className="p-4">
+          <Card className="hover:shadow-lg transition-shadow border-l-4 border-l-red-500">
+            <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-text-secondary">Anomalies détectées</p>
-                  <p className="text-2xl font-bold text-danger mt-1">
-                    {stats?.anomalies || 0}
+                  <p className="text-sm font-medium text-gray-600">Anomalies détectées</p>
+                  <p className="text-3xl font-bold text-red-600 mt-2">
+                    {stats?.attendance?.anomalies || 0}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {stats?.attendance?.anomalyRate || 0}% du total
                   </p>
                 </div>
-                <AlertTriangle className="h-10 w-10 text-danger opacity-20" />
+                <AlertTriangle className="h-12 w-12 text-red-500 opacity-30" />
               </div>
             </CardContent>
           </Card>

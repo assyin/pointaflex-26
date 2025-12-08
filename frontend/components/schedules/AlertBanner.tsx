@@ -31,7 +31,7 @@ export function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
               <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="destructive" className="bg-red-600">
+                  <Badge variant="danger" className="bg-red-600">
                     CRITIQUE
                   </Badge>
                   <span className="text-sm font-semibold text-red-900">
@@ -55,7 +55,7 @@ export function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
                       </span>
                       {onDismiss && (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           className="h-6 w-6 p-0 text-red-600 hover:text-red-800 hover:bg-red-100 ml-2"
                           onClick={() => onDismiss(alert.id)}
@@ -80,7 +80,7 @@ export function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
               <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-500">
+                  <Badge variant="warning" className="bg-yellow-100 text-yellow-800 border-yellow-500">
                     AVERTISSEMENT
                   </Badge>
                   <span className="text-sm font-semibold text-yellow-900">
@@ -104,7 +104,7 @@ export function AlertBanner({ alerts, onDismiss }: AlertBannerProps) {
                       </span>
                       {onDismiss && (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           className="h-6 w-6 p-0 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-100 ml-2"
                           onClick={() => onDismiss(alert.id)}

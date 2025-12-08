@@ -7,15 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Search, Edit, Trash2, User, Mail, Phone, Upload, Download, FileSpreadsheet, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, User, Mail, Phone, Upload, Download, FileSpreadsheet, XCircle, ChevronLeft, ChevronRight, Building2 } from 'lucide-react';
 import { useEmployees, useCreateEmployee, useDeleteEmployee, useDeleteAllEmployees } from '@/lib/hooks/useEmployees';
 import { ImportExcelModal } from '@/components/employees/ImportExcelModal';
+import { BulkAssignSiteModal } from '@/components/employees/BulkAssignSiteModal';
 import { toast } from 'sonner';
 import apiClient from '@/lib/api/client';
 
 export default function EmployeesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showBulkAssignModal, setShowBulkAssignModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isExporting, setIsExporting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -168,6 +170,14 @@ export default function EmployeesPage() {
             >
               <Download className="h-4 w-4 mr-2" />
               {isExporting ? 'Export en cours...' : 'Exporter Excel'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowBulkAssignModal(true)}
+              disabled={!Array.isArray(employees) || employees.length === 0}
+            >
+              <Building2 className="h-4 w-4 mr-2" />
+              Assigner à un site
             </Button>
             <Button variant="outline" onClick={() => setShowImportModal(true)}>
               <Upload className="h-4 w-4 mr-2" />
@@ -456,6 +466,17 @@ export default function EmployeesPage() {
             </Card>
           </div>
         )}
+
+        {/* Bulk Assign Site Modal */}
+        <BulkAssignSiteModal
+          isOpen={showBulkAssignModal}
+          onClose={() => setShowBulkAssignModal(false)}
+          onSuccess={() => {
+            refetch();
+            setShowBulkAssignModal(false);
+          }}
+          employeeCount={Array.isArray(employees) ? employees.length : 0}
+        />
       </div>
     </DashboardLayout>
   );

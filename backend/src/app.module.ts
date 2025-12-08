@@ -15,6 +15,11 @@ import { OvertimeModule } from './modules/overtime/overtime.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { DataGeneratorModule } from './modules/data-generator/data-generator.module';
+import { SitesModule } from './modules/sites/sites.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
+import { PositionsModule } from './modules/positions/positions.module';
+import { HolidaysModule } from './modules/holidays/holidays.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.middleware';
@@ -38,6 +43,11 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     ReportsModule,
     AuditModule,
     DevicesModule,
+    DataGeneratorModule,
+    SitesModule,
+    DepartmentsModule,
+    PositionsModule,
+    HolidaysModule,
   ],
   providers: [
     {

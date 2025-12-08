@@ -216,7 +216,7 @@ export default function TerminalsPage() {
     total: Array.isArray(devicesData) ? devicesData.length : 0,
     active: Array.isArray(devicesData) ? devicesData.filter((d: any) => getDeviceStatus(d) === 'ONLINE').length : 0,
     offline: Array.isArray(devicesData) ? devicesData.filter((d: any) => getDeviceStatus(d) === 'OFFLINE').length : 0,
-    maintenance: Array.isArray(devicesData) ? devicesData.filter((d: any) => getDeviceStatus(d) === 'WARNING').length : 0,
+    maintenance: Array.isArray(devicesData) ? devicesData.filter((d: any) => getDeviceStatus(d) === 'INACTIVE').length : 0,
   };
 
   return (

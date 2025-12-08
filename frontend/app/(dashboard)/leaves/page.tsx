@@ -214,7 +214,6 @@ function CreateLeaveForm({
         leaveTypeId: formData.leaveTypeId,
         startDate: formData.startDate,
         endDate: formData.endDate,
-        days,
         reason: formData.reason,
       });
       onSuccess();

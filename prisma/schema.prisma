@@ -183,6 +183,7 @@ model Employee {
   notifications Notification[]
   replacementsAsReplacement ShiftReplacement[] @relation("ReplacementEmployee")
   replacementsAsOriginal    ShiftReplacement[] @relation("OriginalEmployee")
+  managedTeams  Team[] @relation("TeamManager")
 
   @@unique([tenantId, matricule])
   @@index([tenantId])
@@ -271,6 +272,7 @@ model Team {
 
   // Responsable d'équipe
   managerId   String?
+  manager     Employee? @relation("TeamManager", fields: [managerId], references: [id])
 
   // Rotation optionnelle
   rotationEnabled Boolean @default(false)
@@ -372,6 +374,7 @@ model AttendanceDevice {
   apiKey      String? // Pour sécuriser les webhooks
 
   isActive    Boolean @default(true)
+  lastSync    DateTime? // Dernière synchronisation
 
   attendance  Attendance[]
 
@@ -427,15 +430,23 @@ model Attendance {
   // Données brutes (pour audit)
   rawData    Json?
 
+  // Données générées (pour tests)
+  isGenerated Boolean @default(false)
+  generatedBy String? // ID du générateur ou "DATA_GENERATOR"
+
   @@index([tenantId])
   @@index([employeeId])
   @@index([timestamp])
+  @@index([isGenerated])
 }
 
 enum AttendanceType {
-  IN      // Entrée
-  OUT     // Sortie
-  BREAK   // Pause
+  IN              // Entrée
+  OUT             // Sortie
+  BREAK_START     // Début pause
+  BREAK_END       // Fin pause
+  MISSION_START   // Début mission
+  MISSION_END     // Fin mission
 }
 
 // ===================================

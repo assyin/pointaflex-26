@@ -20,6 +20,7 @@ import { EmployeesService } from './employees.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { BiometricDataDto } from './dto/biometric-data.dto';
+import { BulkAssignSiteDto } from './dto/bulk-assign-site.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -183,5 +184,17 @@ export class EmployeesController {
     @Body() biometricData: BiometricDataDto,
   ) {
     return this.employeesService.updateBiometricData(tenantId, id, biometricData);
+  }
+
+  @Post('bulk-assign-site')
+  @Roles(Role.ADMIN_RH, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Assigner des employés à un site en masse' })
+  @ApiResponse({ status: 200, description: 'Employés assignés avec succès' })
+  @ApiResponse({ status: 404, description: 'Site non trouvé' })
+  bulkAssignToSite(
+    @CurrentTenant() tenantId: string,
+    @Body() dto: BulkAssignSiteDto,
+  ) {
+    return this.employeesService.bulkAssignToSite(tenantId, dto.siteId, dto.employeeIds);
   }
 }

@@ -1,0 +1,11 @@
+import { GenerationScenario } from '../interfaces/generation-scenario.interface';
+export declare const NORMAL_DAY_SCENARIO: GenerationScenario;
+export declare const LATE_ARRIVAL_SCENARIO: GenerationScenario;
+export declare const EARLY_LEAVE_SCENARIO: GenerationScenario;
+export declare const MISSION_SCENARIO: GenerationScenario;
+export declare const MISSING_OUT_SCENARIO: GenerationScenario;
+export declare const DOUBLE_IN_SCENARIO: GenerationScenario;
+export declare const LONG_BREAK_SCENARIO: GenerationScenario;
+export declare const ABSENCE_SCENARIO: GenerationScenario;
+export declare const ALL_SCENARIOS: GenerationScenario[];
+export declare function getScenarioByName(name: string): GenerationScenario | undefined;

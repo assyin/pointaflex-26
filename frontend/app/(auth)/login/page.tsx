@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
 
   const [formData, setFormData] = useState({
     tenantCode: '',
@@ -40,9 +41,14 @@ export default function LoginPage() {
       localStorage.setItem('user', JSON.stringify(response.user));
       localStorage.setItem('tenantId', response.user.tenantId);
 
+      // Réinitialiser les tentatives échouées
+      setFailedAttempts(0);
+
       // Rediriger vers le dashboard
       router.push('/dashboard');
     } catch (err: any) {
+      // Incrémenter les tentatives échouées
+      setFailedAttempts(prev => prev + 1);
       setError(err.response?.data?.message || 'Email ou mot de passe incorrect. Vérifiez vos identifiants et réessayez.');
     } finally {
       setIsLoading(false);
@@ -168,11 +174,15 @@ export default function LoginPage() {
               {isLoading ? 'Connexion...' : 'Se connecter'}
             </Button>
 
-            {/* Captcha info */}
-            <p className="text-xs text-text-secondary text-center">
-              Vérification de sécurité<br />
-              Affiché après 3 tentatives échouées
-            </p>
+            {/* Security warning - shown after 3 failed attempts */}
+            {failedAttempts >= 3 && (
+              <Alert variant="warning">
+                <AlertDescription className="text-center">
+                  ⚠️ Plusieurs tentatives de connexion échouées détectées.<br />
+                  Vérifiez vos identifiants ou contactez votre administrateur.
+                </AlertDescription>
+              </Alert>
+            )}
 
             {/* Register link */}
             <div className="text-center pt-4">

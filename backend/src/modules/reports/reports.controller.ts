@@ -22,7 +22,7 @@ export class ReportsController {
   constructor(private reportsService: ReportsService) {}
 
   @Get('dashboard')
-  @Roles(Role.ADMIN_RH, Role.MANAGER)
+  @Roles(Role.ADMIN_RH, Role.MANAGER, Role.SUPER_ADMIN)
   @ApiOperation({ summary: 'Get dashboard statistics' })
   getDashboardStats(
     @CurrentUser() user: any,

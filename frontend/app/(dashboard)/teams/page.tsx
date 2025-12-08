@@ -1,26 +1,78 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Select } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  useTeams,
+  useTeam,
+  useCreateTeam,
+  useUpdateTeam,
+  useDeleteTeam,
+  useAddTeamMembersBulk,
+  useRemoveTeamMembersBulk,
+  useTeamStats,
+} from '@/lib/hooks/useTeams';
+import { useEmployees } from '@/lib/hooks/useEmployees';
+import { AddMembersModal } from '@/components/teams/AddMembersModal';
 import {
   Users, Plus, Search, Filter, Download, Edit, Trash2,
   RotateCw, UserPlus, UserMinus, Calendar, Clock,
-  BarChart3, TrendingUp, Target, UserCheck
+  TrendingUp, UserCheck, Loader2, X
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function TeamsPage() {
-  const [selectedTeam, setSelectedTeam] = useState<any>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [rotationEnabled, setRotationEnabled] = useState(false);
+  const [showAddMembersModal, setShowAddMembersModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [rotationFilter, setRotationFilter] = useState<string>('');
+  const [editingTeam, setEditingTeam] = useState<any>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Form state
+  const [formData, setFormData] = useState({
+    name: '',
+    code: '',
+    description: '',
+    managerId: '',
+    rotationEnabled: false,
+    rotationCycleDays: 14,
+  });
+
+  // API hooks
+  const { data: teamsResponse, isLoading: teamsLoading, refetch: refetchTeams } = useTeams({
+    search: searchQuery || undefined,
+    rotationEnabled: rotationFilter === 'active' ? true : rotationFilter === 'inactive' ? false : undefined,
+  });
+  
+  const teams = teamsResponse?.data || [];
+  const { data: selectedTeamData } = useTeam(selectedTeamId || '');
+  const { data: teamStats } = useTeamStats(selectedTeamId || '');
+  const { data: employeesData } = useEmployees();
+  
+  const employees = Array.isArray(employeesData) ? employeesData : [];
+  
+  // Mutations
+  const createMutation = useCreateTeam();
+  const updateMutation = useUpdateTeam();
+  const deleteMutation = useDeleteTeam();
+  const addMembersMutation = useAddTeamMembersBulk();
+  const removeMembersMutation = useRemoveTeamMembersBulk();
+
+  // Fix hydration error
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   // Mock data - à remplacer par des appels API
-  const teams = [
+  const teamsOld = [
     {
       id: '1',
       name: 'Équipe A – Matin',
@@ -93,7 +145,7 @@ export default function TeamsPage() {
   ];
 
   return (
-    <DashboardLayout>
+    <DashboardLayout title="Équipes"  subtitle="Gestion des équipes">
       <div className="p-8">
         {/* Header */}
         <div className="mb-8">
@@ -111,7 +163,21 @@ export default function TeamsPage() {
                 <UserPlus className="w-4 h-4" />
                 Assigner des employés
               </Button>
-              <Button className="gap-2">
+              <Button 
+                className="gap-2"
+                onClick={() => {
+                  setEditingTeam(null);
+                  setFormData({
+                    name: '',
+                    code: '',
+                    description: '',
+                    managerId: '',
+                    rotationEnabled: false,
+                    rotationCycleDays: 14,
+                  });
+                  setShowForm(true);
+                }}
+              >
                 <Plus className="w-4 h-4" />
                 Nouvelle équipe
               </Button>
@@ -119,9 +185,9 @@ export default function TeamsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Section gauche - Liste des équipes */}
-          <div className="lg:col-span-2">
+        <div className="space-y-6">
+          {/* Section principale - Liste des équipes */}
+          <div>
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -142,25 +208,31 @@ export default function TeamsPage() {
                       <Input
                         placeholder="Nom ou code d'équipe (A, B, C...)"
                         className="pl-10"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
                       />
                     </div>
                   </div>
                   <div>
                     <Label>Rotation</Label>
-                    <Select>
+                    <select
+                      value={rotationFilter}
+                      onChange={(e) => setRotationFilter(e.target.value)}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                    >
                       <option value="">Toutes les équipes</option>
                       <option value="active">Rotation activée</option>
                       <option value="inactive">Rotation désactivée</option>
-                    </Select>
+                    </select>
                   </div>
                   <div>
                     <Label>Nombre de membres</Label>
-                    <Select>
+                    <select className="w-full border border-border rounded-md px-3 py-2 text-sm">
                       <option value="">Tout effectif</option>
                       <option value="small">&lt; 10 membres</option>
                       <option value="medium">10-20 membres</option>
                       <option value="large">&gt; 20 membres</option>
-                    </Select>
+                    </select>
                   </div>
                 </div>
 
@@ -189,72 +261,130 @@ export default function TeamsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border-light">
-                      {teams.map((team) => (
-                        <tr
-                          key={team.id}
-                          className="hover:bg-background-hover cursor-pointer transition-colors"
-                          onClick={() => setSelectedTeam(team)}
-                        >
-                          <td className="px-4 py-3 text-sm text-text-primary font-medium">
-                            {team.name}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-text-secondary">
-                            {team.code}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-text-secondary">
-                            {team.members}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-text-secondary">
-                            {team.manager}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge variant={team.isActive ? 'success' : 'secondary'}>
-                              {team.rotation}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-2">
-                              <Button variant="ghost" size="sm" className="gap-1">
-                                <Edit className="w-4 h-4" />
-                                Modifier
-                              </Button>
-                              <Button variant="ghost" size="sm" className="gap-1">
-                                <Trash2 className="w-4 h-4 text-danger" />
-                                Supprimer
-                              </Button>
-                              <Button variant="ghost" size="sm" className="gap-1">
-                                <RotateCw className="w-4 h-4" />
-                                Rotation
-                              </Button>
-                              <Button variant="ghost" size="sm" className="gap-1">
-                                <Users className="w-4 h-4" />
-                                Membres
-                              </Button>
-                            </div>
+                      {!isMounted || teamsLoading ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center">
+                            {isMounted && <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />}
+                            {!isMounted && <span className="text-text-secondary">Chargement...</span>}
                           </td>
                         </tr>
-                      ))}
+                      ) : teams.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-text-secondary">
+                            Aucune équipe trouvée
+                          </td>
+                        </tr>
+                      ) : (
+                        teams.map((team: any) => (
+                          <tr
+                            key={team.id}
+                            className={`hover:bg-background-hover cursor-pointer transition-colors ${
+                              selectedTeamId === team.id ? 'bg-primary/5' : ''
+                            }`}
+                            onClick={() => setSelectedTeamId(team.id)}
+                          >
+                            <td className="px-4 py-3 text-sm text-text-primary font-medium">
+                              {team.name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-text-secondary">
+                              {team.code}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-text-secondary">
+                              {team._count?.employees || team.employees?.length || 0}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-text-secondary">
+                              {team.manager 
+                                ? `${team.manager.firstName} ${team.manager.lastName}` 
+                                : team.managerId 
+                                ? 'Manager assigné' 
+                                : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <Badge variant={team.rotationEnabled ? 'success' : 'default'}>
+                                {team.rotationEnabled ? 'Activée' : 'Désactivée'}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="gap-1"
+                                  onClick={() => {
+                                    setEditingTeam(team);
+                                    setFormData({
+                                      name: team.name,
+                                      code: team.code,
+                                      description: team.description || '',
+                                      managerId: team.managerId || '',
+                                      rotationEnabled: team.rotationEnabled || false,
+                                      rotationCycleDays: team.rotationCycleDays || 14,
+                                    });
+                                    setShowForm(true);
+                                  }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                  Modifier
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="gap-1 text-danger hover:text-danger"
+                                  onClick={async () => {
+                                    if (confirm(`Êtes-vous sûr de vouloir supprimer l'équipe "${team.name}" ?`)) {
+                                      await deleteMutation.mutateAsync(team.id);
+                                      if (selectedTeamId === team.id) {
+                                        setSelectedTeamId(null);
+                                      }
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  Supprimer
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Pagination */}
-                <div className="flex items-center justify-between mt-4">
-                  <p className="text-sm text-text-secondary">
-                    Affichage de 1-10 sur 24 équipes
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-text-secondary">10 / page</span>
-                    <Button variant="outline" size="sm">Préc.</Button>
-                    <Button variant="outline" size="sm" className="bg-primary text-white">1</Button>
-                    <Button variant="outline" size="sm">Suiv.</Button>
+                {teamsResponse?.meta && (
+                  <div className="flex items-center justify-between mt-4">
+                    <p className="text-sm text-text-secondary">
+                      Affichage de {((teamsResponse.meta.page - 1) * teamsResponse.meta.limit) + 1}-
+                      {Math.min(teamsResponse.meta.page * teamsResponse.meta.limit, teamsResponse.meta.total)} sur {teamsResponse.meta.total} équipes
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-text-secondary">{teamsResponse.meta.limit} / page</span>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        disabled={teamsResponse.meta.page === 1}
+                      >
+                        Préc.
+                      </Button>
+                      <Button variant="outline" size="sm" className="bg-primary text-white">
+                        {teamsResponse.meta.page}
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        disabled={teamsResponse.meta.page >= teamsResponse.meta.totalPages}
+                      >
+                        Suiv.
+                      </Button>
+                    </div>
                   </div>
-                </div>
+                )}
               </CardContent>
             </Card>
 
             {/* Section membres de l'équipe sélectionnée */}
-            {selectedTeam && (
+            {selectedTeamData && (
               <Card className="mt-6">
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -263,13 +393,14 @@ export default function TeamsPage() {
                       Membres de l'équipe sélectionnée
                     </CardTitle>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" className="gap-2">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="gap-2"
+                        onClick={() => setShowAddMembersModal(true)}
+                      >
                         <UserPlus className="w-4 h-4" />
                         Assigner des employés
-                      </Button>
-                      <Button variant="outline" size="sm" className="gap-2">
-                        <UserMinus className="w-4 h-4" />
-                        Retirer en masse
                       </Button>
                     </div>
                   </div>
@@ -278,98 +409,146 @@ export default function TeamsPage() {
                   </p>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-4">
-                    {teamMembers.map((member) => (
+                  {selectedTeamData.employees && selectedTeamData.employees.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      {selectedTeamData.employees.map((member: any) => (
                       <Card key={member.id} className="border-2 hover:border-primary transition-colors">
                         <CardContent className="p-4">
                           <div className="flex items-start gap-4">
                             {/* Photo */}
                             <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold">
-                              {member.name.split(' ').map(n => n[0]).join('')}
+                              {member.firstName?.[0]}{member.lastName?.[0]}
                             </div>
 
                             {/* Info */}
                             <div className="flex-1">
-                              <h4 className="font-semibold text-text-primary">{member.name}</h4>
-                              <p className="text-sm text-text-secondary">Matricule {member.matricule} - {member.site}</p>
-                              <div className="mt-2">
-                                <Badge variant={member.shift === 'Matin' ? 'primary' : member.shift === 'Soir' ? 'warning' : 'secondary'}>
-                                  Shift {member.shift} - {member.shiftTime}
-                                </Badge>
-                              </div>
+                              <h4 className="font-semibold text-text-primary">
+                                {member.firstName} {member.lastName}
+                              </h4>
+                              <p className="text-sm text-text-secondary">
+                                Matricule: {member.matricule}
+                                {member.position && ` • ${member.position}`}
+                              </p>
                             </div>
                           </div>
 
                           {/* Actions */}
                           <div className="flex items-center gap-2 mt-4">
-                            <Button variant="outline" size="sm" className="flex-1 text-xs">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="flex-1 text-xs"
+                              onClick={async () => {
+                                if (confirm(`Retirer ${member.firstName} ${member.lastName} de l'équipe ?`)) {
+                                  await removeMembersMutation.mutateAsync({
+                                    teamId: selectedTeamId!,
+                                    employeeIds: [member.id],
+                                  });
+                                }
+                              }}
+                            >
                               <UserMinus className="w-3 h-3 mr-1" />
-                              Retirer de l'équipe
-                            </Button>
-                            <Button variant="outline" size="sm" className="flex-1 text-xs">
-                              <Calendar className="w-3 h-3 mr-1" />
-                              Voir planning
-                            </Button>
-                          </div>
-                          <div className="flex items-center gap-2 mt-2">
-                            <Button variant="outline" size="sm" className="flex-1 text-xs">
-                              <Clock className="w-3 h-3 mr-1" />
-                              Voir pointages
-                            </Button>
-                            <Button variant="outline" size="sm" className="flex-1 text-xs">
-                              <BarChart3 className="w-3 h-3 mr-1" />
-                              Historique équipe
+                              Retirer
                             </Button>
                           </div>
                         </CardContent>
                       </Card>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-text-secondary">
+                      Aucun membre dans cette équipe
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
+            
+            {/* Add Members Modal */}
+            <AddMembersModal
+              isOpen={showAddMembersModal}
+              onClose={() => setShowAddMembersModal(false)}
+              onAdd={async (employeeIds) => {
+                await addMembersMutation.mutateAsync({
+                  teamId: selectedTeamId!,
+                  employeeIds,
+                });
+                setShowAddMembersModal(false);
+              }}
+              existingMemberIds={selectedTeamData?.employees?.map((e: any) => e.id) || []}
+              isAdding={addMembersMutation.isPending}
+            />
           </div>
 
-          {/* Section droite - Formulaire */}
-          <div className="lg:col-span-1">
+          {/* Section Formulaire - En dessous de la liste */}
+          {showForm && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Formulaire équipe</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Plus className="w-5 h-5" />
+                  {editingTeam ? 'Modifier l\'équipe' : 'Nouvelle équipe'}
+                </CardTitle>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setShowForm(!showForm)}
+                  onClick={() => {
+                    setShowForm(false);
+                    setEditingTeam(null);
+                    setFormData({
+                      name: '',
+                      code: '',
+                      description: '',
+                      managerId: '',
+                      rotationEnabled: false,
+                      rotationCycleDays: 14,
+                    });
+                  }}
                 >
-                  {showForm ? 'Tableau' : 'Détails'}
+                  <X className="w-4 h-4" />
                 </Button>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-text-secondary mb-4">
-                  Créer ou modifier une équipe de travail
+                <p className="text-sm text-text-secondary mb-6">
+                  {editingTeam ? 'Modifier les informations de l\'équipe' : 'Créer une nouvelle équipe de travail'}
                 </p>
 
                 <div className="space-y-4">
                   {/* Nom de l'équipe */}
                   <div>
                     <Label>Nom de l'équipe</Label>
-                    <Input placeholder="Ex : Équipe A – Matin" />
+                    <Input 
+                      placeholder="Ex : Équipe Alpha" 
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
                   </div>
 
                   {/* Code */}
                   <div>
                     <Label>Code</Label>
-                    <Input placeholder="A" maxLength={3} />
+                    <Input 
+                      placeholder="A" 
+                      maxLength={3}
+                      value={formData.code}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                    />
                   </div>
 
                   {/* Responsable */}
                   <div>
-                    <Label>Responsable d'équipe</Label>
-                    <Select>
+                    <Label>Responsable d'équipe (optionnel)</Label>
+                    <select
+                      value={formData.managerId}
+                      onChange={(e) => setFormData({ ...formData, managerId: e.target.value })}
+                      className="w-full border border-border rounded-md px-3 py-2 text-sm"
+                    >
                       <option value="">Sélectionner un employé</option>
-                      <option value="1">Youssef Karim</option>
-                      <option value="2">Sara El Amrani</option>
-                      <option value="3">Amine L.</option>
-                    </Select>
+                      {employees.map((emp: any) => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.firstName} {emp.lastName} ({emp.matricule})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Description */}
@@ -379,6 +558,8 @@ export default function TeamsPage() {
                       className="w-full px-3 py-2 border border-border-light rounded-input text-sm resize-none"
                       rows={3}
                       placeholder="Ex : Équipe du shift matin pour le site Casablanca – Back-office."
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     />
                   </div>
 
@@ -391,24 +572,29 @@ export default function TeamsPage() {
                       </p>
                     </div>
                     <button
-                      onClick={() => setRotationEnabled(!rotationEnabled)}
+                      onClick={() => setFormData({ ...formData, rotationEnabled: !formData.rotationEnabled })}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        rotationEnabled ? 'bg-primary' : 'bg-gray-300'
+                        formData.rotationEnabled ? 'bg-primary' : 'bg-gray-300'
                       }`}
                     >
                       <span
                         className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          rotationEnabled ? 'translate-x-6' : 'translate-x-1'
+                          formData.rotationEnabled ? 'translate-x-6' : 'translate-x-1'
                         }`}
                       />
                     </button>
                   </div>
 
                   {/* Cycle de rotation */}
-                  {rotationEnabled && (
+                  {formData.rotationEnabled && (
                     <div>
                       <Label>Cycle de rotation (jours)</Label>
-                      <Input type="number" placeholder="14 jours" defaultValue="14" />
+                      <Input 
+                        type="number" 
+                        placeholder="14 jours" 
+                        value={formData.rotationCycleDays}
+                        onChange={(e) => setFormData({ ...formData, rotationCycleDays: parseInt(e.target.value) || 14 })}
+                      />
                       <p className="text-xs text-text-secondary mt-1">
                         Options typiques : 7, 14, 21 ou 28 jours.
                       </p>
@@ -416,65 +602,122 @@ export default function TeamsPage() {
                   )}
 
                   {/* Membres de l'équipe */}
-                  <div>
-                    <Label>Membres de l'équipe</Label>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <Badge variant="secondary" className="gap-1">
-                        Yasmine B. - 00421
-                        <button className="ml-1 hover:text-danger">×</button>
-                      </Badge>
-                      <Badge variant="secondary" className="gap-1">
-                        Amine L. - 00317
-                        <button className="ml-1 hover:text-danger">×</button>
-                      </Badge>
-                      <Badge variant="secondary" className="gap-1">
-                        Rachid E. - 00203
-                        <button className="ml-1 hover:text-danger">×</button>
-                      </Badge>
+                  {editingTeam && selectedTeamData && (
+                    <div>
+                      <Label>Membres de l'équipe ({selectedTeamData.employees?.length || 0})</Label>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {selectedTeamData.employees?.map((member: any) => (
+                          <Badge key={member.id} variant="default" className="gap-1">
+                            {member.firstName} {member.lastName} - {member.matricule}
+                          </Badge>
+                        ))}
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        className="w-full mt-3 gap-2"
+                        onClick={() => setShowAddMembersModal(true)}
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Ajouter des employés...
+                      </Button>
                     </div>
-                    <Button variant="outline" size="sm" className="w-full mt-3 gap-2">
-                      <UserPlus className="w-4 h-4" />
-                      Ajouter des employés...
-                    </Button>
-                    <p className="text-xs text-text-secondary mt-2">
-                      Glisser-déposer pour réordonner les membres (priorité, leaders...).
-                    </p>
-                  </div>
-
-                  {/* Actions secondaires */}
-                  <div className="space-y-2 pt-4 border-t border-border-light">
-                    <Button variant="outline" size="sm" className="w-full gap-2 text-xs">
-                      <Calendar className="w-4 h-4" />
-                      Historique complet des modifications d'équipe
-                    </Button>
-                    <Button variant="outline" size="sm" className="w-full gap-2 text-xs">
-                      <BarChart3 className="w-4 h-4" />
-                      Liée aux plannings & rapports de paie
-                    </Button>
-                  </div>
+                  )}
 
                   {/* Boutons d'action */}
-                  <div className="flex gap-3 pt-4 border-t border-border-light">
-                    <Button variant="outline" className="flex-1">
-                      Supprimer l'équipe
-                    </Button>
-                    <Button variant="outline" className="flex-1">
+                  <div className="flex gap-3 pt-6 border-t border-border-light mt-6">
+                    {editingTeam && (
+                      <Button 
+                        variant="outline" 
+                        className="flex-1 text-danger"
+                        onClick={async () => {
+                          if (confirm(`Êtes-vous sûr de vouloir supprimer l'équipe "${editingTeam.name}" ?`)) {
+                            await deleteMutation.mutateAsync(editingTeam.id);
+                            setEditingTeam(null);
+                            setShowForm(false);
+                            setSelectedTeamId(null);
+                          }
+                        }}
+                        disabled={deleteMutation.isPending}
+                      >
+                        {deleteMutation.isPending ? 'Suppression...' : 'Supprimer'}
+                      </Button>
+                    )}
+                    <Button 
+                      variant="outline" 
+                      className="flex-1"
+                      onClick={() => {
+                        setShowForm(false);
+                        setEditingTeam(null);
+                        setFormData({
+                          name: '',
+                          code: '',
+                          description: '',
+                          managerId: '',
+                          rotationEnabled: false,
+                          rotationCycleDays: 14,
+                        });
+                      }}
+                    >
                       Annuler
                     </Button>
-                    <Button className="flex-1">
-                      Enregistrer l'équipe
+                    <Button 
+                      className="flex-1"
+                      onClick={async () => {
+                        if (!formData.name || !formData.code) {
+                          toast.error('Veuillez remplir le nom et le code de l\'équipe');
+                          return;
+                        }
+                        
+                        try {
+                          if (editingTeam) {
+                            await updateMutation.mutateAsync({
+                              id: editingTeam.id,
+                              data: formData,
+                            });
+                          } else {
+                            await createMutation.mutateAsync({
+                              ...formData,
+                              code: formData.code.toUpperCase(),
+                            });
+                          }
+                          setShowForm(false);
+                          setEditingTeam(null);
+                          setFormData({
+                            name: '',
+                            code: '',
+                            description: '',
+                            managerId: '',
+                            rotationEnabled: false,
+                            rotationCycleDays: 14,
+                          });
+                        } catch (error) {
+                          // Error handled by mutation
+                        }
+                      }}
+                      disabled={createMutation.isPending || updateMutation.isPending}
+                    >
+                      {createMutation.isPending || updateMutation.isPending
+                        ? 'Enregistrement...'
+                        : editingTeam
+                        ? 'Modifier'
+                        : 'Créer'}
                     </Button>
                   </div>
                 </div>
               </CardContent>
             </Card>
+          )}
 
-            {/* Statistiques équipe */}
-            <Card className="mt-6">
+          {/* Section Statistiques - En dessous du formulaire ou à côté si équipe sélectionnée */}
+          {selectedTeamData && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Statistiques équipe */}
+              <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>Statistiques équipe</CardTitle>
-                  <Button variant="ghost" size="sm">Stats</Button>
+                  <Button variant="outline" size="sm">Stats</Button>
                 </div>
                 <p className="text-sm text-text-secondary mt-1">
                   Photo rapide de l'effectif et des shifts assignés
@@ -483,61 +726,69 @@ export default function TeamsPage() {
               <CardContent>
                 <div className="space-y-4">
                   {/* Nombre total */}
-                  <div className="flex items-center justify-between p-3 bg-background-hover rounded-lg">
-                    <div>
-                      <p className="text-sm text-text-secondary">Nombre total de membres</p>
-                      <p className="text-2xl font-bold text-text-primary mt-1">14</p>
-                      <p className="text-xs text-success mt-1">+2 nouveaux cette semaine</p>
-                    </div>
-                    <UserCheck className="w-8 h-8 text-primary" />
-                  </div>
+                  {teamStats ? (
+                    <>
+                      <div className="flex items-center justify-between p-3 bg-background-hover rounded-lg">
+                        <div>
+                          <p className="text-sm text-text-secondary">Nombre total de membres</p>
+                          <p className="text-2xl font-bold text-text-primary mt-1">
+                            {teamStats.members.total}
+                          </p>
+                        </div>
+                        <UserCheck className="w-8 h-8 text-primary" />
+                      </div>
 
-                  {/* Présence du jour */}
-                  <div className="flex items-center justify-between p-3 bg-background-hover rounded-lg">
-                    <div>
-                      <p className="text-sm text-text-secondary">Présence du jour</p>
-                      <p className="text-2xl font-bold text-text-primary mt-1">12 / 14</p>
-                      <p className="text-xs text-text-secondary mt-1">2 absents ou en congé</p>
-                    </div>
-                    <TrendingUp className="w-8 h-8 text-success" />
-                  </div>
+                      {/* Présence du jour */}
+                      <div className="flex items-center justify-between p-3 bg-background-hover rounded-lg">
+                        <div>
+                          <p className="text-sm text-text-secondary">Présence du jour</p>
+                          <p className="text-2xl font-bold text-text-primary mt-1">
+                            {teamStats.members.presentToday} / {teamStats.members.total}
+                          </p>
+                          <p className="text-xs text-text-secondary mt-1">
+                            {teamStats.members.absentToday} absent(s) ou en congé
+                          </p>
+                        </div>
+                        <TrendingUp className="w-8 h-8 text-success" />
+                      </div>
 
-                  {/* Répartition des shifts */}
-                  <div>
-                    <p className="text-sm text-text-secondary mb-2">Répartition des shifts assignés</p>
-                    <div className="space-y-2">
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span>Matin - 50%</span>
+                      {/* Répartition des shifts */}
+                      {teamStats.shiftDistribution && teamStats.shiftDistribution.length > 0 && (
+                        <div>
+                          <p className="text-sm text-text-secondary mb-2">Répartition des shifts assignés</p>
+                          <div className="space-y-2">
+                            {teamStats.shiftDistribution.map((shift: any) => (
+                              <div key={shift.shiftId}>
+                                <div className="flex items-center justify-between text-xs mb-1">
+                                  <span>{shift.shiftName} - {shift.percentage}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-primary h-2 rounded-full" 
+                                    style={{ width: `${shift.percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-shift-matin h-2 rounded-full" style={{ width: '50%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span>Soir - 30%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-shift-soir h-2 rounded-full" style={{ width: '30%' }}></div>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <span>Nuit - 20%</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-shift-nuit h-2 rounded-full" style={{ width: '20%' }}></div>
-                        </div>
-                      </div>
+                      )}
+                    </>
+                  ) : selectedTeamId ? (
+                    <div className="text-center py-4 text-text-secondary">
+                      Chargement des statistiques...
                     </div>
-                  </div>
+                  ) : (
+                    <div className="text-center py-4 text-text-secondary">
+                      Sélectionnez une équipe pour voir les statistiques
+                    </div>
+                  )}
 
                   {/* Rotation et affectation */}
                   <div className="space-y-3 pt-3 border-t border-border-light">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-text-secondary">Rotation mise à jour</span>
-                      <Button variant="ghost" size="sm" className="text-xs">Détail</Button>
+                      <Button variant="outline" size="sm" className="text-xs">Détail</Button>
                     </div>
                     <p className="text-xs text-text-secondary">
                       Admin RH - 14/04/2024 - Cycle passé de 7 à 14 jours
@@ -553,7 +804,8 @@ export default function TeamsPage() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

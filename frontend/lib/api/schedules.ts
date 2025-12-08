@@ -92,6 +92,19 @@ export const schedulesApi = {
     return response.data as MonthScheduleResponse;
   },
 
+  getByDateRange: async (startDate: string, endDate: string, filters?: { teamId?: string; siteId?: string; shiftId?: string }) => {
+    const response = await apiClient.get('/schedules', {
+      params: {
+        startDate,
+        endDate,
+        limit: 10000, // Limite très élevée pour récupérer tous les plannings de la période
+        page: 1,
+        ...filters,
+      },
+    });
+    return response.data;
+  },
+
   create: async (data: CreateScheduleDto) => {
     // Log pour debug (à retirer en production)
     if (process.env.NODE_ENV === 'development') {

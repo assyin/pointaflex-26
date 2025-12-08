@@ -16,7 +16,6 @@ import {
   TrendingUp,
   Users,
   FileSpreadsheet,
-  FilePdf,
   FileBarChart,
 } from 'lucide-react';
 import {
@@ -149,7 +148,7 @@ export default function ReportsPage() {
                   onClick={() => handleExport('PDF')}
                   disabled={exportMutation.isPending}
                 >
-                  <FilePdf className="h-4 w-4 mr-2" />
+                  <FileText className="h-4 w-4 mr-2" />
                   PDF
                 </Button>
                 <Button

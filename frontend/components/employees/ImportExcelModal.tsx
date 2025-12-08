@@ -100,7 +100,7 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
             <FileSpreadsheet className="h-5 w-5" />
             Importer des Employés depuis Excel
           </CardTitle>
-          <Button variant="ghost" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
         </CardHeader>
@@ -179,7 +179,7 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
           {/* Import Result */}
           {importResult && (
             <div className="space-y-4">
-              <Alert variant={importResult.failed === 0 ? 'default' : 'warning'}>
+              <Alert variant={importResult.failed === 0 ? 'info' : 'warning'}>
                 <CheckCircle className="h-4 w-4" />
                 <AlertDescription>
                   <div className="space-y-2">

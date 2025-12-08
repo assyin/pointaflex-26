@@ -17,6 +17,8 @@ import {
   Shield,
   Wifi,
   UsersRound,
+  AlertTriangle,
+  Building2,
 } from 'lucide-react';
 
 const menuItems = [
@@ -41,9 +43,19 @@ const menuItems = [
     icon: Calendar,
   },
   {
+    label: 'Alertes de Conformité',
+    href: '/schedule-alerts',
+    icon: AlertTriangle,
+  },
+  {
     label: 'Équipes',
     href: '/teams',
     icon: UsersRound,
+  },
+  {
+    label: 'Structure RH',
+    href: '/structure-rh',
+    icon: Building2,
   },
   {
     label: 'Congés & Absences',

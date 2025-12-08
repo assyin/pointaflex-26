@@ -116,11 +116,99 @@ export class ReportsService {
       },
     });
 
+    // Attendance rate calculation
+    const attendanceRate = totalEmployees > 0
+      ? ((activeToday.length / totalEmployees) * 100).toFixed(1)
+      : 0;
+
+    // Weekly attendance data (last 7 days)
+    const last7Days = [];
+    const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      date.setHours(0, 0, 0, 0);
+      const nextDate = new Date(date);
+      nextDate.setDate(nextDate.getDate() + 1);
+
+      const dayAttendance = await this.prisma.attendance.findMany({
+        where: {
+          tenantId,
+          timestamp: { gte: date, lt: nextDate },
+          type: AttendanceType.IN,
+        },
+        select: { employeeId: true, hasAnomaly: true, anomalyType: true },
+      });
+
+      const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
+      const absent = totalEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
+
+      last7Days.push({
+        day: dayNames[date.getDay()],
+        date: date.toISOString().split('T')[0],
+        retards: late,
+        absences: absent,
+      });
+    }
+
+    // Shift distribution
+    const shifts = await this.prisma.shift.findMany({
+      where: { tenantId },
+      select: { id: true, name: true, _count: { select: { employees: true } } },
+    });
+
+    const shiftDistribution = shifts.map(shift => ({
+      name: shift.name,
+      value: shift._count.employees,
+    }));
+
+    // Overtime trend (last 4 weeks)
+    const overtimeTrend = [];
+    for (let i = 3; i >= 0; i--) {
+      const weekStart = new Date();
+      weekStart.setDate(weekStart.getDate() - (7 * (i + 1)));
+      const weekEnd = new Date();
+      weekEnd.setDate(weekEnd.getDate() - (7 * i));
+
+      const weekOvertime = await this.prisma.overtime.aggregate({
+        where: {
+          tenantId,
+          date: { gte: weekStart, lt: weekEnd },
+          status: OvertimeStatus.APPROVED,
+        },
+        _sum: { hours: true },
+      });
+
+      overtimeTrend.push({
+        semaine: `S${4 - i}`,
+        heures: weekOvertime._sum.hours || 0,
+      });
+    }
+
+    // Late count (last 7 days)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const lateCount = await this.prisma.attendance.count({
+      where: {
+        tenantId,
+        timestamp: { gte: sevenDaysAgo },
+        hasAnomaly: true,
+        anomalyType: { contains: 'LATE' },
+      },
+    });
+
     return {
+      // KPIs
+      attendanceRate: Number(attendanceRate),
+      lates: lateCount,
+      totalPointages: attendanceCount,
+      overtimeHours: overtimeStats._sum.hours || 0,
+
+      // Detailed stats
       employees: {
         total: totalEmployees,
         activeToday: activeToday.length,
-        onLeave: 0, // Could be calculated based on current date
+        onLeave: 0,
       },
       pendingApprovals: {
         leaves: pendingLeaves,
@@ -138,11 +226,18 @@ export class ReportsService {
       leaves: {
         totalRequests: leaveStats._count.id,
         totalDays: leaveStats._sum.days || 0,
+        current: pendingLeaves,
       },
       period: {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
       },
+
+      // Chart data
+      weeklyAttendance: last7Days,
+      shiftDistribution,
+      overtimeTrend,
+      anomalies: anomaliesCount,
     };
   }
 

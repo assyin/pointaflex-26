@@ -138,23 +138,12 @@ export default function RegisterPage() {
 
     try {
       await authApi.register({
-        // Tenant/Company data
+        email: formData.adminEmail,
+        password: formData.adminPassword,
+        firstName: formData.adminFirstName,
+        lastName: formData.adminLastName,
         companyName: formData.companyName,
-        companyCode: formData.companyCode,
-        companyEmail: formData.companyEmail,
-        companyPhone: formData.companyPhone,
-
-        // Admin user data
-        adminFirstName: formData.adminFirstName,
-        adminLastName: formData.adminLastName,
-        adminEmail: formData.adminEmail,
-        adminPassword: formData.adminPassword,
-
-        // Settings
-        timezone: formData.timezone,
-        dateFormat: formData.dateFormat,
-        language: formData.language,
-        currency: formData.currency,
+        slug: formData.companyCode,
       });
 
       // Rediriger vers page de succès ou connexion

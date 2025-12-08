@@ -87,4 +87,12 @@ export const employeesApi = {
     const response = await apiClient.delete('/employees/all');
     return response.data;
   },
+
+  bulkAssignToSite: async (siteId: string, employeeIds?: string[]) => {
+    const response = await apiClient.post('/employees/bulk-assign-site', {
+      siteId,
+      employeeIds,
+    });
+    return response.data;
+  },
 };

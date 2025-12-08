@@ -49,6 +49,7 @@ export function useUpdateTeam() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
       queryClient.invalidateQueries({ queryKey: ['teams', variables.id] });
+      queryClient.invalidateQueries({ queryKey: ['teams', variables.id, 'stats'] });
       toast.success('Équipe modifiée avec succès');
     },
     onError: (error: any) => {
@@ -62,8 +63,10 @@ export function useDeleteTeam() {
 
   return useMutation({
     mutationFn: (id: string) => teamsApi.delete(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.removeQueries({ queryKey: ['teams', id] });
+      queryClient.removeQueries({ queryKey: ['teams', id, 'stats'] });
       toast.success('Équipe supprimée avec succès');
     },
     onError: (error: any) => {
@@ -101,5 +104,50 @@ export function useRemoveTeamMember() {
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erreur lors du retrait du membre de l\'équipe');
     },
+  });
+}
+
+export function useAddTeamMembersBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ teamId, employeeIds }: { teamId: string; employeeIds: string[] }) =>
+      teamsApi.addMembersBulk(teamId, employeeIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['teams', variables.teamId] });
+      queryClient.invalidateQueries({ queryKey: ['teams', variables.teamId, 'stats'] });
+      toast.success('Membres ajoutés à l\'équipe avec succès');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de l\'ajout des membres à l\'équipe');
+    },
+  });
+}
+
+export function useRemoveTeamMembersBulk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ teamId, employeeIds }: { teamId: string; employeeIds: string[] }) =>
+      teamsApi.removeMembersBulk(teamId, employeeIds),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['teams'] });
+      queryClient.invalidateQueries({ queryKey: ['teams', variables.teamId] });
+      queryClient.invalidateQueries({ queryKey: ['teams', variables.teamId, 'stats'] });
+      toast.success('Membres retirés de l\'équipe avec succès');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors du retrait des membres de l\'équipe');
+    },
+  });
+}
+
+export function useTeamStats(teamId: string) {
+  return useQuery({
+    queryKey: ['teams', teamId, 'stats'],
+    queryFn: () => teamsApi.getStats(teamId),
+    enabled: !!teamId,
+    staleTime: 30000, // 30 seconds
   });
 }

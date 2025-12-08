@@ -4,6 +4,7 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { BiometricDataDto } from './dto/biometric-data.dto';
 import { ImportEmployeeDto, ImportResultDto } from './dto/import-excel.dto';
+import { BulkAssignSiteDto } from './dto/bulk-assign-site.dto';
 import * as XLSX from 'xlsx';
 
 @Injectable()
@@ -588,6 +589,47 @@ export class EmployeesService {
       console.warn(`Failed to parse date: ${value}`, error);
       return null;
     }
+  }
+
+  /**
+   * Assigner des employés à un site en masse
+   */
+  async bulkAssignToSite(tenantId: string, siteId: string, employeeIds?: string[]) {
+    // Vérifier que le site existe et appartient au tenant
+    const site = await this.prisma.site.findFirst({
+      where: { id: siteId, tenantId },
+    });
+
+    if (!site) {
+      throw new NotFoundException(`Site with ID ${siteId} not found`);
+    }
+
+    // Construire la condition where
+    const where: any = { tenantId };
+    
+    // Si des IDs spécifiques sont fournis, filtrer par ces IDs
+    if (employeeIds && employeeIds.length > 0) {
+      where.id = { in: employeeIds };
+    }
+
+    // Mettre à jour tous les employés correspondants
+    const result = await this.prisma.employee.updateMany({
+      where,
+      data: {
+        siteId,
+      },
+    });
+
+    return {
+      success: true,
+      message: `${result.count} employé(s) assigné(s) au site ${site.name}`,
+      count: result.count,
+      site: {
+        id: site.id,
+        name: site.name,
+        code: site.code,
+      },
+    };
   }
 
   /**

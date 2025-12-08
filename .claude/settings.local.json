@@ -22,7 +22,8 @@
       "Bash(lsof:*)",
       "Bash(pkill:*)",
       "Bash(chmod:*)",
-      "Bash(./scripts/list-backups.sh:*)"
+      "Bash(./scripts/list-backups.sh:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": [],
     "ask": []
