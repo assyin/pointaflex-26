@@ -26,6 +26,7 @@ const audit_module_1 = require("./modules/audit/audit.module");
 const devices_module_1 = require("./modules/devices/devices.module");
 const data_generator_module_1 = require("./modules/data-generator/data-generator.module");
 const sites_module_1 = require("./modules/sites/sites.module");
+const site_managers_module_1 = require("./modules/site-managers/site-managers.module");
 const departments_module_1 = require("./modules/departments/departments.module");
 const positions_module_1 = require("./modules/positions/positions.module");
 const holidays_module_1 = require("./modules/holidays/holidays.module");
@@ -63,6 +64,7 @@ exports.AppModule = AppModule = __decorate([
             devices_module_1.DevicesModule,
             data_generator_module_1.DataGeneratorModule,
             sites_module_1.SitesModule,
+            site_managers_module_1.SiteManagersModule,
             departments_module_1.DepartmentsModule,
             positions_module_1.PositionsModule,
             holidays_module_1.HolidaysModule,

@@ -475,7 +475,8 @@ export declare class EmployeesController {
         statusCode: number;
         message: string;
         data: {
-            count: number;
+            employeesDeleted: number;
+            shiftReplacementsDeleted: number;
         };
     }>;
     remove(tenantId: string, id: string): Promise<{

@@ -42,6 +42,7 @@ model Tenant {
   shiftReplacements ShiftReplacement[]
   sites             Site[]
   teams             Team[]
+  siteManagers      SiteManager[]
   settings          TenantSettings?
   users             User[]
   userTenantRoles   UserTenantRole[]
@@ -160,8 +161,9 @@ model Employee {
   replacementsAsOriginal    ShiftReplacement[] @relation("OriginalEmployee")
   replacementsAsReplacement ShiftReplacement[] @relation("ReplacementEmployee")
   managedTeams              Team[]             @relation("TeamManager")
-  managedSites              Site[]             @relation("SiteManager")
+  managedSites              Site[]             @relation("SiteManagerLegacy") // DEPRECATED
   managedDepartments        Department[]       @relation("DepartmentManager")
+  siteManagements           SiteManager[] // Nouvelle relation: gestion de sites par département
 
   @@unique([tenantId, matricule])
   @@index([tenantId])
@@ -185,13 +187,14 @@ model Site {
   phone        String?
   timezone     String?
   workingDays  Json?
-  managerId    String? // ID du manager régional du site (optionnel)
+  managerId    String? // DEPRECATED: Utiliser SiteManager à la place. Gardé pour rétrocompatibilité
   departmentId String? // ID du département principal du site
-  manager      Employee?          @relation("SiteManager", fields: [managerId], references: [id])
+  manager      Employee?          @relation("SiteManagerLegacy", fields: [managerId], references: [id])
   department   Department?        @relation("SiteDepartment", fields: [departmentId], references: [id])
   attendance   Attendance[]
   devices      AttendanceDevice[]
   employees    Employee[]
+  siteManagers SiteManager[] // Nouvelle relation: plusieurs managers par site (un par département)
   tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
@@ -201,21 +204,44 @@ model Site {
 }
 
 model Department {
-  id          String     @id @default(uuid())
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  tenantId    String
-  name        String
-  code        String?
-  description String?
-  managerId   String? // ID du manager du département
-  manager     Employee?  @relation("DepartmentManager", fields: [managerId], references: [id])
-  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  employees   Employee[]
-  sites       Site[]     @relation("SiteDepartment")
+  id           String        @id @default(uuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  tenantId     String
+  name         String
+  code         String?
+  description  String?
+  managerId    String? // ID du manager du département
+  manager      Employee?     @relation("DepartmentManager", fields: [managerId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employees    Employee[]
+  sites        Site[]        @relation("SiteDepartment")
+  siteManagers SiteManager[] // Managers régionaux de ce département dans différents sites
 
   @@index([tenantId])
   @@index([managerId])
+}
+
+// Table de liaison pour permettre plusieurs managers régionaux par site (un par département)
+model SiteManager {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  tenantId     String
+  siteId       String
+  managerId    String // ID du manager régional
+  departmentId String // ID du département que ce manager gère dans ce site
+
+  site       Site       @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  manager    Employee   @relation(fields: [managerId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, departmentId]) // Un seul manager par département par site
+  @@index([tenantId])
+  @@index([siteId])
+  @@index([managerId])
+  @@index([departmentId])
 }
 
 model Position {

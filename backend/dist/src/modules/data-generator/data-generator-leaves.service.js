@@ -75,8 +75,17 @@ let DataGeneratorLeavesService = DataGeneratorLeavesService_1 = class DataGenera
         const numberOfEmployees = Math.ceil((employees.length * percentage) / 100);
         const selectedEmployees = this.shuffleArray([...employees]).slice(0, numberOfEmployees);
         this.logger.log(`${selectedEmployees.length} employé(s) sélectionné(s) pour générer des congés`);
-        const startDate = new Date(dto.startDate);
-        const endDate = new Date(dto.endDate);
+        const now = new Date();
+        const defaultStartDate = new Date(now.getFullYear(), 0, 1);
+        const defaultEndDate = new Date(now.getFullYear(), 11, 31);
+        const startDate = dto.startDate ? new Date(dto.startDate) : defaultStartDate;
+        const endDate = dto.endDate ? new Date(dto.endDate) : defaultEndDate;
+        if (isNaN(startDate.getTime())) {
+            throw new common_1.BadRequestException('Date de début invalide');
+        }
+        if (isNaN(endDate.getTime())) {
+            throw new common_1.BadRequestException('Date de fin invalide');
+        }
         if (startDate > endDate) {
             throw new common_1.BadRequestException('La date de début doit être avant la date de fin');
         }

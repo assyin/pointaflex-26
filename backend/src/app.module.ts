@@ -17,6 +17,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { DevicesModule } from './modules/devices/devices.module';
 import { DataGeneratorModule } from './modules/data-generator/data-generator.module';
 import { SitesModule } from './modules/sites/sites.module';
+import { SiteManagersModule } from './modules/site-managers/site-managers.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { PositionsModule } from './modules/positions/positions.module';
 import { HolidaysModule } from './modules/holidays/holidays.module';
@@ -48,6 +49,7 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     DevicesModule,
     DataGeneratorModule,
     SitesModule,
+    SiteManagersModule,
     DepartmentsModule,
     PositionsModule,
     HolidaysModule,

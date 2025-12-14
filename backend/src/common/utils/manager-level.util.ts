@@ -2,7 +2,7 @@ import { PrismaService } from 'src/database/prisma.service';
 
 export interface ManagerLevel {
   type: 'DEPARTMENT' | 'SITE' | 'TEAM' | null;
-  departmentId?: string;
+  departmentId?: string; // Pour SITE: département géré par ce manager dans ce site
   siteId?: string;
   teamId?: string;
 }
@@ -59,22 +59,45 @@ export async function getManagerLevel(
     };
   }
 
-  // Priorité 2: Manager de Site
-  // Chercher TOUS les sites dont cet employé est le manager
-  const managedSites = await prisma.site.findMany({
+  // Priorité 2: Manager de Site (via SiteManager - nouveau système)
+  // Chercher TOUS les sites dont cet employé est le manager régional
+  const siteManagements = await prisma.siteManager.findMany({
+    where: {
+      managerId: employee.id,
+      tenantId,
+    },
+    select: {
+      siteId: true,
+      departmentId: true,
+    },
+  });
+
+  if (siteManagements.length > 0) {
+    // Utiliser le premier site trouvé avec son département
+    return {
+      type: 'SITE',
+      siteId: siteManagements[0].siteId,
+      departmentId: siteManagements[0].departmentId, // Important: le département géré dans ce site
+    };
+  }
+
+  // Fallback: Vérifier l'ancien système (managerId direct sur Site) pour rétrocompatibilité
+  const managedSitesLegacy = await prisma.site.findMany({
     where: {
       managerId: employee.id,
       tenantId,
     },
     select: {
       id: true,
+      departmentId: true,
     },
   });
 
-  if (managedSites.length > 0) {
+  if (managedSitesLegacy.length > 0) {
     return {
       type: 'SITE',
-      siteId: managedSites[0].id,  // Utiliser le premier site trouvé
+      siteId: managedSitesLegacy[0].id,
+      departmentId: managedSitesLegacy[0].departmentId || undefined,
     };
   }
 
@@ -127,8 +150,27 @@ export async function getManagedEmployeeIds(
       break;
 
     case 'SITE':
-      // Manager de site : tous les employés du site, tous départements confondus
+      // Manager de site régional : uniquement les employés du site ET du département spécifique
       where.siteId = managerLevel.siteId;
+      
+      // Utiliser le departmentId du managerLevel (département géré par ce manager dans ce site)
+      if (managerLevel.departmentId) {
+        where.departmentId = managerLevel.departmentId;
+      } else {
+        // Fallback: Récupérer le département principal du site (ancien système)
+        const site = await prisma.site.findUnique({
+          where: { id: managerLevel.siteId },
+          select: { departmentId: true },
+        });
+        
+        if (site?.departmentId) {
+          where.departmentId = site.departmentId;
+        } else {
+          // Si le site n'a pas de département principal, retourner vide
+          // (un manager régional doit être lié à un département)
+          return [];
+        }
+      }
       break;
 
     case 'TEAM':

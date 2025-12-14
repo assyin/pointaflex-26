@@ -43,6 +43,11 @@ export class CreateEmployeeDto {
   @IsString()
   position: string;
 
+  @ApiPropertyOptional({ description: 'ID de la fonction/position (relation vers Position)' })
+  @IsUUID()
+  @IsOptional()
+  positionId?: string;
+
   @ApiProperty({ description: 'Date d\'embauche' })
   @IsDateString()
   hireDate: string;

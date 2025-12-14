@@ -255,20 +255,39 @@ export class EmployeesService {
 
   /**
    * Delete all employees for a tenant
+   * ⚠️ WARNING: This will also delete all related data (attendance, schedules, leaves, etc.)
+   * due to CASCADE constraints. ShiftReplacement records are deleted first to avoid foreign key errors.
    */
   async deleteAll(tenantId: string) {
     const count = await this.prisma.employee.count({
       where: { tenantId },
     });
 
+    // Delete ShiftReplacement records first to avoid foreign key constraint errors
+    // (ShiftReplacement doesn't have onDelete: Cascade, so we need to delete them manually)
+    const shiftReplacementsCount = await this.prisma.shiftReplacement.count({
+      where: { tenantId },
+    });
+
+    if (shiftReplacementsCount > 0) {
+      await this.prisma.shiftReplacement.deleteMany({
+        where: { tenantId },
+      });
+      console.log(`🗑️ Deleted ${shiftReplacementsCount} shift replacements`);
+    }
+
+    // Delete all employees (this will cascade delete: attendance, schedules, leaves, overtime, recovery, notifications)
     await this.prisma.employee.deleteMany({
       where: { tenantId },
     });
 
     return {
       statusCode: 200,
-      message: `Successfully deleted ${count} employees`,
-      data: { count },
+      message: `Successfully deleted ${count} employees and ${shiftReplacementsCount} shift replacements`,
+      data: { 
+        employeesDeleted: count,
+        shiftReplacementsDeleted: shiftReplacementsCount,
+      },
     };
   }
 
@@ -355,12 +374,13 @@ export class EmployeesService {
           const cin = String(row[8] || '').trim();
           const address = String(row[9] || '').trim();
           const city = String(row[10] || '').trim();
-          const agence = String(row[11] || '').trim();
+          const agence = String(row[11] || '').trim(); // Information supplémentaire, pas le site
           const rib = String(row[12] || '').trim();
           const contrat = String(row[13] || '').trim();
           const hireDate = this.parseExcelDate(row[14]);
           const department = String(row[15] || '').trim();
-          const region = String(row[16] || '').trim();
+          // ⚠️ CORRECTION: "Région" (col 16) est le Site, pas "Agence" (col 11)
+          const region = row[16] !== undefined ? String(row[16] || '').trim() : '';
           const category = String(row[17] || '').trim();
           const position = String(row[18] || '').trim();
           const phone = String(row[19] || '').trim();
@@ -378,6 +398,31 @@ export class EmployeesService {
 
           // Generate email from matricule
           const email = `${matricule.toLowerCase().replace(/\s/g, '')}@company.local`;
+
+          // Handle Site (Région) - create if doesn't exist
+          // ⚠️ CORRECTION: "Région" (col 16) est le Site, pas "Agence" (col 11)
+          let siteId: string | undefined;
+          if (region) {
+            let site = await this.prisma.site.findFirst({
+              where: {
+                tenantId,
+                name: region,
+              },
+            });
+
+            if (!site) {
+              // Create site automatically from region name
+              site = await this.prisma.site.create({
+                data: {
+                  tenantId,
+                  name: region,
+                },
+              });
+              console.log(`📍 Created site from region: ${region}`);
+            }
+
+            siteId = site.id;
+          }
 
           // Handle department - create if doesn't exist
           let departmentId: string | undefined;
@@ -403,6 +448,31 @@ export class EmployeesService {
             departmentId = dept.id;
           }
 
+          // Handle Position (Fonction/Poste) - create if doesn't exist
+          let positionId: string | undefined;
+          if (position) {
+            let pos = await this.prisma.position.findFirst({
+              where: {
+                tenantId,
+                name: position,
+              },
+            });
+
+            if (!pos) {
+              // Create position automatically
+              pos = await this.prisma.position.create({
+                data: {
+                  tenantId,
+                  name: position,
+                  category: category || undefined,
+                },
+              });
+              console.log(`💼 Created position: ${position}`);
+            }
+
+            positionId = pos.id;
+          }
+
           // Check if employee already exists
           const existing = await this.prisma.employee.findUnique({
             where: {
@@ -422,11 +492,13 @@ export class EmployeesService {
                 lastName,
                 email,
                 phone: phone || undefined,
-                position: position || undefined,
+                position: position || undefined, // Keep for compatibility
+                positionId: positionId || undefined, // New: relation to Position
                 hireDate: hireDate ? new Date(hireDate) : undefined,
                 dateOfBirth: dateNaissance ? new Date(dateNaissance) : undefined,
                 address: address || undefined,
                 contractType: contrat || undefined,
+                siteId: siteId || undefined, // New: assign site from region
                 departmentId: departmentId || undefined,
                 // New fields from Excel
                 civilite: civilite || undefined,
@@ -436,7 +508,7 @@ export class EmployeesService {
                 cin: cin || undefined,
                 ville: city || undefined,
                 rib: rib || undefined,
-                region: region || undefined,
+                region: region || undefined, // Keep as text field for compatibility
                 categorie: category || undefined,
                 isActive: true,
               },
@@ -454,11 +526,13 @@ export class EmployeesService {
                 lastName,
                 email,
                 phone: phone || undefined,
-                position: position || undefined,
+                position: position || undefined, // Keep for compatibility
+                positionId: positionId || undefined, // New: relation to Position
                 hireDate: hireDate ? new Date(hireDate) : new Date(),
                 dateOfBirth: dateNaissance ? new Date(dateNaissance) : undefined,
                 address: address || undefined,
                 contractType: contrat || undefined,
+                siteId: siteId || undefined, // New: assign site from region
                 departmentId: departmentId || undefined,
                 // New fields from Excel
                 civilite: civilite || undefined,
@@ -468,7 +542,7 @@ export class EmployeesService {
                 cin: cin || undefined,
                 ville: city || undefined,
                 rib: rib || undefined,
-                region: region || undefined,
+                region: region || undefined, // Keep as text field for compatibility
                 categorie: category || undefined,
                 isActive: true,
               },

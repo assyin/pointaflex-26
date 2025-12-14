@@ -18,7 +18,11 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "purge:db": "ts-node scripts/purge-database.ts --confirm",
+    "purge:db:keep-tenant": "ts-node scripts/purge-database.ts --confirm --keep-tenant",
+    "init:rbac": "ts-node scripts/init-rbac.ts",
+    "reassign:roles": "ts-node scripts/reassign-roles-after-purge.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.0.0",

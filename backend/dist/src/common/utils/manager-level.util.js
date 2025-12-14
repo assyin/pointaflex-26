@@ -30,19 +30,38 @@ async function getManagerLevel(prisma, userId, tenantId) {
             departmentId: managedDepartments[0].id,
         };
     }
-    const managedSites = await prisma.site.findMany({
+    const siteManagements = await prisma.siteManager.findMany({
+        where: {
+            managerId: employee.id,
+            tenantId,
+        },
+        select: {
+            siteId: true,
+            departmentId: true,
+        },
+    });
+    if (siteManagements.length > 0) {
+        return {
+            type: 'SITE',
+            siteId: siteManagements[0].siteId,
+            departmentId: siteManagements[0].departmentId,
+        };
+    }
+    const managedSitesLegacy = await prisma.site.findMany({
         where: {
             managerId: employee.id,
             tenantId,
         },
         select: {
             id: true,
+            departmentId: true,
         },
     });
-    if (managedSites.length > 0) {
+    if (managedSitesLegacy.length > 0) {
         return {
             type: 'SITE',
-            siteId: managedSites[0].id,
+            siteId: managedSitesLegacy[0].id,
+            departmentId: managedSitesLegacy[0].departmentId || undefined,
         };
     }
     const managedTeams = await prisma.team.findMany({
@@ -73,6 +92,21 @@ async function getManagedEmployeeIds(prisma, managerLevel, tenantId) {
             break;
         case 'SITE':
             where.siteId = managerLevel.siteId;
+            if (managerLevel.departmentId) {
+                where.departmentId = managerLevel.departmentId;
+            }
+            else {
+                const site = await prisma.site.findUnique({
+                    where: { id: managerLevel.siteId },
+                    select: { departmentId: true },
+                });
+                if (site?.departmentId) {
+                    where.departmentId = site.departmentId;
+                }
+                else {
+                    return [];
+                }
+            }
             break;
         case 'TEAM':
             where.teamId = managerLevel.teamId;

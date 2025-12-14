@@ -229,13 +229,25 @@ let EmployeesService = class EmployeesService {
         const count = await this.prisma.employee.count({
             where: { tenantId },
         });
+        const shiftReplacementsCount = await this.prisma.shiftReplacement.count({
+            where: { tenantId },
+        });
+        if (shiftReplacementsCount > 0) {
+            await this.prisma.shiftReplacement.deleteMany({
+                where: { tenantId },
+            });
+            console.log(`🗑️ Deleted ${shiftReplacementsCount} shift replacements`);
+        }
         await this.prisma.employee.deleteMany({
             where: { tenantId },
         });
         return {
             statusCode: 200,
-            message: `Successfully deleted ${count} employees`,
-            data: { count },
+            message: `Successfully deleted ${count} employees and ${shiftReplacementsCount} shift replacements`,
+            data: {
+                employeesDeleted: count,
+                shiftReplacementsDeleted: shiftReplacementsCount,
+            },
         };
     }
     async getStats(tenantId) {
@@ -305,7 +317,7 @@ let EmployeesService = class EmployeesService {
                     const contrat = String(row[13] || '').trim();
                     const hireDate = this.parseExcelDate(row[14]);
                     const department = String(row[15] || '').trim();
-                    const region = String(row[16] || '').trim();
+                    const region = row[16] !== undefined ? String(row[16] || '').trim() : '';
                     const category = String(row[17] || '').trim();
                     const position = String(row[18] || '').trim();
                     const phone = String(row[19] || '').trim();
@@ -319,6 +331,25 @@ let EmployeesService = class EmployeesService {
                         continue;
                     }
                     const email = `${matricule.toLowerCase().replace(/\s/g, '')}@company.local`;
+                    let siteId;
+                    if (region) {
+                        let site = await this.prisma.site.findFirst({
+                            where: {
+                                tenantId,
+                                name: region,
+                            },
+                        });
+                        if (!site) {
+                            site = await this.prisma.site.create({
+                                data: {
+                                    tenantId,
+                                    name: region,
+                                },
+                            });
+                            console.log(`📍 Created site from region: ${region}`);
+                        }
+                        siteId = site.id;
+                    }
                     let departmentId;
                     if (department) {
                         let dept = await this.prisma.department.findFirst({
@@ -338,6 +369,26 @@ let EmployeesService = class EmployeesService {
                         }
                         departmentId = dept.id;
                     }
+                    let positionId;
+                    if (position) {
+                        let pos = await this.prisma.position.findFirst({
+                            where: {
+                                tenantId,
+                                name: position,
+                            },
+                        });
+                        if (!pos) {
+                            pos = await this.prisma.position.create({
+                                data: {
+                                    tenantId,
+                                    name: position,
+                                    category: category || undefined,
+                                },
+                            });
+                            console.log(`💼 Created position: ${position}`);
+                        }
+                        positionId = pos.id;
+                    }
                     const existing = await this.prisma.employee.findUnique({
                         where: {
                             tenantId_matricule: {
@@ -355,10 +406,12 @@ let EmployeesService = class EmployeesService {
                                 email,
                                 phone: phone || undefined,
                                 position: position || undefined,
+                                positionId: positionId || undefined,
                                 hireDate: hireDate ? new Date(hireDate) : undefined,
                                 dateOfBirth: dateNaissance ? new Date(dateNaissance) : undefined,
                                 address: address || undefined,
                                 contractType: contrat || undefined,
+                                siteId: siteId || undefined,
                                 departmentId: departmentId || undefined,
                                 civilite: civilite || undefined,
                                 situationFamiliale: situationFamiliale || undefined,
@@ -385,10 +438,12 @@ let EmployeesService = class EmployeesService {
                                 email,
                                 phone: phone || undefined,
                                 position: position || undefined,
+                                positionId: positionId || undefined,
                                 hireDate: hireDate ? new Date(hireDate) : new Date(),
                                 dateOfBirth: dateNaissance ? new Date(dateNaissance) : undefined,
                                 address: address || undefined,
                                 contractType: contrat || undefined,
+                                siteId: siteId || undefined,
                                 departmentId: departmentId || undefined,
                                 civilite: civilite || undefined,
                                 situationFamiliale: situationFamiliale || undefined,

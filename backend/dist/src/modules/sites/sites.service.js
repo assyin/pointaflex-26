@@ -73,9 +73,18 @@ let SitesService = class SitesService {
                     id: dto.managerId,
                     tenantId,
                 },
+                select: {
+                    id: true,
+                    departmentId: true,
+                },
             });
             if (!manager) {
                 throw new common_1.NotFoundException(`Manager avec l'ID ${dto.managerId} non trouvé`);
+            }
+            if (dto.departmentId && manager.departmentId !== dto.departmentId) {
+                throw new common_1.BadRequestException(`Le manager doit appartenir au département du site. ` +
+                    `Le manager appartient au département "${manager.departmentId}" ` +
+                    `mais le site est assigné au département "${dto.departmentId}".`);
             }
             await this.validateManagerDepartmentConstraint(dto.managerId, dto.departmentId);
         }
@@ -245,6 +254,10 @@ let SitesService = class SitesService {
                     id: dto.managerId,
                     tenantId,
                 },
+                select: {
+                    id: true,
+                    departmentId: true,
+                },
             });
             if (!manager) {
                 throw new common_1.NotFoundException(`Manager avec l'ID ${dto.managerId} non trouvé`);
@@ -253,6 +266,23 @@ let SitesService = class SitesService {
         const finalManagerId = dto.managerId !== undefined ? dto.managerId : site.managerId;
         const finalDepartmentId = dto.departmentId !== undefined ? dto.departmentId : site.departmentId;
         if (finalManagerId && (dto.managerId !== undefined || dto.departmentId !== undefined)) {
+            if (finalManagerId && finalDepartmentId) {
+                const manager = await this.prisma.employee.findFirst({
+                    where: {
+                        id: finalManagerId,
+                        tenantId,
+                    },
+                    select: {
+                        id: true,
+                        departmentId: true,
+                    },
+                });
+                if (manager && manager.departmentId !== finalDepartmentId) {
+                    throw new common_1.BadRequestException(`Le manager doit appartenir au département du site. ` +
+                        `Le manager appartient au département "${manager.departmentId}" ` +
+                        `mais le site est assigné au département "${finalDepartmentId}".`);
+                }
+            }
             await this.validateManagerDepartmentConstraint(finalManagerId, finalDepartmentId, id);
         }
         if (dto.code && site.code && dto.code !== site.code) {

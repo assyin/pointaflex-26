@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateSiteDto } from './dto/create-site.dto';
 import { UpdateSiteDto } from './dto/update-site.dto';
@@ -85,16 +85,29 @@ export class SitesService {
           id: dto.managerId,
           tenantId,
         },
+        select: {
+          id: true,
+          departmentId: true,
+        },
       });
 
       if (!manager) {
         throw new NotFoundException(`Manager avec l'ID ${dto.managerId} non trouvé`);
       }
 
+      // Valider que le manager appartient au département du site (si département spécifié)
+      if (dto.departmentId && manager.departmentId !== dto.departmentId) {
+        throw new BadRequestException(
+          `Le manager doit appartenir au département du site. ` +
+          `Le manager appartient au département "${manager.departmentId}" ` +
+          `mais le site est assigné au département "${dto.departmentId}".`
+        );
+      }
+
       // Valider la contrainte: un manager régional ne peut gérer qu'un seul département
       await this.validateManagerDepartmentConstraint(
         dto.managerId,
-        (dto as any).departmentId, // departmentId peut être passé dans le DTO
+        dto.departmentId,
       );
     }
 
@@ -283,6 +296,10 @@ export class SitesService {
           id: dto.managerId,
           tenantId,
         },
+        select: {
+          id: true,
+          departmentId: true,
+        },
       });
 
       if (!manager) {
@@ -292,9 +309,32 @@ export class SitesService {
 
     // Valider la contrainte si managerId ou departmentId change
     const finalManagerId = dto.managerId !== undefined ? dto.managerId : site.managerId;
-    const finalDepartmentId = (dto as any).departmentId !== undefined ? (dto as any).departmentId : (site as any).departmentId;
+    const finalDepartmentId = dto.departmentId !== undefined ? dto.departmentId : (site as any).departmentId;
 
-    if (finalManagerId && (dto.managerId !== undefined || (dto as any).departmentId !== undefined)) {
+    if (finalManagerId && (dto.managerId !== undefined || dto.departmentId !== undefined)) {
+      // Si un manager est assigné et un département est spécifié, vérifier que le manager appartient au département
+      if (finalManagerId && finalDepartmentId) {
+        const manager = await this.prisma.employee.findFirst({
+          where: {
+            id: finalManagerId,
+            tenantId,
+          },
+          select: {
+            id: true,
+            departmentId: true,
+          },
+        });
+
+        if (manager && manager.departmentId !== finalDepartmentId) {
+          throw new BadRequestException(
+            `Le manager doit appartenir au département du site. ` +
+            `Le manager appartient au département "${manager.departmentId}" ` +
+            `mais le site est assigné au département "${finalDepartmentId}".`
+          );
+        }
+      }
+
+      // Valider la contrainte: un manager régional ne peut gérer qu'un seul département
       await this.validateManagerDepartmentConstraint(
         finalManagerId,
         finalDepartmentId,

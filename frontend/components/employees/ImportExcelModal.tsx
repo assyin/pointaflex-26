@@ -55,10 +55,22 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
 
     setIsUploading(true);
     setUploadProgress(0);
+    setImportResult(null);
 
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
+
+      // Simuler une progression initiale pour l'upload
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => {
+          // Ne pas dépasser 80% pendant l'upload (le reste sera pour le traitement)
+          if (prev < 80) {
+            return Math.min(prev + 5, 80);
+          }
+          return prev;
+        });
+      }, 200);
 
       const response = await apiClient.post('/employees/import/excel', formData, {
         headers: {
@@ -66,14 +78,22 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
         },
         onUploadProgress: (progressEvent) => {
           if (progressEvent.total) {
-            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setUploadProgress(percentCompleted);
+            // Upload représente 80% du processus total
+            const uploadPercent = Math.round((progressEvent.loaded * 80) / progressEvent.total);
+            setUploadProgress(uploadPercent);
           }
         },
       });
 
-      setImportResult(response.data.data);
+      // Arrêter l'intervalle de progression simulée
+      clearInterval(progressInterval);
+
+      // Simuler le traitement (80% -> 100%)
+      setUploadProgress(90);
+      await new Promise((resolve) => setTimeout(resolve, 300));
       setUploadProgress(100);
+
+      setImportResult(response.data.data);
 
       if (response.data.data.success > 0) {
         toast.success(`${response.data.data.success} employé(s) importé(s) avec succès!`);
@@ -175,14 +195,25 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium text-text-primary">Importation en cours...</span>
-                <span className="text-text-secondary">{uploadProgress}%</span>
+                <span className="text-text-secondary font-semibold">{uploadProgress}%</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner">
                 <div
-                  className="bg-primary h-full transition-all duration-300 ease-out rounded-full"
-                  style={{ width: `${uploadProgress}%` }}
-                />
+                  className="bg-primary h-full transition-all duration-300 ease-out rounded-full flex items-center justify-center relative"
+                  style={{ width: `${uploadProgress}%`, minWidth: uploadProgress > 0 ? '2rem' : '0' }}
+                >
+                  {uploadProgress > 10 && (
+                    <span className="text-xs font-semibold text-white">
+                      {uploadProgress}%
+                    </span>
+                  )}
+                </div>
               </div>
+              {uploadProgress < 100 && (
+                <p className="text-xs text-text-secondary text-center animate-pulse">
+                  Veuillez patienter, traitement du fichier...
+                </p>
+              )}
             </div>
           )}
 

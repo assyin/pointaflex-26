@@ -87,8 +87,21 @@ export class DataGeneratorLeavesService {
     this.logger.log(`${selectedEmployees.length} employé(s) sélectionné(s) pour générer des congés`);
 
     // 4. Générer des congés pour chaque employé sélectionné
-    const startDate = new Date(dto.startDate);
-    const endDate = new Date(dto.endDate);
+    // Valider et définir les dates par défaut
+    const now = new Date();
+    const defaultStartDate = new Date(now.getFullYear(), 0, 1); // Début de l'année
+    const defaultEndDate = new Date(now.getFullYear(), 11, 31); // Fin de l'année
+
+    const startDate = dto.startDate ? new Date(dto.startDate) : defaultStartDate;
+    const endDate = dto.endDate ? new Date(dto.endDate) : defaultEndDate;
+
+    // Vérifier que les dates sont valides
+    if (isNaN(startDate.getTime())) {
+      throw new BadRequestException('Date de début invalide');
+    }
+    if (isNaN(endDate.getTime())) {
+      throw new BadRequestException('Date de fin invalide');
+    }
 
     if (startDate > endDate) {
       throw new BadRequestException('La date de début doit être avant la date de fin');

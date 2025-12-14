@@ -9,6 +9,18 @@ import { DataGeneratorLeavesService } from './data-generator-leaves.service';
 import { DataGeneratorLeavesController } from './data-generator-leaves.controller';
 import { DataGeneratorSchedulesService } from './data-generator-schedules.service';
 import { DataGeneratorSchedulesController } from './data-generator-schedules.controller';
+import { DataGeneratorOrchestratorService } from './data-generator-orchestrator.service';
+import { DataGeneratorCleanupService } from './data-generator-cleanup.service';
+import { DataGeneratorStructureService } from './data-generator-structure.service';
+import { DataGeneratorRBACService } from './data-generator-rbac.service';
+import { DataGeneratorEmployeeService } from './data-generator-employee.service';
+import { DataGeneratorHierarchyService } from './data-generator-hierarchy.service';
+import { DataGeneratorOvertimeService } from './data-generator-overtime.service';
+import { DataGeneratorRecoveryService } from './data-generator-recovery.service';
+import { DataGeneratorDeviceService } from './data-generator-device.service';
+import { DataGeneratorReplacementService } from './data-generator-replacement.service';
+import { DataGeneratorNotificationService } from './data-generator-notification.service';
+import { DataGeneratorAllController } from './data-generator-all.controller';
 import { PrismaModule } from '../../database/prisma.module';
 import { AttendanceModule } from '../attendance/attendance.module';
 
@@ -20,6 +32,7 @@ import { AttendanceModule } from '../attendance/attendance.module';
     DataGeneratorHolidaysController,
     DataGeneratorLeavesController,
     DataGeneratorSchedulesController,
+    DataGeneratorAllController,
   ],
   providers: [
     DataGeneratorService,
@@ -27,6 +40,17 @@ import { AttendanceModule } from '../attendance/attendance.module';
     DataGeneratorHolidaysService,
     DataGeneratorLeavesService,
     DataGeneratorSchedulesService,
+    DataGeneratorOrchestratorService,
+    DataGeneratorCleanupService,
+    DataGeneratorStructureService,
+    DataGeneratorRBACService,
+    DataGeneratorEmployeeService,
+    DataGeneratorHierarchyService,
+    DataGeneratorOvertimeService,
+    DataGeneratorRecoveryService,
+    DataGeneratorDeviceService,
+    DataGeneratorReplacementService,
+    DataGeneratorNotificationService,
   ],
   exports: [
     DataGeneratorService,
@@ -34,6 +58,17 @@ import { AttendanceModule } from '../attendance/attendance.module';
     DataGeneratorHolidaysService,
     DataGeneratorLeavesService,
     DataGeneratorSchedulesService,
+    DataGeneratorOrchestratorService,
+    DataGeneratorCleanupService,
+    DataGeneratorStructureService,
+    DataGeneratorRBACService,
+    DataGeneratorEmployeeService,
+    DataGeneratorHierarchyService,
+    DataGeneratorOvertimeService,
+    DataGeneratorRecoveryService,
+    DataGeneratorDeviceService,
+    DataGeneratorReplacementService,
+    DataGeneratorNotificationService,
   ],
 })
 export class DataGeneratorModule {}

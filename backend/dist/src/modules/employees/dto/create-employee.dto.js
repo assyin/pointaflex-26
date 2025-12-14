@@ -66,6 +66,12 @@ __decorate([
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "position", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'ID de la fonction/position (relation vers Position)' }),
+    (0, class_validator_1.IsUUID)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateEmployeeDto.prototype, "positionId", void 0);
+__decorate([
     (0, swagger_1.ApiProperty)({ description: 'Date d\'embauche' }),
     (0, class_validator_1.IsDateString)(),
     __metadata("design:type", String)

@@ -534,5 +534,6 @@ export default function TerminalsPage() {
         )}
       </div>
     </DashboardLayout>
+    </ProtectedRoute>
   );
 }

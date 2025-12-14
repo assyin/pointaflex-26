@@ -8,6 +8,7 @@ export declare class CreateEmployeeDto {
     address?: string;
     photo?: string;
     position: string;
+    positionId?: string;
     hireDate: string;
     contractType?: string;
     siteId?: string;

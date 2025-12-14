@@ -513,7 +513,8 @@ export declare class EmployeesService {
         statusCode: number;
         message: string;
         data: {
-            count: number;
+            employeesDeleted: number;
+            shiftReplacementsDeleted: number;
         };
     }>;
     getStats(tenantId: string): Promise<{
