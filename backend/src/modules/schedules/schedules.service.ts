@@ -343,10 +343,10 @@ export class SchedulesService {
     const hasViewDepartment = userPermissions?.includes('schedule.view_department');
     const hasViewSite = userPermissions?.includes('schedule.view_site');
 
-    // IMPORTANT: Détecter TOUJOURS si l'utilisateur est un manager, indépendamment des permissions
-    // Cela permet aux managers régionaux de voir leurs employés même s'ils n'ont que 'schedule.view_team'
-    // PRIORITÉ: Le statut de manager prime sur les permissions
-    if (userId) {
+    // IMPORTANT: Détecter si l'utilisateur est un manager, mais seulement s'il n'a pas 'view_all'
+    // Les admins avec 'view_all' doivent voir toutes les données, indépendamment de leur statut de manager
+    // PRIORITÉ: La permission 'view_all' prime sur le statut de manager
+    if (userId && !hasViewAll) {
       const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
 
       // Si l'utilisateur est un manager, appliquer le filtrage selon son niveau hiérarchique

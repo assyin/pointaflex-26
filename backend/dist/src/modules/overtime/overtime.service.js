@@ -78,7 +78,7 @@ let OvertimeService = class OvertimeService {
         const hasViewOwn = userPermissions?.includes('overtime.view_own');
         const hasViewDepartment = userPermissions?.includes('overtime.view_department');
         const hasViewSite = userPermissions?.includes('overtime.view_site');
-        if (userId) {
+        if (userId && !hasViewAll) {
             const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
             if (managerLevel.type === 'DEPARTMENT') {
                 const managedEmployeeIds = await (0, manager_level_util_1.getManagedEmployeeIds)(this.prisma, managerLevel, tenantId);
@@ -181,6 +181,18 @@ let OvertimeService = class OvertimeService {
             }
             if (filters.endDate) {
                 where.date.lte = new Date(filters.endDate);
+            }
+        }
+        if (!filters?.employeeId) {
+            const employeeFilters = {};
+            if (filters?.siteId) {
+                employeeFilters.siteId = filters.siteId;
+            }
+            if (filters?.departmentId) {
+                employeeFilters.departmentId = filters.departmentId;
+            }
+            if (Object.keys(employeeFilters).length > 0) {
+                where.employee = employeeFilters;
             }
         }
         if (process.env.NODE_ENV === 'development') {

@@ -121,6 +121,7 @@ let AuthService = AuthService_1 = class AuthService {
                     role: true,
                     tenantId: true,
                     isActive: true,
+                    avatar: true,
                 },
             });
             if (!user) {

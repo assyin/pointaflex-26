@@ -19,6 +19,8 @@ const attendance_service_1 = require("./attendance.service");
 const create_attendance_dto_1 = require("./dto/create-attendance.dto");
 const webhook_attendance_dto_1 = require("./dto/webhook-attendance.dto");
 const correct_attendance_dto_1 = require("./dto/correct-attendance.dto");
+const attendance_stats_dto_1 = require("./dto/attendance-stats.dto");
+const bulk_correct_dto_1 = require("./dto/bulk-correct.dto");
 const jwt_auth_guard_1 = require("../../common/guards/jwt-auth.guard");
 const roles_guard_1 = require("../../common/guards/roles.guard");
 const permissions_decorator_1 = require("../../common/decorators/permissions.decorator");
@@ -108,8 +110,8 @@ let AttendanceController = class AttendanceController {
             type,
         }, user.userId, user.permissions || []);
     }
-    getAnomalies(tenantId, date) {
-        return this.attendanceService.getAnomalies(tenantId, date);
+    getAnomalies(user, tenantId, date) {
+        return this.attendanceService.getAnomalies(tenantId, date, user.userId, user.permissions || []);
     }
     getDailyReport(tenantId, date) {
         return this.attendanceService.getDailyReport(tenantId, date);
@@ -117,8 +119,56 @@ let AttendanceController = class AttendanceController {
     findOne(tenantId, id) {
         return this.attendanceService.findOne(tenantId, id);
     }
-    correctAttendance(tenantId, id, correctionDto) {
+    correctAttendance(user, tenantId, id, correctionDto) {
         return this.attendanceService.correctAttendance(tenantId, id, correctionDto);
+    }
+    approveCorrection(user, tenantId, id, body) {
+        return this.attendanceService.approveCorrection(tenantId, id, user.userId, body.approved, body.comment);
+    }
+    getPresenceRate(tenantId, query) {
+        const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+        const endDate = query.endDate ? new Date(query.endDate) : new Date();
+        if (!query.employeeId) {
+            throw new Error('employeeId is required');
+        }
+        return this.attendanceService.getPresenceRate(tenantId, query.employeeId, startDate, endDate);
+    }
+    getPunctualityRate(tenantId, query) {
+        const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+        const endDate = query.endDate ? new Date(query.endDate) : new Date();
+        if (!query.employeeId) {
+            throw new Error('employeeId is required');
+        }
+        return this.attendanceService.getPunctualityRate(tenantId, query.employeeId, startDate, endDate);
+    }
+    getTrends(tenantId, query) {
+        const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+        const endDate = query.endDate ? new Date(query.endDate) : new Date();
+        if (!query.employeeId) {
+            throw new Error('employeeId is required');
+        }
+        return this.attendanceService.getTrends(tenantId, query.employeeId, startDate, endDate);
+    }
+    getRecurringAnomalies(tenantId, employeeId, days) {
+        if (!employeeId) {
+            throw new Error('employeeId is required');
+        }
+        return this.attendanceService.detectRecurringAnomalies(tenantId, employeeId, days ? parseInt(days, 10) : 30);
+    }
+    getCorrectionHistory(tenantId, id) {
+        return this.attendanceService.getCorrectionHistory(tenantId, id);
+    }
+    bulkCorrectAttendance(user, tenantId, bulkDto) {
+        return this.attendanceService.bulkCorrectAttendance(tenantId, {
+            ...bulkDto,
+            correctedBy: user.userId,
+        });
+    }
+    exportAnomalies(tenantId, format, startDate, endDate, employeeId, anomalyType) {
+        return this.attendanceService.exportAnomalies(tenantId, { startDate, endDate, employeeId, anomalyType }, format || 'csv');
+    }
+    getAnomaliesDashboard(user, tenantId, startDate, endDate) {
+        return this.attendanceService.getAnomaliesDashboard(tenantId, new Date(startDate), new Date(endDate), user.userId, user.permissions || []);
     }
 };
 exports.AttendanceController = AttendanceController;
@@ -187,13 +237,14 @@ __decorate([
     (0, common_1.Get)('anomalies'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     (0, swagger_1.ApiBearerAuth)(),
-    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all'),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team', 'attendance.view_department', 'attendance.view_site'),
     (0, swagger_1.ApiOperation)({ summary: 'Get attendance anomalies' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'List of anomalies' }),
-    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
-    __param(1, (0, common_1.Query)('date')),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Query)('date')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:paramtypes", [Object, String, String]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "getAnomalies", null);
 __decorate([
@@ -230,13 +281,142 @@ __decorate([
     (0, swagger_1.ApiOperation)({ summary: 'Correct attendance record' }),
     (0, swagger_1.ApiResponse)({ status: 200, description: 'Attendance corrected successfully' }),
     (0, swagger_1.ApiResponse)({ status: 404, description: 'Attendance not found' }),
-    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
-    __param(1, (0, common_1.Param)('id')),
-    __param(2, (0, common_1.Body)()),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Param)('id')),
+    __param(3, (0, common_1.Body)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String, String, correct_attendance_dto_1.CorrectAttendanceDto]),
+    __metadata("design:paramtypes", [Object, String, String, correct_attendance_dto_1.CorrectAttendanceDto]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "correctAttendance", null);
+__decorate([
+    (0, common_1.Patch)(':id/approve-correction'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.approve_correction', 'attendance.correct'),
+    (0, swagger_1.ApiOperation)({ summary: 'Approve or reject attendance correction' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Correction approved/rejected successfully' }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Attendance not found' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Param)('id')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "approveCorrection", null);
+__decorate([
+    (0, common_1.Get)('stats/presence-rate'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_own', 'attendance.view_team'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get presence rate for an employee' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Presence rate statistics' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, attendance_stats_dto_1.AttendanceStatsQueryDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getPresenceRate", null);
+__decorate([
+    (0, common_1.Get)('stats/punctuality-rate'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_own', 'attendance.view_team'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get punctuality rate for an employee' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Punctuality rate statistics' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, attendance_stats_dto_1.AttendanceStatsQueryDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getPunctualityRate", null);
+__decorate([
+    (0, common_1.Get)('stats/trends'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_own', 'attendance.view_team'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get attendance trends (graphs data)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Trends data for charts' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, attendance_stats_dto_1.AttendanceStatsQueryDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getTrends", null);
+__decorate([
+    (0, common_1.Get)('stats/recurring-anomalies'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team'),
+    (0, swagger_1.ApiOperation)({ summary: 'Detect recurring anomalies for an employee' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'List of recurring anomalies' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Query)('employeeId')),
+    __param(2, (0, common_1.Query)('days')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getRecurringAnomalies", null);
+__decorate([
+    (0, common_1.Get)(':id/correction-history'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_own'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get complete correction history for an attendance record' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Correction history' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getCorrectionHistory", null);
+__decorate([
+    (0, common_1.Post)('bulk-correct'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.correct', 'attendance.edit'),
+    (0, swagger_1.ApiOperation)({ summary: 'Correct multiple attendance records at once' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Bulk correction results' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, bulk_correct_dto_1.BulkCorrectAttendanceDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "bulkCorrectAttendance", null);
+__decorate([
+    (0, common_1.Get)('export/anomalies'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.export', 'attendance.view_all', 'attendance.view_anomalies'),
+    (0, swagger_1.ApiOperation)({ summary: 'Export anomalies only (CSV/Excel)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Anomalies export file' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, common_1.Query)('format')),
+    __param(2, (0, common_1.Query)('startDate')),
+    __param(3, (0, common_1.Query)('endDate')),
+    __param(4, (0, common_1.Query)('employeeId')),
+    __param(5, (0, common_1.Query)('anomalyType')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "exportAnomalies", null);
+__decorate([
+    (0, common_1.Get)('dashboard/anomalies'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get anomalies dashboard summary' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Anomalies dashboard data' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Query)('startDate')),
+    __param(3, (0, common_1.Query)('endDate')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getAnomaliesDashboard", null);
 exports.AttendanceController = AttendanceController = __decorate([
     (0, swagger_1.ApiTags)('Attendance'),
     (0, common_1.Controller)('attendance'),

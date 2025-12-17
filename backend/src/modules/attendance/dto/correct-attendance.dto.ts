@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CorrectAttendanceDto {
@@ -14,4 +14,9 @@ export class CorrectAttendanceDto {
   @ApiProperty({ description: 'ID de l\'utilisateur qui corrige' })
   @IsString()
   correctedBy: string;
+
+  @ApiPropertyOptional({ description: 'Forcer la correction sans approbation (admin seulement)' })
+  @IsBoolean()
+  @IsOptional()
+  forceApproval?: boolean;
 }

@@ -97,7 +97,7 @@ let LeavesService = class LeavesService {
         const hasViewTeam = userPermissions?.includes('leave.view_team');
         const hasViewDepartment = userPermissions?.includes('leave.view_department');
         const hasViewSite = userPermissions?.includes('leave.view_site');
-        if (userId) {
+        if (userId && !hasViewAll) {
             const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
             if (managerLevel.type === 'DEPARTMENT') {
                 const managedEmployeeIds = await (0, manager_level_util_1.getManagedEmployeeIds)(this.prisma, managerLevel, tenantId);

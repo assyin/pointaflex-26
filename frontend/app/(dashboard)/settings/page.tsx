@@ -67,6 +67,7 @@ export default function SettingsPage() {
     anticipatedLeave: false,
     monthlyPayrollEmail: false,
     sfptExport: false,
+    requireBreakPunch: false,
   });
 
   // Modal states
@@ -110,6 +111,7 @@ export default function SettingsPage() {
         anticipatedLeave: settings.anticipatedLeave ?? false,
         monthlyPayrollEmail: settings.monthlyPayrollEmail ?? false,
         sfptExport: settings.sfptExport ?? false,
+        requireBreakPunch: settings.requireBreakPunch ?? false,
       });
     }
   }, [settings]);
@@ -539,6 +541,32 @@ export default function SettingsPage() {
                         type="checkbox"
                         checked={formData.anticipatedLeave}
                         onChange={(e) => setFormData({ ...formData, anticipatedLeave: e.target.checked })}
+                        className="w-11 h-6"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Attendance Settings */}
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-3">
+                    Pointage & Présences
+                  </label>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <div className="text-[14px] font-semibold text-[#212529]">
+                          Exiger le pointage des repos (pauses)
+                        </div>
+                        <div className="text-[12px] text-[#6C757D] mt-0.5">
+                          Les employés devront pointer le début et la fin de leurs pauses. Si désactivé, seuls les pointages d'entrée et de sortie seront acceptés.
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={formData.requireBreakPunch}
+                        onChange={(e) => setFormData({ ...formData, requireBreakPunch: e.target.checked })}
                         className="w-11 h-6"
                       />
                     </div>

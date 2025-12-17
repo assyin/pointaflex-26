@@ -138,6 +138,7 @@ export class AuthService {
           role: true,
           tenantId: true,
           isActive: true,
+          avatar: true,
         },
       });
 

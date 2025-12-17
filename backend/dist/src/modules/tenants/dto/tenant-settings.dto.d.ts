@@ -11,4 +11,5 @@ export declare class UpdateTenantSettingsDto {
     leaveApprovalLevels?: number;
     overtimeRate?: number;
     nightShiftRate?: number;
+    requireBreakPunch?: boolean;
 }

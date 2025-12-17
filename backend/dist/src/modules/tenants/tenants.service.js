@@ -203,7 +203,7 @@ let TenantsService = class TenantsService {
                 'overtimeRounding', 'overtimeRate', 'nightShiftStart', 'nightShiftEnd', 'nightShiftRate',
                 'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
                 'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
-                'monthlyPayrollEmail', 'sfptExport'
+                'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch'
             ];
             for (const [key, value] of Object.entries(settingsData)) {
                 if (value !== undefined && validSettingsFields.includes(key)) {

@@ -31,7 +31,7 @@ let OvertimeController = class OvertimeController {
     create(user, dto) {
         return this.overtimeService.create(user.tenantId, dto);
     }
-    findAll(user, page, limit, employeeId, status, startDate, endDate, isNightShift, type) {
+    findAll(user, page, limit, employeeId, status, startDate, endDate, isNightShift, type, siteId, departmentId) {
         return this.overtimeService.findAll(user.tenantId, parseInt(page) || 1, parseInt(limit) || 20, {
             employeeId,
             status,
@@ -39,6 +39,8 @@ let OvertimeController = class OvertimeController {
             endDate,
             isNightShift: isNightShift ? isNightShift === 'true' : undefined,
             type,
+            siteId,
+            departmentId,
         }, user.userId, user.permissions || []);
     }
     findOne(user, id) {
@@ -84,8 +86,10 @@ __decorate([
     __param(6, (0, common_1.Query)('endDate')),
     __param(7, (0, common_1.Query)('isNightShift')),
     __param(8, (0, common_1.Query)('type')),
+    __param(9, (0, common_1.Query)('siteId')),
+    __param(10, (0, common_1.Query)('departmentId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], OvertimeController.prototype, "findAll", null);
 __decorate([

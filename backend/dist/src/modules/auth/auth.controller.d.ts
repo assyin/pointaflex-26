@@ -28,6 +28,7 @@ export declare class AuthController {
             email: string;
             firstName: string;
             lastName: string;
+            avatar: string;
             isActive: boolean;
             role: import(".prisma/client").$Enums.LegacyRole;
         };

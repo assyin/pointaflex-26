@@ -44,6 +44,8 @@ import {
 } from '@/lib/hooks/useOvertime';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 import { useEmployees } from '@/lib/hooks/useEmployees';
+import { useSites } from '@/lib/hooks/useSites';
+import { useDepartments } from '@/lib/hooks/useDepartments';
 import { Textarea } from '@/components/ui/textarea';
 import { PermissionGate } from '@/components/auth/PermissionGate';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -57,6 +59,8 @@ export default function OvertimePage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedSite, setSelectedSite] = useState<string>('all');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [employeeSearchQuery, setEmployeeSearchQuery] = useState(''); // Search query for employee filter
   // Par défaut, afficher les données d'aujourd'hui
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -94,16 +98,20 @@ export default function OvertimePage() {
     if (selectedEmployee !== 'all') filterObj.employeeId = selectedEmployee;
     if (selectedStatus !== 'all') filterObj.status = selectedStatus;
     if (selectedType !== 'all') filterObj.type = selectedType;
+    if (selectedSite !== 'all') filterObj.siteId = selectedSite;
+    if (selectedDepartment !== 'all') filterObj.departmentId = selectedDepartment;
     if (startDate) filterObj.startDate = startDate;
     if (endDate) filterObj.endDate = endDate;
     filterObj.page = currentPage;
     filterObj.limit = itemsPerPage;
     return filterObj;
-  }, [selectedEmployee, selectedStatus, selectedType, startDate, endDate, currentPage, itemsPerPage]);
+  }, [selectedEmployee, selectedStatus, selectedType, selectedSite, selectedDepartment, startDate, endDate, currentPage, itemsPerPage]);
 
   // Fetch data for table (with all filters including date)
   const { data: overtimeData, isLoading, error, refetch } = useOvertimeRecords(filters);
   const { data: employeesData } = useEmployees();
+  const { data: sitesData } = useSites();
+  const { data: departmentsData } = useDepartments();
 
   // Mutations
   const approveMutation = useApproveOvertime();
@@ -370,6 +378,8 @@ export default function OvertimePage() {
     setSelectedStatus('all');
     setSelectedEmployee('all');
     setSelectedType('all');
+    setSelectedSite('all');
+    setSelectedDepartment('all');
     const today = format(new Date(), 'yyyy-MM-dd');
     setStartDate(today);
     setEndDate(today);
@@ -379,7 +389,8 @@ export default function OvertimePage() {
   };
 
   const hasActiveFilters = selectedStatus !== 'all' || selectedEmployee !== 'all' || 
-    selectedType !== 'all' || searchQuery !== '' || employeeSearchQuery !== '';
+    selectedType !== 'all' || selectedSite !== 'all' || selectedDepartment !== 'all' ||
+    searchQuery !== '' || employeeSearchQuery !== '';
 
   return (
     <ProtectedRoute permissions={['overtime.view_all', 'overtime.view_own']}>
@@ -473,7 +484,7 @@ export default function OvertimePage() {
           {showAdvancedFilters && (
             <Card>
               <CardContent className="p-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="employee-filter">Employé</Label>
                     <div className="space-y-2">
@@ -518,6 +529,46 @@ export default function OvertimePage() {
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="site-filter">Site</Label>
+                    <Select value={selectedSite} onValueChange={(value) => {
+                      setSelectedSite(value);
+                      setCurrentPage(1); // Réinitialiser la pagination
+                    }}>
+                      <SelectTrigger id="site-filter">
+                        <SelectValue placeholder="Tous les sites" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Tous les sites</SelectItem>
+                        {(Array.isArray(sitesData) ? sitesData : sitesData?.data || []).map((site: any) => (
+                          <SelectItem key={site.id} value={site.id}>
+                            {site.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="department-filter">Département</Label>
+                    <Select value={selectedDepartment} onValueChange={(value) => {
+                      setSelectedDepartment(value);
+                      setCurrentPage(1); // Réinitialiser la pagination
+                    }}>
+                      <SelectTrigger id="department-filter">
+                        <SelectValue placeholder="Tous les départements" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Tous les départements</SelectItem>
+                        {(Array.isArray(departmentsData) ? departmentsData : departmentsData?.data || []).map((dept: any) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="space-y-2">

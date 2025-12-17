@@ -101,4 +101,9 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsBoolean()
   sfptExport?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  requireBreakPunch?: boolean;
 }

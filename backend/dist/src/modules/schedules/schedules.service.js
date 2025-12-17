@@ -235,7 +235,7 @@ let SchedulesService = class SchedulesService {
         const hasViewTeam = userPermissions?.includes('schedule.view_team');
         const hasViewDepartment = userPermissions?.includes('schedule.view_department');
         const hasViewSite = userPermissions?.includes('schedule.view_site');
-        if (userId) {
+        if (userId && !hasViewAll) {
             const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
             if (managerLevel.type === 'DEPARTMENT') {
                 const managedEmployeeIds = await (0, manager_level_util_1.getManagedEmployeeIds)(this.prisma, managerLevel, tenantId);

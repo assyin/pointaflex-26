@@ -215,6 +215,28 @@ export declare class EmployeesService {
                 location: string | null;
                 lastActive: Date;
                 expiresAt: Date;
+            })[] | ({
+                id: string;
+                createdAt: Date;
+                tenantId: string;
+                userId: string;
+                format: string;
+                reportType: string;
+                fileName: string;
+                filePath: string | null;
+                fileSize: number | null;
+                filters: import("@prisma/client/runtime/library").JsonValue | null;
+            } | {
+                id: string;
+                createdAt: Date;
+                tenantId: string;
+                userId: string;
+                format: string;
+                reportType: string;
+                fileName: string;
+                filePath: string | null;
+                fileSize: number | null;
+                filters: import("@prisma/client/runtime/library").JsonValue | null;
             })[] | {
                 id: string;
                 createdAt: Date;
@@ -225,6 +247,17 @@ export declare class EmployeesService {
                 roleId: string;
                 assignedBy: string | null;
                 assignedAt: Date;
+            }[] | {
+                id: string;
+                createdAt: Date;
+                tenantId: string;
+                userId: string;
+                format: string;
+                reportType: string;
+                fileName: string;
+                filePath: string | null;
+                fileSize: number | null;
+                filters: import("@prisma/client/runtime/library").JsonValue | null;
             }[];
             [x: number]: never;
             [x: symbol]: never;
@@ -451,6 +484,15 @@ export declare class EmployeesService {
             isCorrected: boolean;
             correctedBy: string | null;
             correctedAt: Date | null;
+            correctionNote: string | null;
+            hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+            lateMinutes: number | null;
+            earlyLeaveMinutes: number | null;
+            overtimeMinutes: number | null;
+            needsApproval: boolean;
+            approvalStatus: string | null;
+            approvedBy: string | null;
+            approvedAt: Date | null;
             rawData: import("@prisma/client/runtime/library").JsonValue | null;
             generatedBy: string | null;
             isGenerated: boolean;

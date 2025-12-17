@@ -47,6 +47,8 @@ export class OvertimeController {
     @Query('endDate') endDate?: string,
     @Query('isNightShift') isNightShift?: string,
     @Query('type') type?: string,
+    @Query('siteId') siteId?: string,
+    @Query('departmentId') departmentId?: string,
   ) {
     return this.overtimeService.findAll(
       user.tenantId,
@@ -59,6 +61,8 @@ export class OvertimeController {
         endDate,
         isNightShift: isNightShift ? isNightShift === 'true' : undefined,
         type,
+        siteId,
+        departmentId,
       },
       user.userId,
       user.permissions || [],

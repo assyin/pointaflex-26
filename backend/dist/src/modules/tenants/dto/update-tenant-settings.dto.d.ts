@@ -18,4 +18,5 @@ export declare class UpdateTenantSettingsDto {
     anticipatedLeave?: boolean;
     monthlyPayrollEmail?: boolean;
     sfptExport?: boolean;
+    requireBreakPunch?: boolean;
 }

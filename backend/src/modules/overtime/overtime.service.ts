@@ -81,6 +81,8 @@ export class OvertimeService {
       endDate?: string;
       isNightShift?: boolean;
       type?: string;
+      siteId?: string;
+      departmentId?: string;
     },
     userId?: string,
     userPermissions?: string[],
@@ -95,10 +97,10 @@ export class OvertimeService {
     const hasViewDepartment = userPermissions?.includes('overtime.view_department');
     const hasViewSite = userPermissions?.includes('overtime.view_site');
 
-    // IMPORTANT: Détecter TOUJOURS si l'utilisateur est un manager, indépendamment des permissions
-    // Cela permet aux managers régionaux de voir leurs employés même s'ils n'ont que 'overtime.view_all'
-    // PRIORITÉ: Le statut de manager prime sur les permissions
-    if (userId) {
+    // IMPORTANT: Détecter si l'utilisateur est un manager, mais seulement s'il n'a pas 'view_all'
+    // Les admins avec 'view_all' doivent voir toutes les données, indépendamment de leur statut de manager
+    // PRIORITÉ: La permission 'view_all' prime sur le statut de manager
+    if (userId && !hasViewAll) {
       const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
 
       // Si l'utilisateur est un manager, appliquer le filtrage selon son niveau hiérarchique
@@ -221,6 +223,24 @@ export class OvertimeService {
       }
       if (filters.endDate) {
         where.date.lte = new Date(filters.endDate);
+      }
+    }
+
+    // Filtrer par site et département (seulement si employeeId n'est pas spécifié)
+    // Si employeeId est spécifié, ces filtres sont ignorés car employeeId est plus spécifique
+    if (!filters?.employeeId) {
+      const employeeFilters: any = {};
+      
+      if (filters?.siteId) {
+        employeeFilters.siteId = filters.siteId;
+      }
+      
+      if (filters?.departmentId) {
+        employeeFilters.departmentId = filters.departmentId;
+      }
+      
+      if (Object.keys(employeeFilters).length > 0) {
+        where.employee = employeeFilters;
       }
     }
 

@@ -4,4 +4,5 @@ export declare class AttendanceReportDto {
     employeeId?: string;
     departmentId?: string;
     teamId?: string;
+    siteId?: string;
 }

@@ -71,11 +71,28 @@ export function useExportReport() {
     mutationFn: async ({
       reportType,
       filters,
+      onProgress,
     }: {
       reportType: string;
       filters: ReportFilters;
+      onProgress?: (progress: number) => void;
     }) => {
+      // Simuler la progression (dans un vrai cas, utiliser axios avec onUploadProgress/onDownloadProgress)
+      if (onProgress) {
+        onProgress(10);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        onProgress(30);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        onProgress(60);
+        await new Promise(resolve => setTimeout(resolve, 200));
+        onProgress(90);
+      }
+
       const blob = await reportsApi.exportReport(reportType, filters);
+
+      if (onProgress) {
+        onProgress(100);
+      }
 
       // Determine file extension based on format
       const extension = filters.format === 'PDF' ? 'pdf' : filters.format === 'EXCEL' ? 'xlsx' : 'csv';

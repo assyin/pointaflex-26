@@ -11,6 +11,7 @@ export interface User {
   tenantId: string;
   roles?: string[]; // RBAC roles
   permissions?: string[]; // RBAC permissions
+  avatar?: string; // Avatar image (base64)
 }
 
 interface AuthContextType {

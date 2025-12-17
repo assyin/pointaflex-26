@@ -47,6 +47,7 @@ model Tenant {
   users             User[]
   userTenantRoles   UserTenantRole[]
   roles             Role[] // Rôles personnalisés par tenant (optionnel)
+  reportHistory     ReportHistory[]
 
   @@index([slug])
 }
@@ -80,6 +81,7 @@ model TenantSettings {
   workingDays              Json?
   recoveryConversionRate   Decimal  @default(1.0) // Taux de conversion heures supp -> récupération (1.0 = 1h supp = 1h récup)
   recoveryExpiryDays       Int      @default(90) // Nombre de jours avant expiration de la récupération
+  requireBreakPunch        Boolean  @default(false) // Activer/désactiver le pointage des repos (pauses)
   tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
@@ -107,6 +109,7 @@ model User {
   preferences     UserPreferences?
   sessions        UserSession[]
   credentials     UserCredentials?
+  reportHistory   ReportHistory[]
 
   @@index([tenantId])
   @@index([email])
@@ -370,35 +373,46 @@ model AttendanceDevice {
 }
 
 model Attendance {
-  id          String            @id @default(uuid())
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  tenantId    String
-  employeeId  String
-  siteId      String?
-  deviceId    String?
-  timestamp   DateTime
-  type        AttendanceType
-  method      DeviceType
-  latitude    Decimal?
-  longitude   Decimal?
-  hasAnomaly  Boolean           @default(false)
-  anomalyType String?
-  anomalyNote String?
-  isCorrected Boolean           @default(false)
-  correctedBy String?
-  correctedAt DateTime?
-  rawData     Json?
-  generatedBy String?
-  isGenerated Boolean           @default(false)
-  device      AttendanceDevice? @relation(fields: [deviceId], references: [id])
-  employee    Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  site        Site?             @relation(fields: [siteId], references: [id])
-  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                String            @id @default(uuid())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  tenantId          String
+  employeeId        String
+  siteId            String?
+  deviceId          String?
+  timestamp         DateTime
+  type              AttendanceType
+  method            DeviceType
+  latitude          Decimal?
+  longitude         Decimal?
+  hasAnomaly        Boolean           @default(false)
+  anomalyType       String?
+  anomalyNote       String?
+  isCorrected       Boolean           @default(false)
+  correctedBy       String?
+  correctedAt       DateTime?
+  correctionNote    String?           // Note de correction
+  hoursWorked       Decimal?          // Heures travaillées calculées
+  lateMinutes       Int?              // Minutes de retard
+  earlyLeaveMinutes Int?              // Minutes de départ anticipé
+  overtimeMinutes   Int?              // Minutes d'heures supplémentaires
+  needsApproval     Boolean           @default(false) // Nécessite approbation pour correction
+  approvalStatus    String?           // PENDING_APPROVAL, APPROVED, REJECTED
+  approvedBy        String?            // ID de l'utilisateur qui a approuvé
+  approvedAt        DateTime?         // Date d'approbation
+  rawData           Json?
+  generatedBy       String?
+  isGenerated       Boolean           @default(false)
+  device            AttendanceDevice? @relation(fields: [deviceId], references: [id])
+  employee          Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  site              Site?             @relation(fields: [siteId], references: [id])
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([employeeId])
   @@index([timestamp])
+  @@index([hasAnomaly])
+  @@index([needsApproval])
 }
 
 model LeaveType {
@@ -679,6 +693,26 @@ model UserTenantRole {
   @@index([roleId])
 }
 
+model ReportHistory {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  userId      String
+  reportType  String   // attendance, overtime, absences, payroll
+  format      String   // PDF, EXCEL, CSV
+  fileName    String
+  filePath    String?  // Chemin du fichier stocké (optionnel)
+  fileSize    Int?     // Taille en bytes
+  filters     Json?    // Filtres utilisés pour générer le rapport
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([reportType])
+  @@index([createdAt])
+}
+
 // Enum LegacyRole : gardé pour compatibilité avec l'ancien système
 // Le nouveau système utilise le modèle Role avec UserTenantRole
 enum LegacyRole {
@@ -752,4 +786,7 @@ enum NotificationType {
   REPLACEMENT_REQUEST
   ALERT_LEGAL
   SYSTEM
+  ATTENDANCE_ANOMALY
+  ATTENDANCE_CORRECTED
+  ATTENDANCE_APPROVAL_REQUIRED
 }

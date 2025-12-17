@@ -46,6 +46,9 @@ export interface TenantSettings {
   monthlyPayrollEmail?: boolean;
   sfptExport?: boolean;
 
+  // Attendance Settings
+  requireBreakPunch?: boolean; // Activer/désactiver le pointage des repos (pauses)
+
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +82,9 @@ export interface UpdateTenantSettingsDto {
   // Export Settings
   monthlyPayrollEmail?: boolean;
   sfptExport?: boolean;
+
+  // Attendance Settings
+  requireBreakPunch?: boolean; // Activer/désactiver le pointage des repos (pauses)
 }
 
 export const TenantsAPI = {

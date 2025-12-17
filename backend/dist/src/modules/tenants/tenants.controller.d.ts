@@ -35,6 +35,7 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            requireBreakPunch: boolean;
         };
     } & {
         id: string;
@@ -89,6 +90,7 @@ export declare class TenantsController {
                 twoLevelWorkflow: boolean;
                 recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
                 recoveryExpiryDays: number;
+                requireBreakPunch: boolean;
             };
         } & {
             id: string;
@@ -150,6 +152,7 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            requireBreakPunch: boolean;
         };
     } & {
         id: string;
@@ -199,6 +202,7 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            requireBreakPunch: boolean;
         };
     } & {
         id: string;
@@ -265,6 +269,7 @@ export declare class TenantsController {
         twoLevelWorkflow?: boolean;
         recoveryConversionRate?: import("@prisma/client/runtime/library").Decimal;
         recoveryExpiryDays?: number;
+        requireBreakPunch?: boolean;
         legalName: any;
         displayName: any;
         country: any;
@@ -303,6 +308,7 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            requireBreakPunch: boolean;
         };
         id: string;
         createdAt: Date;
@@ -351,6 +357,7 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            requireBreakPunch: boolean;
         };
     }>;
 }

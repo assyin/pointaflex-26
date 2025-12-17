@@ -1192,6 +1192,12 @@ let ReportsService = class ReportsService {
                 teamId: dto.teamId,
             };
         }
+        if (dto.siteId) {
+            where.employee = {
+                ...where.employee,
+                siteId: dto.siteId,
+            };
+        }
         const attendance = await this.prisma.attendance.findMany({
             where,
             include: {
@@ -1224,11 +1230,58 @@ let ReportsService = class ReportsService {
                 { employee: { lastName: 'asc' } },
             ],
         });
+        const dailyAttendance = new Map();
+        attendance.forEach(record => {
+            const dateKey = `${record.employeeId}_${new Date(record.timestamp).toISOString().split('T')[0]}`;
+            if (!dailyAttendance.has(dateKey)) {
+                dailyAttendance.set(dateKey, { employeeId: record.employeeId });
+            }
+            const dayData = dailyAttendance.get(dateKey);
+            if (record.type === client_1.AttendanceType.IN && !dayData.in) {
+                dayData.in = new Date(record.timestamp);
+            }
+            else if (record.type === client_1.AttendanceType.OUT) {
+                dayData.out = new Date(record.timestamp);
+            }
+        });
+        let totalWorkedHours = 0;
+        dailyAttendance.forEach((dayData) => {
+            if (dayData.in && dayData.out) {
+                const diffMs = dayData.out.getTime() - dayData.in.getTime();
+                const diffHours = diffMs / (1000 * 60 * 60);
+                totalWorkedHours += diffHours;
+            }
+        });
+        const byDay = new Map();
+        attendance.forEach(record => {
+            const dateKey = new Date(record.timestamp).toISOString().split('T')[0];
+            if (!byDay.has(dateKey)) {
+                byDay.set(dateKey, { total: 0, anomalies: 0, employees: new Set() });
+            }
+            const dayStats = byDay.get(dateKey);
+            dayStats.total++;
+            dayStats.employees.add(record.employeeId);
+            if (record.hasAnomaly) {
+                dayStats.anomalies++;
+            }
+        });
+        const anomalies = attendance.filter(a => a.hasAnomaly);
+        const uniqueEmployees = new Set(attendance.map(a => a.employeeId)).size;
+        const totalDays = byDay.size;
         return {
             data: attendance,
             summary: {
                 total: attendance.length,
-                anomalies: attendance.filter(a => a.hasAnomaly).length,
+                anomalies: anomalies.length,
+                totalWorkedHours: Math.round(totalWorkedHours * 10) / 10,
+                uniqueEmployees,
+                totalDays,
+                byDay: Array.from(byDay.entries()).map(([date, stats]) => ({
+                    date,
+                    total: stats.total,
+                    anomalies: stats.anomalies,
+                    employees: stats.employees.size,
+                })),
                 period: {
                     startDate: dto.startDate,
                     endDate: dto.endDate,
@@ -1432,6 +1485,507 @@ let ReportsService = class ReportsService {
             },
             employees: team.employees,
         };
+    }
+    async getOvertimeReport(tenantId, dto) {
+        const startDate = new Date(dto.startDate);
+        const endDate = new Date(dto.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        const where = {
+            tenantId,
+            date: {
+                gte: startDate,
+                lte: endDate,
+            },
+        };
+        if (dto.employeeId) {
+            where.employeeId = dto.employeeId;
+        }
+        if (dto.status) {
+            where.status = dto.status;
+        }
+        if (dto.type) {
+            where.type = dto.type;
+        }
+        if (dto.departmentId || dto.siteId || dto.teamId) {
+            where.employee = {};
+            if (dto.departmentId) {
+                where.employee.departmentId = dto.departmentId;
+            }
+            if (dto.siteId) {
+                where.employee.siteId = dto.siteId;
+            }
+            if (dto.teamId) {
+                where.employee.teamId = dto.teamId;
+            }
+        }
+        const overtimeRecords = await this.prisma.overtime.findMany({
+            where,
+            include: {
+                employee: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        matricule: true,
+                        department: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                        site: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                        team: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: [
+                { date: 'desc' },
+                { employee: { lastName: 'asc' } },
+            ],
+        });
+        const totalHours = overtimeRecords.reduce((sum, record) => {
+            const hours = record.approvedHours || record.hours;
+            return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
+        }, 0);
+        const byStatus = overtimeRecords.reduce((acc, record) => {
+            acc[record.status] = (acc[record.status] || 0) + 1;
+            return acc;
+        }, {});
+        const byType = overtimeRecords.reduce((acc, record) => {
+            acc[record.type] = (acc[record.type] || 0) + 1;
+            return acc;
+        }, {});
+        return {
+            data: overtimeRecords,
+            summary: {
+                total: overtimeRecords.length,
+                totalHours,
+                totalApprovedHours: overtimeRecords
+                    .filter(r => r.status === client_1.OvertimeStatus.APPROVED)
+                    .reduce((sum, r) => {
+                    const hours = r.approvedHours || r.hours;
+                    return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
+                }, 0),
+                byStatus,
+                byType,
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+            },
+        };
+    }
+    async getAbsencesReport(tenantId, dto) {
+        const startDate = new Date(dto.startDate);
+        const endDate = new Date(dto.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        const employeeWhere = {
+            tenantId,
+            isActive: true,
+        };
+        if (dto.departmentId) {
+            employeeWhere.departmentId = dto.departmentId;
+        }
+        if (dto.siteId) {
+            employeeWhere.siteId = dto.siteId;
+        }
+        if (dto.teamId) {
+            employeeWhere.teamId = dto.teamId;
+        }
+        const employees = await this.prisma.employee.findMany({
+            where: employeeWhere,
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                matricule: true,
+                department: {
+                    select: {
+                        name: true,
+                    },
+                },
+                site: {
+                    select: {
+                        name: true,
+                    },
+                },
+                team: {
+                    select: {
+                        name: true,
+                    },
+                },
+            },
+        });
+        const employeeIds = employees.map(e => e.id);
+        const attendanceWhere = {
+            tenantId,
+            employeeId: dto.employeeId ? dto.employeeId : { in: employeeIds },
+            timestamp: {
+                gte: startDate,
+                lte: endDate,
+            },
+            hasAnomaly: true,
+        };
+        const anomalies = await this.prisma.attendance.findMany({
+            where: attendanceWhere,
+            include: {
+                employee: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        matricule: true,
+                        department: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                        site: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: [
+                { timestamp: 'desc' },
+                { employee: { lastName: 'asc' } },
+            ],
+        });
+        const formatDate = (date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        const allDays = [];
+        const currentDate = new Date(startDate);
+        while (currentDate <= endDate) {
+            allDays.push(new Date(currentDate));
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+        const absences = [];
+        const employeeAttendanceMap = new Map();
+        anomalies.forEach(att => {
+            const dateKey = formatDate(new Date(att.timestamp));
+            if (!employeeAttendanceMap.has(att.employeeId)) {
+                employeeAttendanceMap.set(att.employeeId, new Set());
+            }
+            employeeAttendanceMap.get(att.employeeId).add(dateKey);
+        });
+        employees.forEach(emp => {
+            allDays.forEach(day => {
+                const dateKey = formatDate(day);
+                const hasEntry = employeeAttendanceMap.get(emp.id)?.has(dateKey);
+                if (!hasEntry) {
+                    const dayOfWeek = day.getDay();
+                    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                        absences.push({
+                            employee: emp,
+                            date: dateKey,
+                            type: 'ABSENCE',
+                        });
+                    }
+                }
+            });
+        });
+        const lateCount = anomalies.filter(a => a.anomalyType?.includes('LATE')).length;
+        const absenceCount = absences.length;
+        const earlyLeaveCount = anomalies.filter(a => a.anomalyType?.includes('EARLY_LEAVE')).length;
+        return {
+            data: {
+                anomalies: anomalies.map(a => ({
+                    ...a,
+                    type: a.anomalyType || 'UNKNOWN',
+                })),
+                absences,
+            },
+            summary: {
+                totalAnomalies: anomalies.length,
+                totalAbsences: absenceCount,
+                lateCount,
+                earlyLeaveCount,
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+            },
+        };
+    }
+    async getPayrollReport(tenantId, dto) {
+        const startDate = new Date(dto.startDate);
+        const endDate = new Date(dto.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        const employeeWhere = {
+            tenantId,
+            isActive: true,
+        };
+        if (dto.departmentId) {
+            employeeWhere.departmentId = dto.departmentId;
+        }
+        if (dto.siteId) {
+            employeeWhere.siteId = dto.siteId;
+        }
+        if (dto.teamId) {
+            employeeWhere.teamId = dto.teamId;
+        }
+        const employees = await this.prisma.employee.findMany({
+            where: dto.employeeId ? { ...employeeWhere, id: dto.employeeId } : employeeWhere,
+            select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                matricule: true,
+                department: {
+                    select: {
+                        name: true,
+                    },
+                },
+                site: {
+                    select: {
+                        name: true,
+                    },
+                },
+                position: true,
+            },
+        });
+        const employeeIds = employees.map(e => e.id);
+        const payrollData = await Promise.all(employees.map(async (employee) => {
+            const attendanceRecords = await this.prisma.attendance.findMany({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    timestamp: {
+                        gte: startDate,
+                        lte: endDate,
+                    },
+                    type: client_1.AttendanceType.IN,
+                },
+            });
+            const workedDays = attendanceRecords.length;
+            const overtimeStats = await this.prisma.overtime.aggregate({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    date: {
+                        gte: startDate,
+                        lte: endDate,
+                    },
+                    status: client_1.OvertimeStatus.APPROVED,
+                },
+                _sum: {
+                    hours: true,
+                    approvedHours: true,
+                },
+            });
+            const overtimeHours = overtimeStats._sum.approvedHours || overtimeStats._sum.hours || 0;
+            const leaveStats = await this.prisma.leave.aggregate({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    startDate: {
+                        lte: endDate,
+                    },
+                    endDate: {
+                        gte: startDate,
+                    },
+                    status: {
+                        in: [client_1.LeaveStatus.APPROVED, client_1.LeaveStatus.HR_APPROVED],
+                    },
+                },
+                _sum: {
+                    days: true,
+                },
+            });
+            const leaveDays = leaveStats._sum.days || 0;
+            const lateRecords = await this.prisma.attendance.findMany({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    timestamp: {
+                        gte: startDate,
+                        lte: endDate,
+                    },
+                    hasAnomaly: true,
+                    anomalyType: {
+                        contains: 'LATE',
+                    },
+                },
+            });
+            const absenceCount = await this.prisma.attendance.count({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    timestamp: {
+                        gte: startDate,
+                        lte: endDate,
+                    },
+                    anomalyType: {
+                        contains: 'ABSENCE',
+                    },
+                },
+            });
+            return {
+                employee: {
+                    id: employee.id,
+                    matricule: employee.matricule,
+                    firstName: employee.firstName,
+                    lastName: employee.lastName,
+                    fullName: `${employee.firstName} ${employee.lastName}`,
+                    department: employee.department?.name || '',
+                    site: employee.site?.name || '',
+                    position: employee.position || '',
+                },
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+                workedDays,
+                normalHours: workedDays * 8,
+                overtimeHours: typeof overtimeHours === 'number' ? overtimeHours : parseFloat(String(overtimeHours)) || 0,
+                leaveDays,
+                lateHours: 0,
+                absenceDays: absenceCount,
+                totalHours: (workedDays * 8) + (typeof overtimeHours === 'number' ? overtimeHours : parseFloat(String(overtimeHours)) || 0),
+            };
+        }));
+        const totalEmployees = payrollData.length;
+        const totalWorkedDays = payrollData.reduce((sum, d) => sum + d.workedDays, 0);
+        const totalNormalHours = payrollData.reduce((sum, d) => sum + d.normalHours, 0);
+        const totalOvertimeHours = payrollData.reduce((sum, d) => sum + d.overtimeHours, 0);
+        const totalLeaveDays = payrollData.reduce((sum, d) => sum + Number(d.leaveDays), 0);
+        return {
+            data: payrollData,
+            summary: {
+                totalEmployees,
+                totalWorkedDays,
+                totalNormalHours,
+                totalOvertimeHours,
+                totalLeaveDays,
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+            },
+        };
+    }
+    async getPlanningReport(tenantId, dto) {
+        const where = {
+            tenantId,
+            date: {
+                gte: new Date(dto.startDate),
+                lte: new Date(dto.endDate),
+            },
+        };
+        if (dto.employeeId)
+            where.employeeId = dto.employeeId;
+        if (dto.departmentId)
+            where.employee = { departmentId: dto.departmentId };
+        if (dto.siteId)
+            where.employee = { ...where.employee, siteId: dto.siteId };
+        if (dto.teamId)
+            where.employee = { ...where.employee, teamId: dto.teamId };
+        if (dto.shiftId)
+            where.shiftId = dto.shiftId;
+        const schedules = await this.prisma.schedule.findMany({
+            where,
+            include: {
+                employee: {
+                    include: {
+                        department: true,
+                        positionRef: true,
+                        site: true,
+                        team: true,
+                    },
+                },
+                shift: true,
+            },
+            orderBy: [
+                { date: 'asc' },
+                { employee: { lastName: 'asc' } },
+            ],
+        });
+        const planningData = schedules.map((schedule) => ({
+            id: schedule.id,
+            date: schedule.date,
+            employee: {
+                id: schedule.employee.id,
+                name: `${schedule.employee.firstName} ${schedule.employee.lastName}`,
+                employeeNumber: schedule.employee.matricule,
+                department: schedule.employee.department?.name || 'N/A',
+                position: schedule.employee.positionRef?.name || schedule.employee.position || 'N/A',
+                site: schedule.employee.site?.name || 'N/A',
+                team: schedule.employee.team?.name || 'N/A',
+            },
+            shift: schedule.shift ? {
+                id: schedule.shift.id,
+                name: schedule.shift.name,
+                startTime: schedule.shift.startTime,
+                endTime: schedule.shift.endTime,
+                color: schedule.shift.color,
+            } : null,
+            customStartTime: schedule.customStartTime,
+            customEndTime: schedule.customEndTime,
+            notes: schedule.notes,
+        }));
+        const totalSchedules = planningData.length;
+        const uniqueEmployees = new Set(planningData.map(s => s.employee.id)).size;
+        const uniqueShifts = new Set(planningData.filter(s => s.shift).map(s => s.shift.id)).size;
+        return {
+            data: planningData,
+            summary: {
+                totalSchedules,
+                uniqueEmployees,
+                uniqueShifts,
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+            },
+        };
+    }
+    async getReportHistory(tenantId, userId) {
+        const where = {
+            tenantId,
+        };
+        if (userId) {
+            where.userId = userId;
+        }
+        const history = await this.prisma.reportHistory.findMany({
+            where,
+            include: {
+                user: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        email: true,
+                    },
+                },
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+            take: 50,
+        });
+        return history.map(item => ({
+            id: item.id,
+            name: item.fileName,
+            reportType: item.reportType,
+            format: item.format,
+            createdAt: item.createdAt,
+            fileSize: item.fileSize,
+            filters: item.filters,
+            user: item.user,
+        }));
     }
 };
 exports.ReportsService = ReportsService;

@@ -24,4 +24,9 @@ export class AttendanceReportDto {
   @IsOptional()
   @IsUUID()
   teamId?: string;
+
+  @ApiPropertyOptional({ description: 'Filter by site ID' })
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
 }

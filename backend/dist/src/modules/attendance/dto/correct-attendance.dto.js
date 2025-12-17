@@ -31,4 +31,10 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CorrectAttendanceDto.prototype, "correctedBy", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Forcer la correction sans approbation (admin seulement)' }),
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], CorrectAttendanceDto.prototype, "forceApproval", void 0);
 //# sourceMappingURL=correct-attendance.dto.js.map

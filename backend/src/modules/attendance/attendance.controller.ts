@@ -15,6 +15,8 @@ import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
+import { AttendanceStatsQueryDto } from './dto/attendance-stats.dto';
+import { BulkCorrectAttendanceDto } from './dto/bulk-correct.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -205,14 +207,20 @@ export class AttendanceController {
   @Get('anomalies')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth()
-  @RequirePermissions('attendance.view_all')
+  @RequirePermissions('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team', 'attendance.view_department', 'attendance.view_site')
   @ApiOperation({ summary: 'Get attendance anomalies' })
   @ApiResponse({ status: 200, description: 'List of anomalies' })
   getAnomalies(
+    @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
     @Query('date') date?: string,
   ) {
-    return this.attendanceService.getAnomalies(tenantId, date);
+    return this.attendanceService.getAnomalies(
+      tenantId,
+      date,
+      user.userId,
+      user.permissions || [],
+    );
   }
 
   @Get('daily-report')
@@ -249,10 +257,202 @@ export class AttendanceController {
   @ApiResponse({ status: 200, description: 'Attendance corrected successfully' })
   @ApiResponse({ status: 404, description: 'Attendance not found' })
   correctAttendance(
+    @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
     @Param('id') id: string,
     @Body() correctionDto: CorrectAttendanceDto,
   ) {
     return this.attendanceService.correctAttendance(tenantId, id, correctionDto);
+  }
+
+  @Patch(':id/approve-correction')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.approve_correction', 'attendance.correct')
+  @ApiOperation({ summary: 'Approve or reject attendance correction' })
+  @ApiResponse({ status: 200, description: 'Correction approved/rejected successfully' })
+  @ApiResponse({ status: 404, description: 'Attendance not found' })
+  approveCorrection(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: { approved: boolean; comment?: string },
+  ) {
+    return this.attendanceService.approveCorrection(
+      tenantId,
+      id,
+      user.userId,
+      body.approved,
+      body.comment,
+    );
+  }
+
+  @Get('stats/presence-rate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_own', 'attendance.view_team')
+  @ApiOperation({ summary: 'Get presence rate for an employee' })
+  @ApiResponse({ status: 200, description: 'Presence rate statistics' })
+  getPresenceRate(
+    @CurrentTenant() tenantId: string,
+    @Query() query: AttendanceStatsQueryDto,
+  ) {
+    const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+    
+    if (!query.employeeId) {
+      throw new Error('employeeId is required');
+    }
+
+    return this.attendanceService.getPresenceRate(
+      tenantId,
+      query.employeeId,
+      startDate,
+      endDate,
+    );
+  }
+
+  @Get('stats/punctuality-rate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_own', 'attendance.view_team')
+  @ApiOperation({ summary: 'Get punctuality rate for an employee' })
+  @ApiResponse({ status: 200, description: 'Punctuality rate statistics' })
+  getPunctualityRate(
+    @CurrentTenant() tenantId: string,
+    @Query() query: AttendanceStatsQueryDto,
+  ) {
+    const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+    
+    if (!query.employeeId) {
+      throw new Error('employeeId is required');
+    }
+
+    return this.attendanceService.getPunctualityRate(
+      tenantId,
+      query.employeeId,
+      startDate,
+      endDate,
+    );
+  }
+
+  @Get('stats/trends')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_own', 'attendance.view_team')
+  @ApiOperation({ summary: 'Get attendance trends (graphs data)' })
+  @ApiResponse({ status: 200, description: 'Trends data for charts' })
+  getTrends(
+    @CurrentTenant() tenantId: string,
+    @Query() query: AttendanceStatsQueryDto,
+  ) {
+    const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+    
+    if (!query.employeeId) {
+      throw new Error('employeeId is required');
+    }
+
+    return this.attendanceService.getTrends(
+      tenantId,
+      query.employeeId,
+      startDate,
+      endDate,
+    );
+  }
+
+  @Get('stats/recurring-anomalies')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team')
+  @ApiOperation({ summary: 'Detect recurring anomalies for an employee' })
+  @ApiResponse({ status: 200, description: 'List of recurring anomalies' })
+  getRecurringAnomalies(
+    @CurrentTenant() tenantId: string,
+    @Query('employeeId') employeeId: string,
+    @Query('days') days?: string,
+  ) {
+    if (!employeeId) {
+      throw new Error('employeeId is required');
+    }
+
+    return this.attendanceService.detectRecurringAnomalies(
+      tenantId,
+      employeeId,
+      days ? parseInt(days, 10) : 30,
+    );
+  }
+
+  @Get(':id/correction-history')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_own')
+  @ApiOperation({ summary: 'Get complete correction history for an attendance record' })
+  @ApiResponse({ status: 200, description: 'Correction history' })
+  getCorrectionHistory(
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+  ) {
+    return this.attendanceService.getCorrectionHistory(tenantId, id);
+  }
+
+  @Post('bulk-correct')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.correct', 'attendance.edit')
+  @ApiOperation({ summary: 'Correct multiple attendance records at once' })
+  @ApiResponse({ status: 200, description: 'Bulk correction results' })
+  bulkCorrectAttendance(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Body() bulkDto: BulkCorrectAttendanceDto,
+  ) {
+    return this.attendanceService.bulkCorrectAttendance(tenantId, {
+      ...bulkDto,
+      correctedBy: user.userId,
+    });
+  }
+
+  @Get('export/anomalies')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.export', 'attendance.view_all', 'attendance.view_anomalies')
+  @ApiOperation({ summary: 'Export anomalies only (CSV/Excel)' })
+  @ApiResponse({ status: 200, description: 'Anomalies export file' })
+  exportAnomalies(
+    @CurrentTenant() tenantId: string,
+    @Query('format') format: 'csv' | 'excel',
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('employeeId') employeeId?: string,
+    @Query('anomalyType') anomalyType?: string,
+  ) {
+    return this.attendanceService.exportAnomalies(
+      tenantId,
+      { startDate, endDate, employeeId, anomalyType },
+      format || 'csv',
+    );
+  }
+
+  @Get('dashboard/anomalies')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team')
+  @ApiOperation({ summary: 'Get anomalies dashboard summary' })
+  @ApiResponse({ status: 200, description: 'Anomalies dashboard data' })
+  getAnomaliesDashboard(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    return this.attendanceService.getAnomaliesDashboard(
+      tenantId,
+      new Date(startDate),
+      new Date(endDate),
+      user.userId,
+      user.permissions || [],
+    );
   }
 }

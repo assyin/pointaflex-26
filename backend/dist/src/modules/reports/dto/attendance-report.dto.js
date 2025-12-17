@@ -43,4 +43,10 @@ __decorate([
     (0, class_validator_1.IsUUID)(),
     __metadata("design:type", String)
 ], AttendanceReportDto.prototype, "teamId", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Filter by site ID' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsUUID)(),
+    __metadata("design:type", String)
+], AttendanceReportDto.prototype, "siteId", void 0);
 //# sourceMappingURL=attendance-report.dto.js.map

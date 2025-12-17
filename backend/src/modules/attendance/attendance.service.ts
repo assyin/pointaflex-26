@@ -3,7 +3,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
-import { AttendanceType } from '@prisma/client';
+import { AttendanceType, NotificationType } from '@prisma/client';
+import { Decimal } from '@prisma/client/runtime/library';
 import { findEmployeeByMatriculeFlexible } from '../../common/utils/matricule.util';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 
@@ -24,6 +25,9 @@ export class AttendanceService {
       throw new NotFoundException('Employee not found');
     }
 
+    // Vérifier la configuration du pointage des repos
+    await this.validateBreakPunch(tenantId, createAttendanceDto.type);
+
     // Détecter les anomalies
     const anomaly = await this.detectAnomalies(
       tenantId,
@@ -32,7 +36,15 @@ export class AttendanceService {
       createAttendanceDto.type,
     );
 
-    return this.prisma.attendance.create({
+    // Calculer les métriques
+    const metrics = await this.calculateMetrics(
+      tenantId,
+      createAttendanceDto.employeeId,
+      new Date(createAttendanceDto.timestamp),
+      createAttendanceDto.type,
+    );
+
+    const attendance = await this.prisma.attendance.create({
       data: {
         ...createAttendanceDto,
         tenantId,
@@ -40,6 +52,10 @@ export class AttendanceService {
         hasAnomaly: anomaly.hasAnomaly,
         anomalyType: anomaly.type,
         anomalyNote: anomaly.note,
+        hoursWorked: metrics.hoursWorked ? new Decimal(metrics.hoursWorked) : null,
+        lateMinutes: metrics.lateMinutes,
+        earlyLeaveMinutes: metrics.earlyLeaveMinutes,
+        overtimeMinutes: metrics.overtimeMinutes,
       },
       include: {
         employee: {
@@ -49,12 +65,36 @@ export class AttendanceService {
             firstName: true,
             lastName: true,
             photo: true,
+            userId: true,
+            department: {
+              select: {
+                id: true,
+                managerId: true,
+              },
+            },
+            site: {
+              select: {
+                id: true,
+                siteManagers: {
+                  select: {
+                    managerId: true,
+                  },
+                },
+              },
+            },
           },
         },
         site: true,
         device: true,
       },
     });
+
+    // Notifier les managers si anomalie détectée
+    if (anomaly.hasAnomaly) {
+      await this.notifyManagersOfAnomaly(tenantId, attendance);
+    }
+
+    return attendance;
   }
 
   async handleWebhook(
@@ -98,8 +138,19 @@ export class AttendanceService {
       throw new NotFoundException(`Employee ${webhookData.employeeId} not found`);
     }
 
+    // Vérifier la configuration du pointage des repos
+    await this.validateBreakPunch(tenantId, webhookData.type);
+
     // Détecter les anomalies
     const anomaly = await this.detectAnomalies(
+      tenantId,
+      employee.id,
+      new Date(webhookData.timestamp),
+      webhookData.type,
+    );
+
+    // Calculer les métriques
+    const metrics = await this.calculateMetrics(
       tenantId,
       employee.id,
       new Date(webhookData.timestamp),
@@ -112,7 +163,7 @@ export class AttendanceService {
       data: { lastSync: new Date() },
     });
 
-    return this.prisma.attendance.create({
+    const attendance = await this.prisma.attendance.create({
       data: {
         tenantId,
         employeeId: employee.id,
@@ -125,6 +176,10 @@ export class AttendanceService {
         hasAnomaly: anomaly.hasAnomaly,
         anomalyType: anomaly.type,
         anomalyNote: anomaly.note,
+        hoursWorked: metrics.hoursWorked ? new Decimal(metrics.hoursWorked) : null,
+        lateMinutes: metrics.lateMinutes,
+        earlyLeaveMinutes: metrics.earlyLeaveMinutes,
+        overtimeMinutes: metrics.overtimeMinutes,
       },
       include: {
         employee: {
@@ -133,10 +188,34 @@ export class AttendanceService {
             matricule: true,
             firstName: true,
             lastName: true,
+            userId: true,
+            department: {
+              select: {
+                id: true,
+                managerId: true,
+              },
+            },
+            site: {
+              select: {
+                id: true,
+                siteManagers: {
+                  select: {
+                    managerId: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
     });
+
+    // Notifier les managers si anomalie détectée
+    if (anomaly.hasAnomaly) {
+      await this.notifyManagersOfAnomaly(tenantId, attendance);
+    }
+
+    return attendance;
   }
 
   async findAll(
@@ -161,10 +240,10 @@ export class AttendanceService {
     const hasViewDepartment = userPermissions?.includes('attendance.view_department');
     const hasViewSite = userPermissions?.includes('attendance.view_site');
 
-    // IMPORTANT: Détecter TOUJOURS si l'utilisateur est un manager, indépendamment des permissions
-    // Cela permet aux managers régionaux de voir leurs employés même s'ils n'ont que 'attendance.view_team'
-    // PRIORITÉ: Le statut de manager prime sur les permissions
-    if (userId) {
+    // IMPORTANT: Détecter si l'utilisateur est un manager, mais seulement s'il n'a pas 'view_all'
+    // Les admins avec 'view_all' doivent voir toutes les données, indépendamment de leur statut de manager
+    // PRIORITÉ: La permission 'view_all' prime sur le statut de manager
+    if (userId && !hasViewAll) {
       const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
 
       // Si l'utilisateur est un manager, appliquer le filtrage selon son niveau hiérarchique
@@ -300,16 +379,48 @@ export class AttendanceService {
       throw new NotFoundException(`Attendance record ${id} not found`);
     }
 
-    return this.prisma.attendance.update({
+    // Nouveau timestamp si fourni
+    const newTimestamp = correctionDto.correctedTimestamp
+      ? new Date(correctionDto.correctedTimestamp)
+      : attendance.timestamp;
+
+    // Re-détecter les anomalies avec le nouveau timestamp
+    const anomaly = await this.detectAnomalies(
+      tenantId,
+      attendance.employeeId,
+      newTimestamp,
+      attendance.type,
+    );
+
+    // Recalculer les métriques
+    const metrics = await this.calculateMetrics(
+      tenantId,
+      attendance.employeeId,
+      newTimestamp,
+      attendance.type,
+    );
+
+    // Déterminer si l'approbation est nécessaire (si correction importante)
+    const needsApproval = correctionDto.forceApproval
+      ? false
+      : this.requiresApproval(attendance, newTimestamp, correctionDto.correctionNote);
+
+    const updatedAttendance = await this.prisma.attendance.update({
       where: { id },
       data: {
-        isCorrected: true,
+        isCorrected: !needsApproval, // Seulement marqué comme corrigé si pas besoin d'approbation
         correctedBy: correctionDto.correctedBy,
-        correctedAt: new Date(),
-        anomalyNote: correctionDto.correctionNote,
-        timestamp: correctionDto.correctedTimestamp
-          ? new Date(correctionDto.correctedTimestamp)
-          : attendance.timestamp,
+        correctedAt: needsApproval ? null : new Date(),
+        correctionNote: correctionDto.correctionNote,
+        timestamp: newTimestamp,
+        hasAnomaly: anomaly.hasAnomaly,
+        anomalyType: anomaly.type,
+        hoursWorked: metrics.hoursWorked ? new Decimal(metrics.hoursWorked) : null,
+        lateMinutes: metrics.lateMinutes,
+        earlyLeaveMinutes: metrics.earlyLeaveMinutes,
+        overtimeMinutes: metrics.overtimeMinutes,
+        needsApproval,
+        approvalStatus: needsApproval ? 'PENDING_APPROVAL' : null,
       },
       include: {
         employee: {
@@ -318,18 +429,199 @@ export class AttendanceService {
             matricule: true,
             firstName: true,
             lastName: true,
+            userId: true,
           },
         },
       },
     });
+
+    // Notifier l'employé de la correction
+    if (!needsApproval && updatedAttendance.employee.userId) {
+      await this.notifyEmployeeOfCorrection(tenantId, updatedAttendance);
+    } else if (needsApproval) {
+      // Notifier les managers qu'une approbation est nécessaire
+      await this.notifyManagersOfApprovalRequired(tenantId, updatedAttendance);
+    }
+
+    return updatedAttendance;
   }
 
-  async getAnomalies(tenantId: string, date?: string) {
+  /**
+   * Détermine si une correction nécessite une approbation
+   */
+  private requiresApproval(
+    attendance: any,
+    newTimestamp: Date,
+    correctionNote: string,
+  ): boolean {
+    // Correction nécessite approbation si :
+    // 1. Changement de timestamp > 2 heures
+    const timeDiff = Math.abs(newTimestamp.getTime() - attendance.timestamp.getTime()) / (1000 * 60 * 60);
+    if (timeDiff > 2) {
+      return true;
+    }
+
+    // 2. Anomalie de type ABSENCE ou INSUFFICIENT_REST
+    if (attendance.anomalyType === 'ABSENCE' || attendance.anomalyType === 'INSUFFICIENT_REST') {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Notifie les managers d'une nouvelle anomalie
+   */
+  private async notifyManagersOfAnomaly(tenantId: string, attendance: any): Promise<void> {
+    try {
+      const managerIds = new Set<string>();
+
+      // Récupérer le manager du département
+      if (attendance.employee?.department?.managerId) {
+        managerIds.add(attendance.employee.department.managerId);
+      }
+
+      // Récupérer les managers régionaux du site
+      if (attendance.employee?.site?.siteManagers) {
+        attendance.employee.site.siteManagers.forEach((sm: any) => {
+          managerIds.add(sm.managerId);
+        });
+      }
+
+      // Créer des notifications pour chaque manager
+      for (const managerId of managerIds) {
+        const manager = await this.prisma.employee.findUnique({
+          where: { id: managerId },
+          select: { userId: true, firstName: true, lastName: true },
+        });
+
+        if (manager?.userId) {
+          await this.prisma.notification.create({
+            data: {
+              tenantId,
+              employeeId: managerId,
+              type: NotificationType.ATTENDANCE_ANOMALY,
+              title: 'Nouvelle anomalie de pointage détectée',
+              message: `Anomalie ${attendance.anomalyType} détectée pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule})`,
+              metadata: {
+                attendanceId: attendance.id,
+                anomalyType: attendance.anomalyType,
+                employeeId: attendance.employeeId,
+              },
+            },
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors de la notification des managers:', error);
+      // Ne pas bloquer la création du pointage en cas d'erreur de notification
+    }
+  }
+
+  /**
+   * Notifie l'employé d'une correction
+   */
+  private async notifyEmployeeOfCorrection(tenantId: string, attendance: any): Promise<void> {
+    try {
+      if (!attendance.employee?.userId) return;
+
+      await this.prisma.notification.create({
+        data: {
+          tenantId,
+          employeeId: attendance.employeeId,
+          type: NotificationType.ATTENDANCE_CORRECTED,
+          title: 'Votre pointage a été corrigé',
+          message: `Votre pointage du ${new Date(attendance.timestamp).toLocaleDateString('fr-FR')} a été corrigé par un manager.`,
+          metadata: {
+            attendanceId: attendance.id,
+            correctedAt: attendance.correctedAt,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('Erreur lors de la notification de l\'employé:', error);
+    }
+  }
+
+  /**
+   * Notifie les managers qu'une approbation est nécessaire
+   */
+  private async notifyManagersOfApprovalRequired(tenantId: string, attendance: any): Promise<void> {
+    try {
+      const managerIds = new Set<string>();
+
+      if (attendance.employee?.department?.managerId) {
+        managerIds.add(attendance.employee.department.managerId);
+      }
+
+      if (attendance.employee?.site?.siteManagers) {
+        attendance.employee.site.siteManagers.forEach((sm: any) => {
+          managerIds.add(sm.managerId);
+        });
+      }
+
+      for (const managerId of managerIds) {
+        const manager = await this.prisma.employee.findUnique({
+          where: { id: managerId },
+          select: { userId: true },
+        });
+
+        if (manager?.userId) {
+          await this.prisma.notification.create({
+            data: {
+              tenantId,
+              employeeId: managerId,
+              type: NotificationType.ATTENDANCE_APPROVAL_REQUIRED,
+              title: 'Approbation de correction requise',
+              message: `Une correction de pointage pour ${attendance.employee.firstName} ${attendance.employee.lastName} nécessite votre approbation.`,
+              metadata: {
+                attendanceId: attendance.id,
+                employeeId: attendance.employeeId,
+              },
+            },
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Erreur lors de la notification des managers pour approbation:', error);
+    }
+  }
+
+  async getAnomalies(
+    tenantId: string,
+    date?: string,
+    userId?: string,
+    userPermissions?: string[],
+  ) {
     const where: any = {
       tenantId,
       hasAnomaly: true,
       isCorrected: false,
     };
+
+    // Filtrer par manager si nécessaire (seulement si l'utilisateur n'a pas 'view_all')
+    const hasViewAll = userPermissions?.includes('attendance.view_all');
+    if (userId && !hasViewAll) {
+      const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+      if (managerLevel.type !== null) {
+        const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+        if (managedEmployeeIds.length === 0) {
+          return [];
+        }
+        where.employeeId = { in: managedEmployeeIds };
+      } else if (userPermissions?.includes('attendance.view_own')) {
+        // Si pas manager et a seulement 'view_own', filtrer par son propre ID
+        const employee = await this.prisma.employee.findFirst({
+          where: { userId, tenantId },
+          select: { id: true },
+        });
+        if (employee) {
+          where.employeeId = employee.id;
+        } else {
+          return [];
+        }
+      }
+    }
 
     if (date) {
       const startOfDay = new Date(date);
@@ -343,7 +635,7 @@ export class AttendanceService {
       };
     }
 
-    return this.prisma.attendance.findMany({
+    const anomalies = await this.prisma.attendance.findMany({
       where,
       include: {
         employee: {
@@ -353,10 +645,35 @@ export class AttendanceService {
             firstName: true,
             lastName: true,
             photo: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            department: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
+        site: true,
       },
-      orderBy: { timestamp: 'desc' },
+    });
+
+    // Trier par priorité (criticité) puis par date
+    return anomalies.sort((a, b) => {
+      const priorityA = this.getAnomalyPriority(a.anomalyType);
+      const priorityB = this.getAnomalyPriority(b.anomalyType);
+      
+      if (priorityA !== priorityB) {
+        return priorityB - priorityA; // Priorité décroissante
+      }
+      
+      // Si même priorité, trier par date (plus récent en premier)
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
   }
 
@@ -411,6 +728,174 @@ export class AttendanceService {
     };
   }
 
+  /**
+   * Valide si le pointage de repos est autorisé selon la configuration
+   */
+  private async validateBreakPunch(tenantId: string, type: AttendanceType): Promise<void> {
+    // Vérifier si c'est un pointage de repos
+    if (type !== AttendanceType.BREAK_START && type !== AttendanceType.BREAK_END) {
+      return; // Pas un pointage de repos, pas de validation nécessaire
+    }
+
+    // Récupérer la configuration du tenant
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { requireBreakPunch: true },
+    });
+
+    // Si requireBreakPunch est false, rejeter les pointages de repos
+    if (!settings?.requireBreakPunch) {
+      throw new BadRequestException(
+        'Le pointage des repos (pauses) est désactivé pour ce tenant. Contactez votre administrateur pour activer cette fonctionnalité.',
+      );
+    }
+  }
+
+  /**
+   * Calcule les métriques (heures travaillées, retards, etc.)
+   */
+  private async calculateMetrics(
+    tenantId: string,
+    employeeId: string,
+    timestamp: Date,
+    type: AttendanceType,
+  ): Promise<{
+    hoursWorked?: number;
+    lateMinutes?: number;
+    earlyLeaveMinutes?: number;
+    overtimeMinutes?: number;
+  }> {
+    const startOfDay = new Date(timestamp);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(timestamp);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Récupérer les pointages du jour
+    const todayRecords = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        timestamp: { gte: startOfDay, lte: endOfDay },
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    const metrics: {
+      hoursWorked?: number;
+      lateMinutes?: number;
+      earlyLeaveMinutes?: number;
+      overtimeMinutes?: number;
+    } = {};
+
+    // Calculer les heures travaillées si c'est une sortie
+    if (type === AttendanceType.OUT) {
+      const inRecord = todayRecords.find(r => r.type === AttendanceType.IN);
+      if (inRecord) {
+        const hoursWorked = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60 * 60);
+        metrics.hoursWorked = Math.max(0, hoursWorked);
+      }
+    }
+
+    // Calculer les retards si c'est une entrée
+    if (type === AttendanceType.IN) {
+      // Récupérer le planning de l'employé pour cette date
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          tenantId,
+          employeeId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        include: {
+          shift: true,
+        },
+      });
+
+      if (schedule?.shift) {
+        // Calculer l'heure d'entrée prévue
+        const expectedStartTime = this.parseTimeString(
+          schedule.customStartTime || schedule.shift.startTime,
+        );
+        const expectedStart = new Date(timestamp);
+        expectedStart.setHours(expectedStartTime.hours, expectedStartTime.minutes, 0, 0);
+
+        // Récupérer la tolérance depuis les settings
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { lateToleranceEntry: true },
+        });
+
+        const toleranceMinutes = settings?.lateToleranceEntry || 10;
+
+        // Calculer le retard
+        const lateMinutes = Math.max(
+          0,
+          (timestamp.getTime() - expectedStart.getTime()) / (1000 * 60) - toleranceMinutes,
+        );
+
+        if (lateMinutes > 0) {
+          metrics.lateMinutes = Math.round(lateMinutes);
+        }
+      }
+    }
+
+    // Calculer le départ anticipé si c'est une sortie
+    if (type === AttendanceType.OUT) {
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          tenantId,
+          employeeId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        include: {
+          shift: true,
+        },
+      });
+
+      if (schedule?.shift) {
+        const expectedEndTime = this.parseTimeString(
+          schedule.customEndTime || schedule.shift.endTime,
+        );
+        const expectedEnd = new Date(timestamp);
+        expectedEnd.setHours(expectedEndTime.hours, expectedEndTime.minutes, 0, 0);
+
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { earlyToleranceExit: true },
+        });
+
+        const toleranceMinutes = settings?.earlyToleranceExit || 5;
+
+        const earlyLeaveMinutes = Math.max(
+          0,
+          (expectedEnd.getTime() - timestamp.getTime()) / (1000 * 60) - toleranceMinutes,
+        );
+
+        if (earlyLeaveMinutes > 0) {
+          metrics.earlyLeaveMinutes = Math.round(earlyLeaveMinutes);
+        }
+      }
+    }
+
+    return metrics;
+  }
+
+  /**
+   * Parse une chaîne de temps (HH:mm) en objet {hours, minutes}
+   */
+  private parseTimeString(timeString: string): { hours: number; minutes: number } {
+    const [hours, minutes] = timeString.split(':').map(Number);
+    return { hours: hours || 0, minutes: minutes || 0 };
+  }
+
+  /**
+   * Détecte les anomalies dans les pointages
+   */
   private async detectAnomalies(
     tenantId: string,
     employeeId: string,
@@ -456,9 +941,1069 @@ export class AttendanceService {
       }
     }
 
-    // TODO: Vérifier retards (nécessite le planning de l'employé)
-    // TODO: Vérifier repos insuffisant entre shifts
+    // Vérifier entrée sans sortie (à la fin de la journée)
+    if (type === AttendanceType.IN) {
+      // Vérifier s'il y a déjà une entrée sans sortie correspondante
+      const inRecords = todayRecords.filter(r => r.type === AttendanceType.IN);
+      const outRecords = todayRecords.filter(r => r.type === AttendanceType.OUT);
+      if (inRecords.length > outRecords.length) {
+        // Il y a déjà une entrée sans sortie
+        return {
+          hasAnomaly: true,
+          type: 'MISSING_OUT',
+          note: 'Entrée détectée sans sortie correspondante',
+        };
+      }
+    }
+
+    // Vérifier retards (nécessite le planning de l'employé)
+    if (type === AttendanceType.IN) {
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          tenantId,
+          employeeId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        include: {
+          shift: true,
+        },
+      });
+
+      if (schedule?.shift) {
+        const expectedStartTime = this.parseTimeString(
+          schedule.customStartTime || schedule.shift.startTime,
+        );
+        const expectedStart = new Date(timestamp);
+        expectedStart.setHours(expectedStartTime.hours, expectedStartTime.minutes, 0, 0);
+
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { lateToleranceEntry: true },
+        });
+
+        const toleranceMinutes = settings?.lateToleranceEntry || 10;
+        const lateMinutes = (timestamp.getTime() - expectedStart.getTime()) / (1000 * 60);
+
+        if (lateMinutes > toleranceMinutes) {
+          return {
+            hasAnomaly: true,
+            type: 'LATE',
+            note: `Retard de ${Math.round(lateMinutes)} minutes détecté`,
+          };
+        }
+      } else {
+        // Pas de planning pour cette date - vérifier si c'est un jour ouvrable
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { workingDays: true },
+        });
+
+        const dayOfWeek = timestamp.getDay(); // 0 = Dimanche, 1 = Lundi, etc.
+        const workingDays = (settings?.workingDays as number[]) || [1, 2, 3, 4, 5, 6]; // Par défaut: Lun-Sam
+
+        // Si c'est un jour ouvrable mais pas de planning, c'est une absence potentielle
+        if (workingDays.includes(dayOfWeek === 0 ? 7 : dayOfWeek)) {
+          // Vérifier s'il y a un congé
+          const leave = await this.prisma.leave.findFirst({
+            where: {
+              tenantId,
+              employeeId,
+              startDate: { lte: timestamp },
+              endDate: { gte: timestamp },
+              status: { in: ['APPROVED', 'MANAGER_APPROVED'] },
+            },
+          });
+
+          if (!leave) {
+            return {
+              hasAnomaly: true,
+              type: 'ABSENCE',
+              note: 'Absence détectée : pointage sans planning ni congé approuvé',
+            };
+          }
+        }
+      }
+    }
+
+    // Vérifier départ anticipé
+    if (type === AttendanceType.OUT) {
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          tenantId,
+          employeeId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        include: {
+          shift: true,
+        },
+      });
+
+      if (schedule?.shift) {
+        const expectedEndTime = this.parseTimeString(
+          schedule.customEndTime || schedule.shift.endTime,
+        );
+        const expectedEnd = new Date(timestamp);
+        expectedEnd.setHours(expectedEndTime.hours, expectedEndTime.minutes, 0, 0);
+
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { earlyToleranceExit: true },
+        });
+
+        const toleranceMinutes = settings?.earlyToleranceExit || 5;
+        const earlyLeaveMinutes = (expectedEnd.getTime() - timestamp.getTime()) / (1000 * 60);
+
+        if (earlyLeaveMinutes > toleranceMinutes) {
+          return {
+            hasAnomaly: true,
+            type: 'EARLY_LEAVE',
+            note: `Départ anticipé de ${Math.round(earlyLeaveMinutes)} minutes détecté`,
+          };
+        }
+      }
+    }
+
+    // Vérifier repos insuffisant entre shifts (INSUFFICIENT_REST)
+    if (type === AttendanceType.IN) {
+      // Récupérer le dernier pointage de sortie
+      const lastOutRecord = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId,
+          type: AttendanceType.OUT,
+          timestamp: { lt: timestamp },
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      if (lastOutRecord) {
+        // Calculer le temps de repos entre la sortie précédente et l'entrée actuelle
+        const restHours = (timestamp.getTime() - lastOutRecord.timestamp.getTime()) / (1000 * 60 * 60);
+
+        // Récupérer les paramètres du tenant
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: { alertInsufficientRest: true },
+        });
+
+        // Vérifier si c'est un shift de nuit
+        const schedule = await this.prisma.schedule.findFirst({
+          where: {
+            tenantId,
+            employeeId,
+            date: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+          },
+          include: {
+            shift: true,
+          },
+        });
+
+        const isNightShift = schedule?.shift?.isNightShift || false;
+
+        // Repos minimum requis : 11 heures pour shift normal, 12 heures pour shift de nuit
+        const minimumRestHours = isNightShift ? 12 : 11;
+
+        if (restHours < minimumRestHours) {
+          return {
+            hasAnomaly: true,
+            type: 'INSUFFICIENT_REST',
+            note: `Repos insuffisant détecté : ${restHours.toFixed(2)}h de repos (minimum requis: ${minimumRestHours}h)`,
+          };
+        }
+      }
+    }
+
+    // Vérifier si le pointage est lié à une mission (MISSION_START ou MISSION_END)
+    if (type === AttendanceType.MISSION_START || type === AttendanceType.MISSION_END) {
+      // Les pointages de mission ne sont pas considérés comme des anomalies
+      // mais peuvent être utilisés pour le contexte
+      return { hasAnomaly: false };
+    }
 
     return { hasAnomaly: false };
+  }
+
+  /**
+   * Approuve une correction de pointage
+   */
+  async approveCorrection(
+    tenantId: string,
+    id: string,
+    approvedBy: string,
+    approved: boolean,
+    comment?: string,
+  ) {
+    const attendance = await this.prisma.attendance.findFirst({
+      where: { id, tenantId },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            userId: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    if (!attendance) {
+      throw new NotFoundException(`Attendance record ${id} not found`);
+    }
+
+    if (!attendance.needsApproval) {
+      throw new BadRequestException('Cette correction ne nécessite pas d\'approbation');
+    }
+
+    if (attendance.approvalStatus === 'APPROVED' || attendance.approvalStatus === 'REJECTED') {
+      throw new BadRequestException('Cette correction a déjà été traitée');
+    }
+
+    const updatedAttendance = await this.prisma.attendance.update({
+      where: { id },
+      data: {
+        isCorrected: approved,
+        correctedAt: approved ? new Date() : null,
+        needsApproval: false,
+        approvalStatus: approved ? 'APPROVED' : 'REJECTED',
+        approvedBy: approved ? approvedBy : null,
+        approvedAt: approved ? new Date() : null,
+        correctionNote: comment || attendance.correctionNote,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            userId: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
+      },
+    });
+
+    // Notifier l'employé du résultat de l'approbation
+    if (updatedAttendance.employee.userId) {
+      await this.prisma.notification.create({
+        data: {
+          tenantId,
+          employeeId: attendance.employeeId,
+          type: NotificationType.ATTENDANCE_CORRECTED,
+          title: approved
+            ? 'Correction de pointage approuvée'
+            : 'Correction de pointage rejetée',
+          message: approved
+            ? `Votre correction de pointage a été approuvée.`
+            : `Votre correction de pointage a été rejetée.`,
+          metadata: {
+            attendanceId: attendance.id,
+            approved,
+            comment,
+          },
+        },
+      });
+    }
+
+    return updatedAttendance;
+  }
+
+  /**
+   * Calcule le taux de présence d'un employé
+   */
+  async getPresenceRate(
+    tenantId: string,
+    employeeId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{
+    presenceRate: number;
+    totalDays: number;
+    presentDays: number;
+    absentDays: number;
+    leaveDays: number;
+  }> {
+    // Récupérer les plannings dans la période
+    const schedules = await this.prisma.schedule.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+    });
+
+    const totalDays = schedules.length;
+
+    if (totalDays === 0) {
+      return {
+        presenceRate: 0,
+        totalDays: 0,
+        presentDays: 0,
+        absentDays: 0,
+        leaveDays: 0,
+      };
+    }
+
+    // Récupérer les pointages d'entrée dans la période
+    const attendanceEntries = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        type: AttendanceType.IN,
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      select: {
+        timestamp: true,
+      },
+    });
+
+    // Compter les jours uniques avec pointage
+    const presentDaysSet = new Set<string>();
+    attendanceEntries.forEach((entry) => {
+      const date = new Date(entry.timestamp);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      presentDaysSet.add(dateKey);
+    });
+
+    const presentDays = presentDaysSet.size;
+
+    // Récupérer les congés approuvés dans la période
+    const leaves = await this.prisma.leave.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        status: {
+          in: ['APPROVED', 'MANAGER_APPROVED'],
+        },
+        OR: [
+          {
+            startDate: { lte: endDate },
+            endDate: { gte: startDate },
+          },
+        ],
+      },
+    });
+
+    // Calculer les jours de congé qui chevauchent avec les plannings
+    let leaveDays = 0;
+    schedules.forEach((schedule) => {
+      const scheduleDate = new Date(schedule.date);
+      const hasLeave = leaves.some(
+        (leave) =>
+          scheduleDate >= new Date(leave.startDate) &&
+          scheduleDate <= new Date(leave.endDate),
+      );
+      if (hasLeave) {
+        leaveDays++;
+      }
+    });
+
+    // Jours absents = jours planifiés - jours présents - jours de congé
+    const absentDays = totalDays - presentDays - leaveDays;
+
+    // Taux de présence = (jours présents / jours planifiés) * 100
+    const presenceRate = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
+
+    return {
+      presenceRate: Math.round(presenceRate * 100) / 100, // Arrondir à 2 décimales
+      totalDays,
+      presentDays,
+      absentDays,
+      leaveDays,
+    };
+  }
+
+  /**
+   * Calcule le taux de ponctualité d'un employé
+   */
+  async getPunctualityRate(
+    tenantId: string,
+    employeeId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{
+    punctualityRate: number;
+    totalEntries: number;
+    onTimeEntries: number;
+    lateEntries: number;
+    averageLateMinutes: number;
+  }> {
+    // Récupérer les pointages d'entrée avec retards dans la période
+    const attendanceEntries = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        type: AttendanceType.IN,
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      select: {
+        timestamp: true,
+        lateMinutes: true,
+        hasAnomaly: true,
+        anomalyType: true,
+      },
+    });
+
+    const totalEntries = attendanceEntries.length;
+
+    if (totalEntries === 0) {
+      return {
+        punctualityRate: 0,
+        totalEntries: 0,
+        onTimeEntries: 0,
+        lateEntries: 0,
+        averageLateMinutes: 0,
+      };
+    }
+
+    // Compter les entrées en retard
+    const lateEntries = attendanceEntries.filter(
+      (entry) => entry.lateMinutes && entry.lateMinutes > 0,
+    ).length;
+
+    const onTimeEntries = totalEntries - lateEntries;
+
+    // Calculer la moyenne des minutes de retard
+    const lateMinutesSum = attendanceEntries.reduce(
+      (sum, entry) => sum + (entry.lateMinutes || 0),
+      0,
+    );
+    const averageLateMinutes =
+      lateEntries > 0 ? Math.round(lateMinutesSum / lateEntries) : 0;
+
+    // Taux de ponctualité = (entrées à l'heure / total entrées) * 100
+    const punctualityRate =
+      totalEntries > 0 ? (onTimeEntries / totalEntries) * 100 : 0;
+
+    return {
+      punctualityRate: Math.round(punctualityRate * 100) / 100,
+      totalEntries,
+      onTimeEntries,
+      lateEntries,
+      averageLateMinutes,
+    };
+  }
+
+  /**
+   * Récupère les tendances (graphiques) pour une période
+   */
+  async getTrends(
+    tenantId: string,
+    employeeId: string,
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{
+    dailyTrends: Array<{
+      date: string;
+      lateCount: number;
+      absentCount: number;
+      earlyLeaveCount: number;
+      anomaliesCount: number;
+    }>;
+    weeklyTrends: Array<{
+      week: string;
+      lateCount: number;
+      absentCount: number;
+      earlyLeaveCount: number;
+      anomaliesCount: number;
+    }>;
+  }> {
+    // Récupérer tous les pointages avec anomalies dans la période
+    const attendances = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
+        },
+        hasAnomaly: true,
+      },
+      select: {
+        timestamp: true,
+        anomalyType: true,
+      },
+    });
+
+    // Grouper par jour
+    const dailyMap = new Map<string, any>();
+    const weeklyMap = new Map<string, any>();
+
+    attendances.forEach((attendance) => {
+      const date = new Date(attendance.timestamp);
+      const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+      // Calculer la semaine (ISO week)
+      const weekStart = new Date(date);
+      weekStart.setDate(date.getDate() - date.getDay() + 1); // Lundi
+      const weekKey = `${weekStart.getFullYear()}-W${String(Math.ceil((weekStart.getTime() - new Date(weekStart.getFullYear(), 0, 1).getTime()) / (7 * 24 * 60 * 60 * 1000))).padStart(2, '0')}`;
+
+      // Initialiser les compteurs pour le jour
+      if (!dailyMap.has(dateKey)) {
+        dailyMap.set(dateKey, {
+          date: dateKey,
+          lateCount: 0,
+          absentCount: 0,
+          earlyLeaveCount: 0,
+          anomaliesCount: 0,
+        });
+      }
+
+      // Initialiser les compteurs pour la semaine
+      if (!weeklyMap.has(weekKey)) {
+        weeklyMap.set(weekKey, {
+          week: weekKey,
+          lateCount: 0,
+          absentCount: 0,
+          earlyLeaveCount: 0,
+          anomaliesCount: 0,
+        });
+      }
+
+      const daily = dailyMap.get(dateKey);
+      const weekly = weeklyMap.get(weekKey);
+
+      daily.anomaliesCount++;
+      weekly.anomaliesCount++;
+
+      if (attendance.anomalyType === 'LATE') {
+        daily.lateCount++;
+        weekly.lateCount++;
+      } else if (attendance.anomalyType === 'ABSENCE') {
+        daily.absentCount++;
+        weekly.absentCount++;
+      } else if (attendance.anomalyType === 'EARLY_LEAVE') {
+        daily.earlyLeaveCount++;
+        weekly.earlyLeaveCount++;
+      }
+    });
+
+    // Convertir en tableaux triés
+    const dailyTrends = Array.from(dailyMap.values()).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+    const weeklyTrends = Array.from(weeklyMap.values()).sort((a, b) =>
+      a.week.localeCompare(b.week),
+    );
+
+    return {
+      dailyTrends,
+      weeklyTrends,
+    };
+  }
+
+  /**
+   * Détecte les anomalies récurrentes pour un employé
+   */
+  async detectRecurringAnomalies(
+    tenantId: string,
+    employeeId: string,
+    days: number = 30,
+  ): Promise<Array<{
+    type: string;
+    count: number;
+    lastOccurrence: Date;
+    frequency: string;
+  }>> {
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+
+    // Récupérer toutes les anomalies dans la période
+    const anomalies = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        hasAnomaly: true,
+        timestamp: {
+          gte: startDate,
+        },
+      },
+      select: {
+        anomalyType: true,
+        timestamp: true,
+      },
+    });
+
+    // Grouper par type d'anomalie
+    const anomalyMap = new Map<string, { count: number; lastOccurrence: Date }>();
+
+    anomalies.forEach((anomaly) => {
+      if (!anomaly.anomalyType) return;
+
+      if (!anomalyMap.has(anomaly.anomalyType)) {
+        anomalyMap.set(anomaly.anomalyType, {
+          count: 0,
+          lastOccurrence: new Date(anomaly.timestamp),
+        });
+      }
+
+      const entry = anomalyMap.get(anomaly.anomalyType)!;
+      entry.count++;
+      if (new Date(anomaly.timestamp) > entry.lastOccurrence) {
+        entry.lastOccurrence = new Date(anomaly.timestamp);
+      }
+    });
+
+    // Filtrer les anomalies récurrentes (au moins 3 occurrences)
+    const recurring = Array.from(anomalyMap.entries())
+      .filter(([_, data]) => data.count >= 3)
+      .map(([type, data]) => {
+        const frequency = data.count / days; // Occurrences par jour
+        return {
+          type,
+          count: data.count,
+          lastOccurrence: data.lastOccurrence,
+          frequency: frequency > 0.5 ? 'Quotidienne' : frequency > 0.2 ? 'Hebdomadaire' : 'Mensuelle',
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    return recurring;
+  }
+
+  /**
+   * Récupère l'historique complet des corrections pour un pointage
+   */
+  async getCorrectionHistory(
+    tenantId: string,
+    attendanceId: string,
+  ): Promise<Array<{
+    id: string;
+    action: string;
+    correctedBy: string;
+    correctedAt: Date;
+    correctionNote: string;
+    approvalStatus?: string;
+    approvedBy?: string;
+    approvedAt?: Date;
+  }>> {
+    const attendance = await this.prisma.attendance.findFirst({
+      where: {
+        id: attendanceId,
+        tenantId,
+      },
+      select: {
+        id: true,
+        isCorrected: true,
+        correctedBy: true,
+        correctedAt: true,
+        correctionNote: true,
+        approvalStatus: true,
+        approvedBy: true,
+        approvedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!attendance) {
+      throw new NotFoundException(`Attendance record ${attendanceId} not found`);
+    }
+
+    const history: Array<{
+      id: string;
+      action: string;
+      correctedBy: string;
+      correctedAt: Date;
+      correctionNote: string;
+      approvalStatus?: string;
+      approvedBy?: string;
+      approvedAt?: Date;
+    }> = [];
+
+    // Ajouter la correction initiale si elle existe
+    if (attendance.isCorrected && attendance.correctedBy && attendance.correctedAt) {
+      history.push({
+        id: attendance.id,
+        action: attendance.approvalStatus === 'PENDING_APPROVAL' ? 'Correction soumise' : 'Correction appliquée',
+        correctedBy: attendance.correctedBy,
+        correctedAt: attendance.correctedAt,
+        correctionNote: attendance.correctionNote || '',
+        approvalStatus: attendance.approvalStatus || undefined,
+        approvedBy: attendance.approvedBy || undefined,
+        approvedAt: attendance.approvedAt || undefined,
+      });
+    }
+
+    // Ajouter l'approbation si elle existe
+    if (attendance.approvalStatus === 'APPROVED' && attendance.approvedBy && attendance.approvedAt) {
+      history.push({
+        id: attendance.id,
+        action: 'Approbation',
+        correctedBy: attendance.approvedBy,
+        correctedAt: attendance.approvedAt,
+        correctionNote: attendance.correctionNote || '',
+        approvalStatus: 'APPROVED',
+        approvedBy: attendance.approvedBy,
+        approvedAt: attendance.approvedAt,
+      });
+    }
+
+    return history.sort((a, b) => b.correctedAt.getTime() - a.correctedAt.getTime());
+  }
+
+  /**
+   * Corrige plusieurs pointages en une seule opération
+   */
+  async bulkCorrectAttendance(
+    tenantId: string,
+    bulkDto: {
+      attendances: Array<{
+        attendanceId: string;
+        correctedTimestamp?: string;
+        correctionNote?: string;
+      }>;
+      generalNote: string;
+      correctedBy: string;
+      forceApproval?: boolean;
+    },
+  ) {
+    const results = [];
+    const errors = [];
+
+    for (const item of bulkDto.attendances) {
+      try {
+        const attendance = await this.prisma.attendance.findFirst({
+          where: { id: item.attendanceId, tenantId },
+        });
+
+        if (!attendance) {
+          errors.push({
+            attendanceId: item.attendanceId,
+            error: 'Pointage non trouvé',
+          });
+          continue;
+        }
+
+        const correctionDto: CorrectAttendanceDto = {
+          correctionNote: item.correctionNote || bulkDto.generalNote,
+          correctedBy: bulkDto.correctedBy,
+          correctedTimestamp: item.correctedTimestamp,
+          forceApproval: bulkDto.forceApproval,
+        };
+
+        const corrected = await this.correctAttendance(
+          tenantId,
+          item.attendanceId,
+          correctionDto,
+        );
+
+        results.push({
+          attendanceId: item.attendanceId,
+          success: true,
+          data: corrected,
+        });
+      } catch (error: any) {
+        errors.push({
+          attendanceId: item.attendanceId,
+          error: error.message || 'Erreur lors de la correction',
+        });
+      }
+    }
+
+    return {
+      total: bulkDto.attendances.length,
+      success: results.length,
+      failed: errors.length,
+      results,
+      errors,
+    };
+  }
+
+  /**
+   * Exporte uniquement les anomalies dans un format spécifique
+   */
+  async exportAnomalies(
+    tenantId: string,
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      employeeId?: string;
+      anomalyType?: string;
+    },
+    format: 'csv' | 'excel',
+  ) {
+    const where: any = {
+      tenantId,
+      hasAnomaly: true,
+    };
+
+    if (filters.employeeId) {
+      where.employeeId = filters.employeeId;
+    }
+
+    if (filters.anomalyType) {
+      where.anomalyType = filters.anomalyType;
+    }
+
+    if (filters.startDate || filters.endDate) {
+      where.timestamp = {};
+      if (filters.startDate) {
+        where.timestamp.gte = new Date(filters.startDate);
+      }
+      if (filters.endDate) {
+        const endDate = new Date(filters.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        where.timestamp.lte = endDate;
+      }
+    }
+
+    const anomalies = await this.prisma.attendance.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            matricule: true,
+            firstName: true,
+            lastName: true,
+            department: {
+              select: {
+                name: true,
+              },
+            },
+            site: {
+              select: {
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { timestamp: 'desc' },
+    });
+
+    // Convertir en format CSV ou Excel
+    if (format === 'csv') {
+      const csvRows = [
+        [
+          'Date',
+          'Heure',
+          'Employé',
+          'Matricule',
+          'Département',
+          'Site',
+          'Type d\'anomalie',
+          'Note',
+          'Statut correction',
+          'Corrigé par',
+          'Date correction',
+        ].join(','),
+      ];
+
+      anomalies.forEach((anomaly) => {
+        const date = new Date(anomaly.timestamp);
+        csvRows.push(
+          [
+            date.toISOString().split('T')[0],
+            date.toTimeString().split(' ')[0],
+            `${anomaly.employee.firstName} ${anomaly.employee.lastName}`,
+            anomaly.employee.matricule || '',
+            anomaly.employee.department?.name || '',
+            anomaly.employee.site?.name || '',
+            anomaly.anomalyType || '',
+            (anomaly.anomalyNote || '').replace(/,/g, ';'),
+            anomaly.isCorrected ? 'Corrigé' : 'Non corrigé',
+            anomaly.correctedBy || '',
+            anomaly.correctedAt ? new Date(anomaly.correctedAt).toISOString().split('T')[0] : '',
+          ].join(','),
+        );
+      });
+
+      return csvRows.join('\n');
+    } else {
+      // Format Excel (JSON pour l'instant, à convertir en Excel avec une librairie)
+      return anomalies.map((anomaly) => ({
+        date: new Date(anomaly.timestamp).toISOString().split('T')[0],
+        time: new Date(anomaly.timestamp).toTimeString().split(' ')[0],
+        employee: `${anomaly.employee.firstName} ${anomaly.employee.lastName}`,
+        matricule: anomaly.employee.matricule || '',
+        department: anomaly.employee.department?.name || '',
+        site: anomaly.employee.site?.name || '',
+        anomalyType: anomaly.anomalyType || '',
+        note: anomaly.anomalyNote || '',
+        status: anomaly.isCorrected ? 'Corrigé' : 'Non corrigé',
+        correctedBy: anomaly.correctedBy || '',
+        correctedAt: anomaly.correctedAt ? new Date(anomaly.correctedAt).toISOString() : '',
+      }));
+    }
+  }
+
+  /**
+   * Récupère un dashboard de synthèse des anomalies
+   */
+  async getAnomaliesDashboard(
+    tenantId: string,
+    startDate: Date,
+    endDate: Date,
+    userId?: string,
+    userPermissions?: string[],
+  ) {
+    const where: any = {
+      tenantId,
+      hasAnomaly: true,
+      timestamp: {
+        gte: startDate,
+        lte: endDate,
+      },
+    };
+
+    // Filtrer par manager si nécessaire (seulement si l'utilisateur n'a pas 'view_all')
+    const hasViewAll = userPermissions?.includes('attendance.view_all');
+    if (userId && !hasViewAll) {
+      const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+      if (managerLevel.type !== null) {
+        const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+        if (managedEmployeeIds.length === 0) {
+          return this.getEmptyDashboard();
+        }
+        where.employeeId = { in: managedEmployeeIds };
+      }
+    }
+
+    // Statistiques globales
+    const [
+      totalAnomalies,
+      correctedAnomalies,
+      pendingAnomalies,
+      byType,
+      byEmployee,
+      byDay,
+    ] = await Promise.all([
+      // Total anomalies
+      this.prisma.attendance.count({ where }),
+
+      // Anomalies corrigées
+      this.prisma.attendance.count({
+        where: { ...where, isCorrected: true },
+      }),
+
+      // Anomalies en attente
+      this.prisma.attendance.count({
+        where: { ...where, isCorrected: false },
+      }),
+
+      // Par type d'anomalie
+      this.prisma.attendance.groupBy({
+        by: ['anomalyType'],
+        where,
+        _count: { id: true },
+      }),
+
+      // Par employé (top 10)
+      this.prisma.attendance.groupBy({
+        by: ['employeeId'],
+        where,
+        _count: { id: true },
+        orderBy: { _count: { id: 'desc' } },
+        take: 10,
+      }),
+
+      // Par jour (derniers 7 jours)
+      this.prisma.attendance.groupBy({
+        by: ['timestamp'],
+        where: {
+          ...where,
+          timestamp: {
+            gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+            lte: endDate,
+          },
+        },
+        _count: { id: true },
+      }),
+    ]);
+
+    // Enrichir les données par employé
+    const employeeIds = byEmployee.map((e) => e.employeeId);
+    const employees = await this.prisma.employee.findMany({
+      where: { id: { in: employeeIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        matricule: true,
+      },
+    });
+
+    const byEmployeeEnriched = byEmployee.map((item) => {
+      const employee = employees.find((e) => e.id === item.employeeId);
+      return {
+        employeeId: item.employeeId,
+        employeeName: employee
+          ? `${employee.firstName} ${employee.lastName}`
+          : 'Inconnu',
+        matricule: employee?.matricule || '',
+        count: item._count.id,
+      };
+    });
+
+    return {
+      summary: {
+        total: totalAnomalies,
+        corrected: correctedAnomalies,
+        pending: pendingAnomalies,
+        correctionRate: totalAnomalies > 0 ? (correctedAnomalies / totalAnomalies) * 100 : 0,
+      },
+      byType: byType.map((item) => ({
+        type: item.anomalyType || 'UNKNOWN',
+        count: item._count.id,
+      })),
+      byEmployee: byEmployeeEnriched,
+      byDay: byDay.map((item) => ({
+        date: new Date(item.timestamp).toISOString().split('T')[0],
+        count: item._count.id,
+      })),
+    };
+  }
+
+  /**
+   * Retourne un dashboard vide
+   */
+  private getEmptyDashboard() {
+    return {
+      summary: {
+        total: 0,
+        corrected: 0,
+        pending: 0,
+        correctionRate: 0,
+      },
+      byType: [],
+      byEmployee: [],
+      byDay: [],
+    };
+  }
+
+  /**
+   * Priorise les anomalies selon leur type et criticité
+   */
+  getAnomalyPriority(anomalyType: string | null): number {
+    const priorities: Record<string, number> = {
+      INSUFFICIENT_REST: 10, // Critique (légal)
+      ABSENCE: 9, // Très important
+      MISSING_OUT: 8, // Important
+      MISSING_IN: 7, // Important
+      LATE: 6, // Moyen
+      EARLY_LEAVE: 5, // Moyen
+      DOUBLE_IN: 4, // Faible
+    };
+
+    return priorities[anomalyType || ''] || 1;
   }
 }

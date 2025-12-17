@@ -77,9 +77,17 @@ export function Header({ title, subtitle }: HeaderProps) {
                     {user?.role || 'Utilisateur'}
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-info rounded-full flex items-center justify-center text-white font-semibold">
-                  {getInitials(user?.firstName, user?.lastName)}
-                </div>
+                {user?.avatar ? (
+                  <img
+                    src={user.avatar}
+                    alt={`${user.firstName} ${user.lastName}`}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-border-light"
+                  />
+                ) : (
+                  <div className="w-10 h-10 bg-info rounded-full flex items-center justify-center text-white font-semibold">
+                    {getInitials(user?.firstName, user?.lastName)}
+                  </div>
+                )}
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

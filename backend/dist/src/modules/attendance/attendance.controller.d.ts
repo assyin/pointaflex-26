@@ -2,6 +2,8 @@ import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
+import { AttendanceStatsQueryDto } from './dto/attendance-stats.dto';
+import { BulkCorrectAttendanceDto } from './dto/bulk-correct.dto';
 import { AttendanceType } from '@prisma/client';
 export declare class AttendanceController {
     private readonly attendanceService;
@@ -11,8 +13,19 @@ export declare class AttendanceController {
             id: string;
             firstName: string;
             lastName: string;
+            userId: string;
             matricule: string;
             photo: string;
+            department: {
+                id: string;
+                managerId: string;
+            };
+            site: {
+                id: string;
+                siteManagers: {
+                    managerId: string;
+                }[];
+            };
         };
         site: {
             id: string;
@@ -64,6 +77,15 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
@@ -73,7 +95,18 @@ export declare class AttendanceController {
             id: string;
             firstName: string;
             lastName: string;
+            userId: string;
             matricule: string;
+            department: {
+                id: string;
+                managerId: string;
+            };
+            site: {
+                id: string;
+                siteManagers: {
+                    managerId: string;
+                }[];
+            };
         };
     } & {
         id: string;
@@ -94,6 +127,15 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
@@ -103,7 +145,18 @@ export declare class AttendanceController {
             id: string;
             firstName: string;
             lastName: string;
+            userId: string;
             matricule: string;
+            department: {
+                id: string;
+                managerId: string;
+            };
+            site: {
+                id: string;
+                siteManagers: {
+                    managerId: string;
+                }[];
+            };
         };
     } & {
         id: string;
@@ -124,6 +177,15 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
@@ -201,17 +263,51 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
     })[]>;
-    getAnomalies(tenantId: string, date?: string): Promise<({
+    getAnomalies(user: any, tenantId: string, date?: string): Promise<({
         employee: {
             id: string;
             firstName: string;
             lastName: string;
             matricule: string;
             photo: string;
+            department: {
+                id: string;
+                name: string;
+            };
+            site: {
+                id: string;
+                name: string;
+            };
+        };
+        site: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            phone: string | null;
+            name: string;
+            code: string | null;
+            address: string | null;
+            departmentId: string | null;
+            managerId: string | null;
+            city: string | null;
+            latitude: import("@prisma/client/runtime/library").Decimal | null;
+            longitude: import("@prisma/client/runtime/library").Decimal | null;
+            timezone: string | null;
+            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
         id: string;
@@ -232,6 +328,15 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
@@ -324,15 +429,25 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
     }>;
-    correctAttendance(tenantId: string, id: string, correctionDto: CorrectAttendanceDto): Promise<{
+    correctAttendance(user: any, tenantId: string, id: string, correctionDto: CorrectAttendanceDto): Promise<{
         employee: {
             id: string;
             firstName: string;
             lastName: string;
+            userId: string;
             matricule: string;
         };
     } & {
@@ -354,8 +469,136 @@ export declare class AttendanceController {
         isCorrected: boolean;
         correctedBy: string | null;
         correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+    }>;
+    approveCorrection(user: any, tenantId: string, id: string, body: {
+        approved: boolean;
+        comment?: string;
+    }): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            userId: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        siteId: string | null;
+        latitude: import("@prisma/client/runtime/library").Decimal | null;
+        longitude: import("@prisma/client/runtime/library").Decimal | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        employeeId: string;
+        deviceId: string | null;
+        timestamp: Date;
+        method: import(".prisma/client").$Enums.DeviceType;
+        hasAnomaly: boolean;
+        anomalyType: string | null;
+        anomalyNote: string | null;
+        isCorrected: boolean;
+        correctedBy: string | null;
+        correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        generatedBy: string | null;
+        isGenerated: boolean;
+    }>;
+    getPresenceRate(tenantId: string, query: AttendanceStatsQueryDto): Promise<{
+        presenceRate: number;
+        totalDays: number;
+        presentDays: number;
+        absentDays: number;
+        leaveDays: number;
+    }>;
+    getPunctualityRate(tenantId: string, query: AttendanceStatsQueryDto): Promise<{
+        punctualityRate: number;
+        totalEntries: number;
+        onTimeEntries: number;
+        lateEntries: number;
+        averageLateMinutes: number;
+    }>;
+    getTrends(tenantId: string, query: AttendanceStatsQueryDto): Promise<{
+        dailyTrends: Array<{
+            date: string;
+            lateCount: number;
+            absentCount: number;
+            earlyLeaveCount: number;
+            anomaliesCount: number;
+        }>;
+        weeklyTrends: Array<{
+            week: string;
+            lateCount: number;
+            absentCount: number;
+            earlyLeaveCount: number;
+            anomaliesCount: number;
+        }>;
+    }>;
+    getRecurringAnomalies(tenantId: string, employeeId: string, days?: string): Promise<{
+        type: string;
+        count: number;
+        lastOccurrence: Date;
+        frequency: string;
+    }[]>;
+    getCorrectionHistory(tenantId: string, id: string): Promise<{
+        id: string;
+        action: string;
+        correctedBy: string;
+        correctedAt: Date;
+        correctionNote: string;
+        approvalStatus?: string;
+        approvedBy?: string;
+        approvedAt?: Date;
+    }[]>;
+    bulkCorrectAttendance(user: any, tenantId: string, bulkDto: BulkCorrectAttendanceDto): Promise<{
+        total: number;
+        success: number;
+        failed: number;
+        results: any[];
+        errors: any[];
+    }>;
+    exportAnomalies(tenantId: string, format: 'csv' | 'excel', startDate?: string, endDate?: string, employeeId?: string, anomalyType?: string): Promise<string | {
+        date: string;
+        time: string;
+        employee: string;
+        matricule: string;
+        department: string;
+        site: string;
+        anomalyType: string;
+        note: string;
+        status: string;
+        correctedBy: string;
+        correctedAt: string;
+    }[]>;
+    getAnomaliesDashboard(user: any, tenantId: string, startDate: string, endDate: string): Promise<{
+        summary: {
+            total: number;
+            corrected: number;
+            pending: number;
+            correctionRate: number;
+        };
+        byType: any[];
+        byEmployee: any[];
+        byDay: any[];
     }>;
 }

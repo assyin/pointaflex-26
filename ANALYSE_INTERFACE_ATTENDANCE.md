@@ -56,6 +56,7 @@ L'interface `/attendance` permet la gestion des pointages et présences des empl
 - ✅ **Gestion des permissions** : RBAC avec filtrage selon le rôle (view_all, view_own, view_team, view_department, view_site)
 - ✅ **Gestion des managers** : Filtrage automatique selon la hiérarchie (Département, Site, Équipe)
 - ✅ **Limite de performance** : Limite à 1000 enregistrements pour éviter les surcharges
+- ⚠️ **Types de pointage** : Support des types BREAK_START et BREAK_END, mais pas de configuration pour les activer/désactiver
 
 #### 2.2 Intégration Terminaux
 - ✅ **Webhook** : Endpoint pour recevoir les pointages des terminaux biométriques
@@ -178,6 +179,36 @@ L'interface `/attendance` permet la gestion des pointages et présences des empl
 - ❌ **Tolérances** : Pas de gestion des tolérances (ex: 5 minutes de retard acceptées)
 - ❌ **Exceptions** : Pas de gestion des exceptions (congés, missions, etc.)
 - ❌ **Historique** : Pas de suivi de l'historique des corrections
+
+### 8. **Configuration du Pointage des Repos (Pauses)**
+
+#### 8.1 Fonctionnalité Manquante
+- ❌ **Pas de configuration** : Aucune option pour activer/désactiver le pointage des repos (BREAK_START, BREAK_END)
+- ❌ **Pointage obligatoire** : Le système accepte actuellement les pointages de repos sans possibilité de les désactiver
+- ❌ **Pas de paramétrage** : Aucun paramètre dans `TenantSettings` pour contrôler cette fonctionnalité
+
+#### 8.2 Impact Actuel
+- ⚠️ **Flexibilité limitée** : Certaines entreprises ne nécessitent pas le pointage des pauses/repos
+- ⚠️ **Données inutiles** : Les pointages de repos peuvent encombrer les données si non nécessaires
+- ⚠️ **Complexité inutile** : Les employés doivent pointer les pauses même si ce n'est pas requis par l'entreprise
+
+#### 8.3 Besoin Métier
+- ✅ **Configuration par tenant** : Chaque entreprise doit pouvoir choisir si le pointage des repos est obligatoire ou optionnel
+- ✅ **Activation/Désactivation** : Possibilité d'activer ou désactiver le pointage des repos via les paramètres
+- ✅ **Impact sur les terminaux** : Les terminaux biométriques doivent respecter cette configuration
+- ✅ **Impact sur la détection** : La détection d'anomalies doit tenir compte de cette configuration
+
+#### 8.4 Scénarios d'Utilisation
+- **Scénario 1** : Entreprise avec pointage de repos activé
+  - Les employés doivent pointer BREAK_START et BREAK_END
+  - Les anomalies de pause sont détectées (pause trop longue, pause non pointée, etc.)
+  - Les heures de pause sont comptabilisées dans les calculs
+  
+- **Scénario 2** : Entreprise avec pointage de repos désactivé
+  - Les employés ne pointent que IN et OUT
+  - Les pointages BREAK_START et BREAK_END sont ignorés ou rejetés
+  - Les calculs d'heures travaillées ne tiennent pas compte des pauses
+  - Les terminaux ne proposent pas l'option de pointage de pause
 
 ---
 
@@ -347,6 +378,16 @@ async correctAttendance(tenantId, id, correctionDto) {
 - ✅ Prévisualisation de l'impact des corrections
 - ✅ Suggestions automatiques de corrections
 
+### 5. **Configuration et Paramétrage**
+
+#### 5.1 Configuration du Pointage des Repos
+- ✅ Ajouter un paramètre `requireBreakPunch` dans `TenantSettings`
+- ✅ Créer une interface de configuration dans les paramètres du tenant
+- ✅ Implémenter la validation côté backend pour rejeter/accepter les pointages BREAK_START/BREAK_END selon la configuration
+- ✅ Adapter la détection d'anomalies pour tenir compte de cette configuration
+- ✅ Mettre à jour les terminaux pour respecter cette configuration
+- ✅ Adapter les calculs d'heures travaillées selon la configuration
+
 ---
 
 ## 📊 Résumé Exécutif
@@ -364,10 +405,11 @@ async correctAttendance(tenantId, id, correctionDto) {
 - ❌ Pas de workflow structuré pour les managers
 - ❌ Pas d'intégration avec Planning, Congés, Missions
 - ❌ Calculs métier manquants (heures travaillées, retards, etc.)
+- ❌ Pas de configuration pour activer/désactiver le pointage des repos (pauses)
 
 ### Impact Business
 - **Critique** : Détection incomplète et interface de traitement manquante (bloque l'utilisation complète)
-- **Important** : Intégration avec autres modules, calculs métier (améliore la précision)
+- **Important** : Intégration avec autres modules, calculs métier, configuration pointage repos (améliore la précision et la flexibilité)
 - **Souhaitable** : Statistiques avancées, notifications (améliore l'expérience)
 
 ---
@@ -379,6 +421,8 @@ L'interface `/attendance` dispose d'une base solide avec une interface utilisate
 La logique de correction existe au niveau backend mais n'est pas accessible depuis l'interface utilisateur, ce qui rend le système inutilisable pour les managers qui doivent traiter les anomalies quotidiennement.
 
 **Recommandation principale** : Prioriser l'implémentation d'une interface dédiée au traitement des anomalies et l'amélioration de la détection pour inclure au minimum les retards, sorties manquantes, et absences. L'intégration avec le module Planning est essentielle pour une détection précise des anomalies.
+
+**Recommandation secondaire** : Ajouter la configuration pour activer/désactiver le pointage des repos (pauses) afin de permettre aux entreprises de choisir si elles nécessitent le pointage des pauses ou non. Cette fonctionnalité améliore la flexibilité du système et s'adapte aux différents besoins métier selon les secteurs d'activité.
 
 ---
 
@@ -417,4 +461,62 @@ La logique de correction existe au niveau backend mais n'est pas accessible depu
 | Corriger | `attendance.correct` | ✅ Correct |
 | Voir anomalies département | ❌ Non disponible | `attendance.view_department_anomalies` |
 | Approuver correction | ❌ Non disponible | `attendance.approve_correction` |
+
+### Annexe D : Configuration du Pointage des Repos
+
+#### D.1 Paramètre Requis
+
+**Dans `TenantSettings` :**
+```prisma
+requireBreakPunch Boolean @default(false) // Activer/désactiver le pointage des repos
+```
+
+#### D.2 Comportement selon la Configuration
+
+| Configuration | Comportement |
+|---------------|--------------|
+| `requireBreakPunch = true` | Les pointages BREAK_START et BREAK_END sont acceptés et traités normalement. Les anomalies de pause sont détectées. |
+| `requireBreakPunch = false` | Les pointages BREAK_START et BREAK_END sont rejetés ou ignorés. Les terminaux ne proposent pas cette option. |
+
+#### D.3 Impact sur les Modules
+
+| Module | Impact si Activé | Impact si Désactivé |
+|--------|------------------|---------------------|
+| **Détection d'anomalies** | Détecte les anomalies de pause (pause trop longue, pause non pointée, etc.) | Ignore les pointages de pause, ne détecte pas d'anomalies liées |
+| **Calculs d'heures** | Soustrait les heures de pause des heures travaillées | Calcule uniquement entre IN et OUT |
+| **Terminaux biométriques** | Proposent les options BREAK_START et BREAK_END | N'affichent que IN et OUT |
+| **Statistiques** | Inclut les statistiques de pause | N'inclut pas les pauses |
+| **Export** | Exporte les pointages de pause | N'exporte pas les pointages de pause |
+
+#### D.4 Cas d'Usage Métier
+
+**Entreprise A (Pointage repos activé) :**
+- Secteur : Industrie, Production
+- Besoin : Traçabilité complète des heures, y compris les pauses
+- Configuration : `requireBreakPunch = true`
+- Résultat : Les employés pointent entrée, début pause, fin pause, sortie
+
+**Entreprise B (Pointage repos désactivé) :**
+- Secteur : Bureautique, Services
+- Besoin : Simplicité, pointage uniquement entrée/sortie
+- Configuration : `requireBreakPunch = false`
+- Résultat : Les employés pointent uniquement entrée et sortie, les pauses sont gérées automatiquement
+
+#### D.5 Recommandations d'Implémentation
+
+1. **Backend** :
+   - Ajouter `requireBreakPunch` dans `TenantSettings`
+   - Modifier `create` et `handleWebhook` pour valider selon la configuration
+   - Adapter `detectAnomalies` pour tenir compte de la configuration
+   - Modifier les calculs d'heures travaillées
+
+2. **Frontend** :
+   - Ajouter un toggle dans les paramètres du tenant
+   - Adapter l'affichage pour masquer/afficher les colonnes de pause
+   - Filtrer les pointages de pause dans les exports si désactivé
+
+3. **Terminaux** :
+   - Envoyer la configuration aux terminaux lors de la synchronisation
+   - Adapter l'interface des terminaux selon la configuration
+   - Rejeter les pointages de pause si désactivé
 

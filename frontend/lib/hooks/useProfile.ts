@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { profileApi, type UpdateProfileDto, type ChangePasswordDto, type UserPreferences } from '../api/profile';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
 
 export function useProfile() {
   return useQuery({
@@ -12,11 +13,16 @@ export function useProfile() {
 
 export function useUpdateProfile() {
   const queryClient = useQueryClient();
+  const { user, setUser } = useAuth();
 
   return useMutation({
     mutationFn: (data: UpdateProfileDto) => profileApi.updateProfile(data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
+      // Mettre à jour l'utilisateur dans le contexte si l'avatar a changé
+      if (user && data?.avatar !== undefined) {
+        setUser({ ...user, avatar: data.avatar });
+      }
       toast.success('Profil mis à jour avec succès');
     },
     onError: (error: any) => {
@@ -113,11 +119,16 @@ export function useExportUserData() {
 
 export function useUploadAvatar() {
   const queryClient = useQueryClient();
+  const { user, setUser } = useAuth();
 
   return useMutation({
     mutationFn: (file: File) => profileApi.uploadAvatar(file),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
+      // Mettre à jour l'avatar dans le contexte utilisateur
+      if (user && data?.avatar !== undefined) {
+        setUser({ ...user, avatar: data.avatar });
+      }
       toast.success('Photo de profil mise à jour avec succès');
     },
     onError: (error: any) => {
@@ -128,11 +139,16 @@ export function useUploadAvatar() {
 
 export function useRemoveAvatar() {
   const queryClient = useQueryClient();
+  const { user, setUser } = useAuth();
 
   return useMutation({
     mutationFn: () => profileApi.removeAvatar(),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
+      // Mettre à jour l'avatar dans le contexte utilisateur
+      if (user) {
+        setUser({ ...user, avatar: data?.avatar || undefined });
+      }
       toast.success('Photo de profil supprimée avec succès');
     },
     onError: (error: any) => {

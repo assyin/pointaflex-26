@@ -70,4 +70,9 @@ export class UpdateTenantSettingsDto {
   @IsNumber()
   @Type(() => Number)
   nightShiftRate?: number;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsBoolean()
+  requireBreakPunch?: boolean;
 }
