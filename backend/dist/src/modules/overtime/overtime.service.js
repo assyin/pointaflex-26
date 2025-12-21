@@ -18,6 +18,13 @@ let OvertimeService = class OvertimeService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    roundOvertimeHours(hours, roundingMinutes) {
+        if (roundingMinutes <= 0)
+            return hours;
+        const totalMinutes = hours * 60;
+        const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
+        return roundedMinutes / 60;
+    }
     async create(tenantId, dto) {
         const employee = await this.prisma.employee.findFirst({
             where: {
@@ -47,12 +54,14 @@ let OvertimeService = class OvertimeService {
                 rate = Number(settings?.overtimeRate || 1.25);
             }
         }
+        const roundingMinutes = settings?.overtimeRounding || 15;
+        const roundedHours = this.roundOvertimeHours(dto.hours, roundingMinutes);
         return this.prisma.overtime.create({
             data: {
                 tenantId,
                 employeeId: dto.employeeId,
                 date: new Date(dto.date),
-                hours: dto.hours,
+                hours: roundedHours,
                 type: overtimeType,
                 isNightShift: overtimeType === 'NIGHT',
                 rate,
@@ -200,7 +209,7 @@ let OvertimeService = class OvertimeService {
             console.log('[OvertimeService] Filters:', filters);
             console.log('[OvertimeService] Pagination:', { page, limit, skip });
         }
-        const [data, total, allRecordsForTotal] = await Promise.all([
+        const [data, total, totalHoursAggregate] = await Promise.all([
             this.prisma.overtime.findMany({
                 where,
                 skip,
@@ -241,9 +250,9 @@ let OvertimeService = class OvertimeService {
                 orderBy: { date: 'desc' },
             }),
             this.prisma.overtime.count({ where }),
-            this.prisma.overtime.findMany({
+            this.prisma.overtime.aggregate({
                 where,
-                select: {
+                _sum: {
                     hours: true,
                     approvedHours: true,
                 },
@@ -251,29 +260,21 @@ let OvertimeService = class OvertimeService {
         ]);
         if (process.env.NODE_ENV === 'development') {
             console.log('[OvertimeService] Found records:', data.length, 'Total:', total);
-            console.log('[OvertimeService] All records for total calculation:', allRecordsForTotal.length);
-            console.log('[OvertimeService] Record dates:', data.map((r) => ({
-                date: r.date,
-                employee: r.employee?.firstName + ' ' + r.employee?.lastName,
-                hours: r.hours
-            })));
+            console.log('[OvertimeService] Total hours aggregate:', totalHoursAggregate);
         }
-        const totalHours = allRecordsForTotal.reduce((sum, record) => {
-            const hoursToUse = (record.approvedHours != null && record.approvedHours !== undefined)
-                ? record.approvedHours
-                : record.hours;
-            let numHours;
-            if (typeof hoursToUse === 'object' && 'toNumber' in hoursToUse) {
-                numHours = hoursToUse.toNumber();
-            }
-            else if (typeof hoursToUse === 'string') {
-                numHours = parseFloat(hoursToUse) || 0;
-            }
-            else {
-                numHours = typeof hoursToUse === 'number' ? hoursToUse : parseFloat(String(hoursToUse)) || 0;
-            }
-            return sum + numHours;
-        }, 0);
+        const totalHours = totalHoursAggregate._sum.approvedHours
+            ? (typeof totalHoursAggregate._sum.approvedHours === 'object' && 'toNumber' in totalHoursAggregate._sum.approvedHours
+                ? totalHoursAggregate._sum.approvedHours.toNumber()
+                : typeof totalHoursAggregate._sum.approvedHours === 'string'
+                    ? parseFloat(totalHoursAggregate._sum.approvedHours)
+                    : totalHoursAggregate._sum.approvedHours)
+            : (totalHoursAggregate._sum.hours
+                ? (typeof totalHoursAggregate._sum.hours === 'object' && 'toNumber' in totalHoursAggregate._sum.hours
+                    ? totalHoursAggregate._sum.hours.toNumber()
+                    : typeof totalHoursAggregate._sum.hours === 'string'
+                        ? parseFloat(totalHoursAggregate._sum.hours)
+                        : totalHoursAggregate._sum.hours)
+                : 0);
         const transformedData = data.map((record) => ({
             ...record,
             hours: typeof record.hours === 'object' && 'toNumber' in record.hours
@@ -350,11 +351,16 @@ let OvertimeService = class OvertimeService {
         if (overtime.status !== client_1.OvertimeStatus.PENDING) {
             throw new common_1.BadRequestException('Cannot update overtime that is not pending');
         }
+        const settings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+        });
         const updateData = {};
         if (dto.date)
             updateData.date = new Date(dto.date);
-        if (dto.hours !== undefined)
-            updateData.hours = dto.hours;
+        if (dto.hours !== undefined) {
+            const roundingMinutes = settings?.overtimeRounding || 15;
+            updateData.hours = this.roundOvertimeHours(dto.hours, roundingMinutes);
+        }
         if (dto.type) {
             updateData.type = dto.type;
             updateData.isNightShift = dto.type === 'NIGHT';

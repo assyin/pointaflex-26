@@ -13,12 +13,20 @@ exports.AttendanceService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../../database/prisma.service");
 const client_1 = require("@prisma/client");
+const client_2 = require("@prisma/client");
 const library_1 = require("@prisma/client/runtime/library");
 const matricule_util_1 = require("../../common/utils/matricule.util");
 const manager_level_util_1 = require("../../common/utils/manager-level.util");
 let AttendanceService = class AttendanceService {
     constructor(prisma) {
         this.prisma = prisma;
+    }
+    roundOvertimeHours(hours, roundingMinutes) {
+        if (roundingMinutes <= 0)
+            return hours;
+        const totalMinutes = hours * 60;
+        const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
+        return roundedMinutes / 60;
     }
     async create(tenantId, createAttendanceDto) {
         const employee = await this.prisma.employee.findFirst({
@@ -95,6 +103,27 @@ let AttendanceService = class AttendanceService {
                 id: webhookData.employeeId,
             },
         });
+        if (!employee) {
+            try {
+                const mapping = await this.prisma.terminalMatriculeMapping.findFirst({
+                    where: {
+                        tenantId,
+                        terminalMatricule: webhookData.employeeId,
+                        isActive: true,
+                    },
+                    include: {
+                        employee: true,
+                    },
+                });
+                if (mapping) {
+                    employee = mapping.employee;
+                    console.log(`[AttendanceService] ✅ Employé trouvé via mapping terminal: ${mapping.terminalMatricule} → ${mapping.officialMatricule} (${employee.firstName} ${employee.lastName})`);
+                }
+            }
+            catch (error) {
+                console.error(`[AttendanceService] Erreur lors de la recherche dans le mapping terminal:`, error);
+            }
+        }
         if (!employee) {
             try {
                 employee = await (0, matricule_util_1.findEmployeeByMatriculeFlexible)(this.prisma, tenantId, webhookData.employeeId);
@@ -237,25 +266,97 @@ let AttendanceService = class AttendanceService {
                 where.timestamp.lte = endDate;
             }
         }
-        return this.prisma.attendance.findMany({
-            where,
-            include: {
-                employee: {
-                    select: {
-                        id: true,
-                        matricule: true,
-                        firstName: true,
-                        lastName: true,
-                        photo: true,
-                        currentShift: true,
+        const page = filters?.page || 1;
+        const limit = filters?.limit || 50;
+        const skip = (page - 1) * limit;
+        const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
+        const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+        const [data, total] = await Promise.all([
+            this.prisma.attendance.findMany({
+                where,
+                skip: shouldPaginate ? skip : undefined,
+                take: maxLimit,
+                select: {
+                    id: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    tenantId: true,
+                    employeeId: true,
+                    siteId: true,
+                    deviceId: true,
+                    timestamp: true,
+                    type: true,
+                    method: true,
+                    latitude: true,
+                    longitude: true,
+                    hasAnomaly: true,
+                    anomalyType: true,
+                    anomalyNote: true,
+                    isCorrected: true,
+                    correctedBy: true,
+                    correctedAt: true,
+                    correctionNote: true,
+                    hoursWorked: true,
+                    lateMinutes: true,
+                    earlyLeaveMinutes: true,
+                    overtimeMinutes: true,
+                    needsApproval: true,
+                    approvalStatus: true,
+                    approvedBy: true,
+                    approvedAt: true,
+                    rawData: true,
+                    generatedBy: true,
+                    isGenerated: true,
+                    employee: {
+                        select: {
+                            id: true,
+                            matricule: true,
+                            firstName: true,
+                            lastName: true,
+                            photo: true,
+                            currentShift: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    code: true,
+                                    startTime: true,
+                                    endTime: true,
+                                },
+                            },
+                        },
+                    },
+                    site: {
+                        select: {
+                            id: true,
+                            name: true,
+                            code: true,
+                        },
+                    },
+                    device: {
+                        select: {
+                            id: true,
+                            name: true,
+                            deviceId: true,
+                            deviceType: true,
+                        },
                     },
                 },
-                site: true,
-                device: true,
-            },
-            orderBy: { timestamp: 'desc' },
-            take: 1000,
-        });
+                orderBy: { timestamp: 'desc' },
+            }),
+            this.prisma.attendance.count({ where }),
+        ]);
+        if (shouldPaginate) {
+            return {
+                data,
+                meta: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit),
+                },
+            };
+        }
+        return data;
     }
     async findOne(tenantId, id) {
         const attendance = await this.prisma.attendance.findFirst({
@@ -365,7 +466,7 @@ let AttendanceService = class AttendanceService {
                         data: {
                             tenantId,
                             employeeId: managerId,
-                            type: client_1.NotificationType.ATTENDANCE_ANOMALY,
+                            type: client_2.NotificationType.ATTENDANCE_ANOMALY,
                             title: 'Nouvelle anomalie de pointage détectée',
                             message: `Anomalie ${attendance.anomalyType} détectée pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule})`,
                             metadata: {
@@ -390,7 +491,7 @@ let AttendanceService = class AttendanceService {
                 data: {
                     tenantId,
                     employeeId: attendance.employeeId,
-                    type: client_1.NotificationType.ATTENDANCE_CORRECTED,
+                    type: client_2.NotificationType.ATTENDANCE_CORRECTED,
                     title: 'Votre pointage a été corrigé',
                     message: `Votre pointage du ${new Date(attendance.timestamp).toLocaleDateString('fr-FR')} a été corrigé par un manager.`,
                     metadata: {
@@ -425,7 +526,7 @@ let AttendanceService = class AttendanceService {
                         data: {
                             tenantId,
                             employeeId: managerId,
-                            type: client_1.NotificationType.ATTENDANCE_APPROVAL_REQUIRED,
+                            type: client_2.NotificationType.ATTENDANCE_APPROVAL_REQUIRED,
                             title: 'Approbation de correction requise',
                             message: `Une correction de pointage pour ${attendance.employee.firstName} ${attendance.employee.lastName} nécessite votre approbation.`,
                             metadata: {
@@ -532,7 +633,7 @@ let AttendanceService = class AttendanceService {
                 where: {
                     tenantId,
                     timestamp: { gte: startOfDay, lte: endOfDay },
-                    type: client_1.AttendanceType.IN,
+                    type: client_2.AttendanceType.IN,
                 },
                 distinct: ['employeeId'],
                 select: { employeeId: true },
@@ -562,7 +663,7 @@ let AttendanceService = class AttendanceService {
         };
     }
     async validateBreakPunch(tenantId, type) {
-        if (type !== client_1.AttendanceType.BREAK_START && type !== client_1.AttendanceType.BREAK_END) {
+        if (type !== client_2.AttendanceType.BREAK_START && type !== client_2.AttendanceType.BREAK_END) {
             return;
         }
         const settings = await this.prisma.tenantSettings.findUnique({
@@ -587,14 +688,14 @@ let AttendanceService = class AttendanceService {
             orderBy: { timestamp: 'asc' },
         });
         const metrics = {};
-        if (type === client_1.AttendanceType.OUT) {
-            const inRecord = todayRecords.find(r => r.type === client_1.AttendanceType.IN);
+        if (type === client_2.AttendanceType.OUT) {
+            const inRecord = todayRecords.find(r => r.type === client_2.AttendanceType.IN);
             if (inRecord) {
                 const hoursWorked = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60 * 60);
                 metrics.hoursWorked = Math.max(0, hoursWorked);
             }
         }
-        if (type === client_1.AttendanceType.IN) {
+        if (type === client_2.AttendanceType.IN) {
             const schedule = await this.prisma.schedule.findFirst({
                 where: {
                     tenantId,
@@ -623,7 +724,7 @@ let AttendanceService = class AttendanceService {
                 }
             }
         }
-        if (type === client_1.AttendanceType.OUT) {
+        if (type === client_2.AttendanceType.OUT) {
             const schedule = await this.prisma.schedule.findFirst({
                 where: {
                     tenantId,
@@ -652,6 +753,47 @@ let AttendanceService = class AttendanceService {
                 }
             }
         }
+        if (type === client_2.AttendanceType.OUT) {
+            const inRecord = todayRecords.find(r => r.type === client_2.AttendanceType.IN);
+            if (inRecord) {
+                const schedule = await this.prisma.schedule.findFirst({
+                    where: {
+                        tenantId,
+                        employeeId,
+                        date: {
+                            gte: startOfDay,
+                            lte: endOfDay,
+                        },
+                    },
+                    include: {
+                        shift: true,
+                    },
+                });
+                if (schedule?.shift) {
+                    const workedMinutes = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60);
+                    const expectedStartTime = this.parseTimeString(schedule.customStartTime || schedule.shift.startTime);
+                    const expectedEndTime = this.parseTimeString(schedule.customEndTime || schedule.shift.endTime);
+                    const startMinutes = expectedStartTime.hours * 60 + expectedStartTime.minutes;
+                    const endMinutes = expectedEndTime.hours * 60 + expectedEndTime.minutes;
+                    let plannedMinutes = endMinutes - startMinutes;
+                    if (plannedMinutes < 0) {
+                        plannedMinutes += 24 * 60;
+                    }
+                    plannedMinutes -= schedule.shift.breakDuration || 60;
+                    const overtimeMinutes = workedMinutes - plannedMinutes;
+                    if (overtimeMinutes > 0) {
+                        const settings = await this.prisma.tenantSettings.findUnique({
+                            where: { tenantId },
+                            select: { overtimeRounding: true },
+                        });
+                        const roundingMinutes = settings?.overtimeRounding || 15;
+                        const overtimeHours = overtimeMinutes / 60;
+                        const roundedHours = this.roundOvertimeHours(overtimeHours, roundingMinutes);
+                        metrics.overtimeMinutes = Math.round(roundedHours * 60);
+                    }
+                }
+            }
+        }
         return metrics;
     }
     parseTimeString(timeString) {
@@ -671,8 +813,8 @@ let AttendanceService = class AttendanceService {
             },
             orderBy: { timestamp: 'asc' },
         });
-        if (type === client_1.AttendanceType.IN) {
-            const hasIn = todayRecords.some(r => r.type === client_1.AttendanceType.IN);
+        if (type === client_2.AttendanceType.IN) {
+            const hasIn = todayRecords.some(r => r.type === client_2.AttendanceType.IN);
             if (hasIn) {
                 return {
                     hasAnomaly: true,
@@ -681,8 +823,8 @@ let AttendanceService = class AttendanceService {
                 };
             }
         }
-        if (type === client_1.AttendanceType.OUT) {
-            const hasIn = todayRecords.some(r => r.type === client_1.AttendanceType.IN);
+        if (type === client_2.AttendanceType.OUT) {
+            const hasIn = todayRecords.some(r => r.type === client_2.AttendanceType.IN);
             if (!hasIn) {
                 return {
                     hasAnomaly: true,
@@ -691,9 +833,9 @@ let AttendanceService = class AttendanceService {
                 };
             }
         }
-        if (type === client_1.AttendanceType.IN) {
-            const inRecords = todayRecords.filter(r => r.type === client_1.AttendanceType.IN);
-            const outRecords = todayRecords.filter(r => r.type === client_1.AttendanceType.OUT);
+        if (type === client_2.AttendanceType.IN) {
+            const inRecords = todayRecords.filter(r => r.type === client_2.AttendanceType.IN);
+            const outRecords = todayRecords.filter(r => r.type === client_2.AttendanceType.OUT);
             if (inRecords.length > outRecords.length) {
                 return {
                     hasAnomaly: true,
@@ -702,7 +844,7 @@ let AttendanceService = class AttendanceService {
                 };
             }
         }
-        if (type === client_1.AttendanceType.IN) {
+        if (type === client_2.AttendanceType.IN) {
             const schedule = await this.prisma.schedule.findFirst({
                 where: {
                     tenantId,
@@ -761,7 +903,7 @@ let AttendanceService = class AttendanceService {
                 }
             }
         }
-        if (type === client_1.AttendanceType.OUT) {
+        if (type === client_2.AttendanceType.OUT) {
             const schedule = await this.prisma.schedule.findFirst({
                 where: {
                     tenantId,
@@ -794,12 +936,12 @@ let AttendanceService = class AttendanceService {
                 }
             }
         }
-        if (type === client_1.AttendanceType.IN) {
+        if (type === client_2.AttendanceType.IN) {
             const lastOutRecord = await this.prisma.attendance.findFirst({
                 where: {
                     tenantId,
                     employeeId,
-                    type: client_1.AttendanceType.OUT,
+                    type: client_2.AttendanceType.OUT,
                     timestamp: { lt: timestamp },
                 },
                 orderBy: { timestamp: 'desc' },
@@ -834,7 +976,7 @@ let AttendanceService = class AttendanceService {
                 }
             }
         }
-        if (type === client_1.AttendanceType.MISSION_START || type === client_1.AttendanceType.MISSION_END) {
+        if (type === client_2.AttendanceType.MISSION_START || type === client_2.AttendanceType.MISSION_END) {
             return { hasAnomaly: false };
         }
         return { hasAnomaly: false };
@@ -889,7 +1031,7 @@ let AttendanceService = class AttendanceService {
                 data: {
                     tenantId,
                     employeeId: attendance.employeeId,
-                    type: client_1.NotificationType.ATTENDANCE_CORRECTED,
+                    type: client_2.NotificationType.ATTENDANCE_CORRECTED,
                     title: approved
                         ? 'Correction de pointage approuvée'
                         : 'Correction de pointage rejetée',
@@ -925,13 +1067,14 @@ let AttendanceService = class AttendanceService {
                 presentDays: 0,
                 absentDays: 0,
                 leaveDays: 0,
+                recoveryDays: 0,
             };
         }
         const attendanceEntries = await this.prisma.attendance.findMany({
             where: {
                 tenantId,
                 employeeId,
-                type: client_1.AttendanceType.IN,
+                type: client_2.AttendanceType.IN,
                 timestamp: {
                     gte: startDate,
                     lte: endDate,
@@ -963,6 +1106,21 @@ let AttendanceService = class AttendanceService {
                 ],
             },
         });
+        const recoveryDays = await this.prisma.recoveryDay.findMany({
+            where: {
+                tenantId,
+                employeeId,
+                status: {
+                    in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.USED],
+                },
+                OR: [
+                    {
+                        startDate: { lte: endDate },
+                        endDate: { gte: startDate },
+                    },
+                ],
+            },
+        });
         let leaveDays = 0;
         schedules.forEach((schedule) => {
             const scheduleDate = new Date(schedule.date);
@@ -972,14 +1130,24 @@ let AttendanceService = class AttendanceService {
                 leaveDays++;
             }
         });
-        const absentDays = totalDays - presentDays - leaveDays;
-        const presenceRate = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
+        let recoveryDaysCount = 0;
+        schedules.forEach((schedule) => {
+            const scheduleDate = new Date(schedule.date);
+            const hasRecovery = recoveryDays.some((rd) => scheduleDate >= new Date(rd.startDate) &&
+                scheduleDate <= new Date(rd.endDate));
+            if (hasRecovery) {
+                recoveryDaysCount++;
+            }
+        });
+        const absentDays = totalDays - presentDays - leaveDays - recoveryDaysCount;
+        const presenceRate = totalDays > 0 ? ((presentDays + recoveryDaysCount) / totalDays) * 100 : 0;
         return {
             presenceRate: Math.round(presenceRate * 100) / 100,
             totalDays,
-            presentDays,
+            presentDays: presentDays + recoveryDaysCount,
             absentDays,
             leaveDays,
+            recoveryDays: recoveryDaysCount,
         };
     }
     async getPunctualityRate(tenantId, employeeId, startDate, endDate) {
@@ -987,7 +1155,7 @@ let AttendanceService = class AttendanceService {
             where: {
                 tenantId,
                 employeeId,
-                type: client_1.AttendanceType.IN,
+                type: client_2.AttendanceType.IN,
                 timestamp: {
                     gte: startDate,
                     lte: endDate,

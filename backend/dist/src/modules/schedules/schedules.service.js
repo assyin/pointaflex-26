@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SchedulesService = void 0;
 const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../../database/prisma.service");
+const client_1 = require("@prisma/client");
 const manager_level_util_1 = require("../../common/utils/manager-level.util");
 const XLSX = require("xlsx");
 let SchedulesService = class SchedulesService {
@@ -64,6 +65,19 @@ let SchedulesService = class SchedulesService {
         }
         if (!employee.isActive) {
             throw new common_1.BadRequestException(`L'employé ${employee.firstName} ${employee.lastName} (${employee.matricule}) n'est pas actif. Impossible de créer un planning pour un employé inactif.`);
+        }
+        const recoveryDay = await this.prisma.recoveryDay.findFirst({
+            where: {
+                tenantId,
+                employeeId: dto.employeeId,
+                status: { in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.PENDING] },
+                startDate: { lte: new Date(dto.dateDebut) },
+                endDate: { gte: new Date(dto.dateDebut) }
+            }
+        });
+        if (recoveryDay) {
+            throw new common_1.ConflictException(`L'employé est en récupération du ${recoveryDay.startDate.toISOString().split('T')[0]} au ${recoveryDay.endDate.toISOString().split('T')[0]}. ` +
+                `Impossible de créer un planning pour cette date.`);
         }
         const shift = await this.prisma.shift.findFirst({
             where: {

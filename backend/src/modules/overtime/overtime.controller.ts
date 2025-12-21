@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OvertimeService } from './overtime.service';
+import { RecoveryDaysService } from '../recovery-days/recovery-days.service';
 import { CreateOvertimeDto } from './dto/create-overtime.dto';
 import { UpdateOvertimeDto } from './dto/update-overtime.dto';
 import { ApproveOvertimeDto } from './dto/approve-overtime.dto';
@@ -25,7 +26,10 @@ import { LegacyRole, OvertimeStatus } from '@prisma/client';
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
 export class OvertimeController {
-  constructor(private overtimeService: OvertimeService) {}
+  constructor(
+    private overtimeService: OvertimeService,
+    private recoveryDaysService: RecoveryDaysService,
+  ) {}
 
   @Post()
   @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
@@ -109,6 +113,13 @@ export class OvertimeController {
   @ApiOperation({ summary: 'Get overtime balance for an employee' })
   getBalance(@CurrentUser() user: any, @Param('employeeId') employeeId: string) {
     return this.overtimeService.getBalance(user.tenantId, employeeId);
+  }
+
+  @Get('cumulative-balance/:employeeId')
+  @RequirePermissions('overtime.view_all', 'overtime.view_own')
+  @ApiOperation({ summary: 'Get cumulative overtime balance for conversion to recovery days' })
+  getCumulativeBalance(@CurrentUser() user: any, @Param('employeeId') employeeId: string) {
+    return this.recoveryDaysService.getCumulativeBalance(user.tenantId, employeeId);
   }
 
   @Delete(':id')

@@ -1,4 +1,6 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable, ForbiddenException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../../database/prisma.service';
 import { DashboardStatsQueryDto, DashboardScope } from './dto/dashboard-stats.dto';
 import { AttendanceReportDto } from './dto/attendance-report.dto';
@@ -6,12 +8,15 @@ import { OvertimeReportDto } from './dto/overtime-report.dto';
 import { AbsencesReportDto } from './dto/absences-report.dto';
 import { PayrollReportDto } from './dto/payroll-report.dto';
 import { PlanningReportDto } from './dto/planning-report.dto';
-import { AttendanceType, LeaveStatus, OvertimeStatus } from '@prisma/client';
+import { AttendanceType, LeaveStatus, OvertimeStatus, RecoveryDayStatus } from '@prisma/client';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 
 @Injectable()
 export class ReportsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
 
   async getDashboardStats(
     tenantId: string | null,
@@ -19,6 +24,15 @@ export class ReportsService {
     userId?: string,
     userRole?: string,
   ) {
+    // Créer une clé de cache unique
+    const cacheKey = `dashboard:${tenantId || 'null'}:${userId || 'null'}:${query.scope || 'auto'}:${query.startDate || ''}:${query.endDate || ''}`;
+
+    // Vérifier le cache
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     // Si aucun scope n'est spécifié, détecter automatiquement le niveau du manager
     let scope = query.scope;
     
@@ -41,46 +55,57 @@ export class ReportsService {
     this.validateScopeAccess(scope, userRole);
 
     // Router vers la bonne méthode selon le scope
+    let result;
     switch (scope) {
       case DashboardScope.PERSONAL:
         if (!userId) {
           throw new ForbiddenException('User ID required for personal dashboard');
         }
-        return this.getPersonalDashboardStats(userId, tenantId, query);
-      
+        result = await this.getPersonalDashboardStats(userId, tenantId, query);
+        break;
+
       case DashboardScope.TEAM:
         if (!userId) {
           throw new ForbiddenException('User ID required for team dashboard');
         }
-        return this.getTeamDashboardStats(userId, tenantId, query);
-      
+        result = await this.getTeamDashboardStats(userId, tenantId, query);
+        break;
+
       case DashboardScope.DEPARTMENT:
         if (!userId || !tenantId) {
           throw new ForbiddenException('User ID and Tenant ID required for department dashboard');
         }
-        return this.getDepartmentDashboardStats(userId, tenantId, query);
-      
+        result = await this.getDepartmentDashboardStats(userId, tenantId, query);
+        break;
+
       case DashboardScope.SITE:
         if (!userId || !tenantId) {
           throw new ForbiddenException('User ID and Tenant ID required for site dashboard');
         }
-        return this.getSiteDashboardStats(userId, tenantId, query);
-      
+        result = await this.getSiteDashboardStats(userId, tenantId, query);
+        break;
+
       case DashboardScope.TENANT:
         if (!tenantId) {
           throw new ForbiddenException('Tenant ID required for tenant dashboard');
         }
-        return this.getTenantDashboardStats(tenantId, query);
-      
+        result = await this.getTenantDashboardStats(tenantId, query);
+        break;
+
       case DashboardScope.PLATFORM:
         if (userRole !== 'SUPER_ADMIN') {
           throw new ForbiddenException('Only SUPER_ADMIN can access platform dashboard');
         }
-        return this.getPlatformDashboardStats(query);
-      
+        result = await this.getPlatformDashboardStats(query);
+        break;
+
       default:
-        return this.getTenantDashboardStats(tenantId!, query);
+        result = await this.getTenantDashboardStats(tenantId!, query);
     }
+
+    // Mettre en cache le résultat (5 minutes)
+    await this.cacheManager.set(cacheKey, result, 300000);
+    return result;
   }
 
   /**
@@ -252,30 +277,54 @@ export class ReportsService {
       },
     });
 
-    // Graphiques personnels (7 derniers jours)
-    const last7Days = [];
+    // OPTIMISATION: Graphiques personnels (7 derniers jours) - Une seule requête au lieu de 7
     const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const startDate7Days = new Date();
+    startDate7Days.setDate(startDate7Days.getDate() - 6);
+    startDate7Days.setHours(0, 0, 0, 0);
+    const endDate7Days = new Date();
+    endDate7Days.setHours(23, 59, 59, 999);
+
+    // Une seule requête pour récupérer toutes les données des 7 derniers jours
+    const all7DaysAttendance = await this.prisma.attendance.findMany({
+      where: {
+        employeeId,
+        tenantId: empTenantId,
+        timestamp: { gte: startDate7Days, lte: endDate7Days },
+      },
+      select: {
+        timestamp: true,
+        type: true,
+        hasAnomaly: true,
+        anomalyType: true,
+      },
+    });
+
+    // Grouper par jour en mémoire
+    const attendanceByDay = new Map<string, typeof all7DaysAttendance>();
+    all7DaysAttendance.forEach((a) => {
+      const dateKey = new Date(a.timestamp).toISOString().split('T')[0];
+      if (!attendanceByDay.has(dateKey)) {
+        attendanceByDay.set(dateKey, []);
+      }
+      attendanceByDay.get(dateKey)!.push(a);
+    });
+
+    // Construire le tableau des 7 derniers jours
+    const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayAttendance = await this.prisma.attendance.findMany({
-        where: {
-          employeeId,
-          tenantId: empTenantId,
-          timestamp: { gte: date, lt: nextDate },
-        },
-      });
+      const dateKey = date.toISOString().split('T')[0];
+      const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const hasEntry = dayAttendance.some(a => a.type === AttendanceType.IN);
       const hasLate = dayAttendance.some(a => a.hasAnomaly && a.anomalyType?.includes('LATE'));
 
       last7Days.push({
         day: dayNames[date.getDay()],
-        date: date.toISOString().split('T')[0],
+        date: dateKey,
         present: hasEntry ? 1 : 0,
         late: hasLate ? 1 : 0,
       });
@@ -435,32 +484,48 @@ export class ReportsService {
       ? ((activeToday.length / totalTeamEmployees) * 100).toFixed(1)
       : 0;
 
-    // Graphiques équipe (7 derniers jours)
-    const last7Days = [];
+    // OPTIMISATION: Graphiques équipe (7 derniers jours) - Une seule requête au lieu de 7
     const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const startDate7Days = new Date();
+    startDate7Days.setDate(startDate7Days.getDate() - 6);
+    startDate7Days.setHours(0, 0, 0, 0);
+    const endDate7Days = new Date();
+    endDate7Days.setHours(23, 59, 59, 999);
+
+    const all7DaysAttendance = await this.prisma.attendance.findMany({
+      where: {
+        tenantId: empTenantId,
+        employeeId: { in: teamEmployeeIds },
+        timestamp: { gte: startDate7Days, lte: endDate7Days },
+        type: AttendanceType.IN,
+      },
+      select: { employeeId: true, hasAnomaly: true, anomalyType: true, timestamp: true },
+    });
+
+    // Grouper par jour en mémoire
+    const attendanceByDay = new Map<string, typeof all7DaysAttendance>();
+    all7DaysAttendance.forEach((a) => {
+      const dateKey = new Date(a.timestamp).toISOString().split('T')[0];
+      if (!attendanceByDay.has(dateKey)) {
+        attendanceByDay.set(dateKey, []);
+      }
+      attendanceByDay.get(dateKey)!.push(a);
+    });
+
+    const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayAttendance = await this.prisma.attendance.findMany({
-        where: {
-          tenantId: empTenantId,
-          employeeId: { in: teamEmployeeIds },
-          timestamp: { gte: date, lt: nextDate },
-          type: AttendanceType.IN,
-        },
-        select: { employeeId: true, hasAnomaly: true, anomalyType: true },
-      });
+      const dateKey = date.toISOString().split('T')[0];
+      const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
       const absent = totalTeamEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
 
       last7Days.push({
         day: dayNames[date.getDay()],
-        date: date.toISOString().split('T')[0],
+        date: dateKey,
         retards: late,
         absences: absent,
       });
@@ -922,32 +987,48 @@ export class ReportsService {
       ? ((activeToday.length / totalSiteEmployees) * 100).toFixed(1)
       : 0;
 
-    // Graphiques site (7 derniers jours)
-    const last7Days = [];
+    // OPTIMISATION: Graphiques site (7 derniers jours) - Une seule requête au lieu de 7
     const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const startDate7Days = new Date();
+    startDate7Days.setDate(startDate7Days.getDate() - 6);
+    startDate7Days.setHours(0, 0, 0, 0);
+    const endDate7Days = new Date();
+    endDate7Days.setHours(23, 59, 59, 999);
+
+    const all7DaysAttendance = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: siteEmployeeIds },
+        timestamp: { gte: startDate7Days, lte: endDate7Days },
+        type: AttendanceType.IN,
+      },
+      select: { employeeId: true, hasAnomaly: true, anomalyType: true, timestamp: true },
+    });
+
+    // Grouper par jour en mémoire
+    const attendanceByDay = new Map<string, typeof all7DaysAttendance>();
+    all7DaysAttendance.forEach((a) => {
+      const dateKey = new Date(a.timestamp).toISOString().split('T')[0];
+      if (!attendanceByDay.has(dateKey)) {
+        attendanceByDay.set(dateKey, []);
+      }
+      attendanceByDay.get(dateKey)!.push(a);
+    });
+
+    const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayAttendance = await this.prisma.attendance.findMany({
-        where: {
-          tenantId,
-          employeeId: { in: siteEmployeeIds },
-          timestamp: { gte: date, lt: nextDate },
-          type: AttendanceType.IN,
-        },
-        select: { employeeId: true, hasAnomaly: true, anomalyType: true },
-      });
+      const dateKey = date.toISOString().split('T')[0];
+      const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
       const absent = totalSiteEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
 
       last7Days.push({
         day: dayNames[date.getDay()],
-        date: date.toISOString().split('T')[0],
+        date: dateKey,
         retards: late,
         absences: absent,
       });
@@ -1258,31 +1339,47 @@ export class ReportsService {
       ? ((activeToday.length / totalEmployees) * 100).toFixed(1)
       : 0;
 
-    // Weekly attendance data (last 7 days)
-    const last7Days = [];
+    // OPTIMISATION: Weekly attendance data (last 7 days) - Une seule requête au lieu de 7
     const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    const startDate7Days = new Date();
+    startDate7Days.setDate(startDate7Days.getDate() - 6);
+    startDate7Days.setHours(0, 0, 0, 0);
+    const endDate7Days = new Date();
+    endDate7Days.setHours(23, 59, 59, 999);
+
+    const all7DaysAttendance = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        timestamp: { gte: startDate7Days, lte: endDate7Days },
+        type: AttendanceType.IN,
+      },
+      select: { employeeId: true, hasAnomaly: true, anomalyType: true, timestamp: true },
+    });
+
+    // Grouper par jour en mémoire
+    const attendanceByDay = new Map<string, typeof all7DaysAttendance>();
+    all7DaysAttendance.forEach((a) => {
+      const dateKey = new Date(a.timestamp).toISOString().split('T')[0];
+      if (!attendanceByDay.has(dateKey)) {
+        attendanceByDay.set(dateKey, []);
+      }
+      attendanceByDay.get(dateKey)!.push(a);
+    });
+
+    const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
-      const nextDate = new Date(date);
-      nextDate.setDate(nextDate.getDate() + 1);
-
-      const dayAttendance = await this.prisma.attendance.findMany({
-        where: {
-          tenantId,
-          timestamp: { gte: date, lt: nextDate },
-          type: AttendanceType.IN,
-        },
-        select: { employeeId: true, hasAnomaly: true, anomalyType: true },
-      });
+      const dateKey = date.toISOString().split('T')[0];
+      const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
       const absent = totalEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
 
       last7Days.push({
         day: dayNames[date.getDay()],
-        date: date.toISOString().split('T')[0],
+        date: dateKey,
         retards: late,
         absences: absent,
       });
@@ -1494,12 +1591,47 @@ export class ReportsService {
     const uniqueEmployees = new Set(attendance.map(a => a.employeeId)).size;
     const totalDays = byDay.size;
 
+    // AJOUT: Récupérer les journées de récupération dans la période
+    const employeeIds = dto.employeeId ? [dto.employeeId] : Array.from(new Set(attendance.map(a => a.employeeId)));
+    const recoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: employeeIds.length > 0 ? { in: employeeIds } : undefined,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        OR: [
+          { startDate: { lte: endDate }, endDate: { gte: startDate } }
+        ]
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          }
+        }
+      }
+    });
+
+    // Calculer les heures de récupération
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId }
+    });
+    const dailyWorkingHours = Number(settings?.dailyWorkingHours || 7.33);
+    let totalRecoveryHours = 0;
+    recoveryDays.forEach(rd => {
+      totalRecoveryHours += Number(rd.days) * dailyWorkingHours;
+    });
+
     return {
       data: attendance,
+      recoveryDays: recoveryDays, // NOUVEAU
       summary: {
         total: attendance.length,
         anomalies: anomalies.length,
-        totalWorkedHours: Math.round(totalWorkedHours * 10) / 10, // Arrondir à 1 décimale
+        totalWorkedHours: Math.round((totalWorkedHours + totalRecoveryHours) * 10) / 10, // MODIFIÉ: inclure les récupérations
+        totalRecoveryHours: Math.round(totalRecoveryHours * 10) / 10, // NOUVEAU
         uniqueEmployees,
         totalDays,
         byDay: Array.from(byDay.entries()).map(([date, stats]) => ({
@@ -1829,8 +1961,50 @@ export class ReportsService {
       return acc;
     }, {} as Record<string, number>);
 
+    // AJOUT: Récupérer les récupérations converties depuis heures supp dans la période
+    const employeeIds = overtimeRecords.map(r => r.employeeId);
+    const recoveryDaysFromOvertime = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: employeeIds.length > 0 ? { in: employeeIds } : undefined,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          }
+        },
+        overtimeSources: {
+          include: {
+            overtime: {
+              select: {
+                id: true,
+                date: true,
+                hours: true,
+                approvedHours: true,
+                type: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // Calculer les heures supp converties en récupération
+    let totalHoursConvertedToRecovery = 0;
+    recoveryDaysFromOvertime.forEach(rd => {
+      totalHoursConvertedToRecovery += Number(rd.sourceHours);
+    });
+
     return {
       data: overtimeRecords,
+      recoveryDays: recoveryDaysFromOvertime, // NOUVEAU
       summary: {
         total: overtimeRecords.length,
         totalHours,
@@ -1840,6 +2014,8 @@ export class ReportsService {
             const hours = r.approvedHours || r.hours;
             return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
           }, 0),
+        totalHoursConvertedToRecovery: Math.round(totalHoursConvertedToRecovery * 10) / 10, // NOUVEAU
+        totalHoursPaid: Math.round((totalHours - totalHoursConvertedToRecovery) * 10) / 10, // MODIFIÉ
         byStatus,
         byType,
         period: {
@@ -1969,13 +2145,41 @@ export class ReportsService {
       employeeAttendanceMap.get(att.employeeId)!.add(dateKey);
     });
 
+    // AJOUT: Récupérer les journées de récupération pour exclure des absences
+    const recoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId ? dto.employeeId : { in: employeeIds },
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        OR: [
+          { startDate: { lte: endDate }, endDate: { gte: startDate } }
+        ]
+      }
+    });
+
+    // Créer un map des jours de récupération par employé
+    const recoveryDaysMap = new Map<string, Set<string>>();
+    recoveryDays.forEach(rd => {
+      if (!recoveryDaysMap.has(rd.employeeId)) {
+        recoveryDaysMap.set(rd.employeeId, new Set());
+      }
+      const rdStart = new Date(rd.startDate);
+      const rdEnd = new Date(rd.endDate);
+      const currentDate = new Date(rdStart);
+      while (currentDate <= rdEnd) {
+        recoveryDaysMap.get(rd.employeeId)!.add(formatDate(currentDate));
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
     // Identifier les absences (jours sans entrée)
     employees.forEach(emp => {
       allDays.forEach(day => {
         const dateKey = formatDate(day);
         const hasEntry = employeeAttendanceMap.get(emp.id)?.has(dateKey);
+        const isRecoveryDay = recoveryDaysMap.get(emp.id)?.has(dateKey);
         
-        if (!hasEntry) {
+        if (!hasEntry && !isRecoveryDay) {
           // Vérifier si c'est un jour ouvrable (simplifié - à améliorer)
           const dayOfWeek = day.getDay();
           if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Pas dimanche ni samedi
@@ -2001,10 +2205,12 @@ export class ReportsService {
           type: a.anomalyType || 'UNKNOWN',
         })),
         absences,
+        recoveryDays: recoveryDays, // NOUVEAU
       },
       summary: {
         totalAnomalies: anomalies.length,
         totalAbsences: absenceCount,
+        totalRecoveryDays: recoveryDays.length, // NOUVEAU
         lateCount,
         earlyLeaveCount,
         period: {
@@ -2138,11 +2344,28 @@ export class ReportsService {
       },
     });
 
+    // AJOUT: 5. Toutes les journées de récupération
+    const allRecoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: employeeIds },
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: {
+        employeeId: true,
+        days: true,
+        sourceHours: true,
+      },
+    });
+
     // Grouper les données par employé en mémoire
     const attendanceByEmployee = new Map<string, number>();
     const overtimeByEmployee = new Map<string, number>();
     const leaveByEmployee = new Map<string, number>();
     const absenceByEmployee = new Map<string, number>();
+    const recoveryDaysByEmployee = new Map<string, { days: number; hours: number }>();
 
     // Compter les pointages par employé
     allAttendanceRecords.forEach(record => {
@@ -2166,12 +2389,22 @@ export class ReportsService {
       absenceByEmployee.set(record.employeeId, (absenceByEmployee.get(record.employeeId) || 0) + 1);
     });
 
+    // AJOUT: Grouper les récupérations par employé
+    allRecoveryDays.forEach(record => {
+      const existing = recoveryDaysByEmployee.get(record.employeeId) || { days: 0, hours: 0 };
+      recoveryDaysByEmployee.set(record.employeeId, {
+        days: existing.days + Number(record.days),
+        hours: existing.hours + Number(record.sourceHours),
+      });
+    });
+
     // Construire les données de paie pour chaque employé
     const payrollData = employees.map(employee => {
       const workedDays = attendanceByEmployee.get(employee.id) || 0;
       const overtimeHours = overtimeByEmployee.get(employee.id) || 0;
       const leaveDays = leaveByEmployee.get(employee.id) || 0;
       const absenceDays = absenceByEmployee.get(employee.id) || 0;
+      const recoveryDays = recoveryDaysByEmployee.get(employee.id) || { days: 0, hours: 0 };
 
       return {
         employee: {
@@ -2194,6 +2427,8 @@ export class ReportsService {
         leaveDays,
         lateHours: 0, // À calculer à partir des retards
         absenceDays,
+        recoveryDays: recoveryDays.days,
+        recoveryHours: recoveryDays.hours,
         totalHours: (workedDays * 8) + overtimeHours,
       };
     });
@@ -2204,6 +2439,8 @@ export class ReportsService {
     const totalNormalHours = payrollData.reduce((sum, d) => sum + d.normalHours, 0);
     const totalOvertimeHours = payrollData.reduce((sum, d) => sum + d.overtimeHours, 0);
     const totalLeaveDays = payrollData.reduce((sum, d) => sum + Number(d.leaveDays), 0);
+    const totalRecoveryDays = payrollData.reduce((sum, d) => sum + d.recoveryDays, 0); // NOUVEAU
+    const totalRecoveryHours = payrollData.reduce((sum, d) => sum + d.recoveryHours, 0); // NOUVEAU
 
     return {
       data: payrollData,
@@ -2213,6 +2450,9 @@ export class ReportsService {
         totalNormalHours,
         totalOvertimeHours,
         totalLeaveDays,
+        totalRecoveryDays, // NOUVEAU
+        totalRecoveryHours, // NOUVEAU
+        totalHours: totalNormalHours + totalOvertimeHours + totalRecoveryHours, // MODIFIÉ
         period: {
           startDate: dto.startDate,
           endDate: dto.endDate,
@@ -2282,17 +2522,58 @@ export class ReportsService {
       notes: schedule.notes,
     }));
 
+    // AJOUT: Récupérer les journées de récupération dans la période
+    const employeeIds = schedules.map((s: any) => s.employee.id);
+    const recoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: employeeIds.length > 0 ? { in: employeeIds } : undefined,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        startDate: { lte: new Date(dto.endDate) },
+        endDate: { gte: new Date(dto.startDate) },
+      },
+      include: {
+        employee: {
+          include: {
+            department: true,
+            positionRef: true,
+            site: true,
+            team: true,
+          }
+        }
+      }
+    });
+
+    // Transformer en format planning
+    const recoveryDaysAsPlanning = recoveryDays.map(rd => ({
+      id: `recovery-${rd.id}`,
+      date: rd.startDate,
+      employee: {
+        id: rd.employee.id,
+        name: `${rd.employee.firstName} ${rd.employee.lastName}`,
+        employeeNumber: rd.employee.matricule,
+        department: rd.employee.department?.name || 'N/A',
+        position: rd.employee.positionRef?.name || rd.employee.position || 'N/A',
+        site: rd.employee.site?.name || 'N/A',
+        team: rd.employee.team?.name || 'N/A',
+      },
+      shift: null,
+      isRecoveryDay: true,
+      recoveryDay: rd,
+    }));
+
     // Statistiques
     const totalSchedules = planningData.length;
     const uniqueEmployees = new Set(planningData.map(s => s.employee.id)).size;
     const uniqueShifts = new Set(planningData.filter(s => s.shift).map(s => s.shift.id)).size;
 
     return {
-      data: planningData,
+      data: [...planningData, ...recoveryDaysAsPlanning],
       summary: {
-        totalSchedules,
+        totalSchedules: totalSchedules + recoveryDays.length,
         uniqueEmployees,
         uniqueShifts,
+        totalRecoveryDays: recoveryDays.length, // NOUVEAU
         period: {
           startDate: dto.startDate,
           endDate: dto.endDate,

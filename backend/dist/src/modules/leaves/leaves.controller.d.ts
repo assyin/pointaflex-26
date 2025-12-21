@@ -10,17 +10,17 @@ export declare class LeavesController {
     create(user: any, dto: CreateLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -56,9 +56,9 @@ export declare class LeavesController {
         data: ({
             employee: {
                 id: string;
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 site: {
                     id: string;
                     name: string;
@@ -69,9 +69,9 @@ export declare class LeavesController {
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
-                tenantId: string;
                 isPaid: boolean;
                 requiresDocument: boolean;
                 maxDaysPerYear: number | null;
@@ -113,19 +113,19 @@ export declare class LeavesController {
     findOne(user: any, id: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
+            email: string;
             firstName: string;
             lastName: string;
-            email: string;
+            matricule: string;
             position: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -160,17 +160,17 @@ export declare class LeavesController {
     update(user: any, id: string, dto: UpdateLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -205,17 +205,17 @@ export declare class LeavesController {
     approve(user: any, id: string, dto: ApproveLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -250,17 +250,17 @@ export declare class LeavesController {
     cancel(user: any, id: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -322,17 +322,17 @@ export declare class LeavesController {
     uploadDocument(user: any, id: string, file: Express.Multer.File): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -368,17 +368,17 @@ export declare class LeavesController {
     deleteDocument(user: any, id: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;

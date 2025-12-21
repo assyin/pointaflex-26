@@ -9,6 +9,7 @@ export declare class DataGeneratorService {
     private readonly attendanceService;
     private readonly logger;
     constructor(prisma: PrismaService, attendanceService: AttendanceService);
+    private roundOvertimeHours;
     generateSingleDay(tenantId: string, dto: GenerateSingleAttendanceDto): Promise<{
         success: boolean;
         employee: {

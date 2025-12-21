@@ -5,41 +5,41 @@ export declare class DepartmentsController {
     private readonly departmentsService;
     constructor(departmentsService: DepartmentsService);
     create(tenantId: string, createDepartmentDto: CreateDepartmentDto): Promise<{
+        _count: {
+            employees: number;
+        };
         manager: {
             id: string;
             firstName: string;
             lastName: string;
         };
-        _count: {
-            employees: number;
-        };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string | null;
         description: string | null;
-        tenantId: string;
         managerId: string | null;
     }>;
     findAll(tenantId: string, user: any): Promise<({
+        _count: {
+            employees: number;
+        };
         manager: {
             id: string;
             firstName: string;
             lastName: string;
         };
-        _count: {
-            employees: number;
-        };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string | null;
         description: string | null;
-        tenantId: string;
         managerId: string | null;
     })[]>;
     getStats(tenantId: string, user: any): Promise<{
@@ -55,59 +55,59 @@ export declare class DepartmentsController {
         }[];
     }>;
     findOne(id: string, tenantId: string): Promise<{
-        manager: {
-            id: string;
-            firstName: string;
-            lastName: string;
+        _count: {
+            employees: number;
         };
         employees: {
             id: string;
-            matricule: string;
+            email: string;
             firstName: string;
             lastName: string;
-            email: string;
+            matricule: string;
             position: string;
         }[];
-        _count: {
-            employees: number;
-        };
-    } & {
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        name: string;
-        code: string | null;
-        description: string | null;
-        tenantId: string;
-        managerId: string | null;
-    }>;
-    update(id: string, tenantId: string, updateDepartmentDto: UpdateDepartmentDto): Promise<{
         manager: {
             id: string;
             firstName: string;
             lastName: string;
         };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        name: string;
+        code: string | null;
+        description: string | null;
+        managerId: string | null;
+    }>;
+    update(id: string, tenantId: string, updateDepartmentDto: UpdateDepartmentDto): Promise<{
         _count: {
             employees: number;
+        };
+        manager: {
+            id: string;
+            firstName: string;
+            lastName: string;
         };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string | null;
         description: string | null;
-        tenantId: string;
         managerId: string | null;
     }>;
     remove(id: string, tenantId: string): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string | null;
         description: string | null;
-        tenantId: string;
         managerId: string | null;
     }>;
 }

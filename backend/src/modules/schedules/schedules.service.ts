@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { RecoveryDayStatus } from '@prisma/client';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { ImportScheduleResultDto } from './dto/import-schedule.dto';
@@ -82,6 +83,24 @@ export class SchedulesService {
     if (!employee.isActive) {
       throw new BadRequestException(
         `L'employé ${employee.firstName} ${employee.lastName} (${employee.matricule}) n'est pas actif. Impossible de créer un planning pour un employé inactif.`
+      );
+    }
+
+    // AJOUT: Vérifier si l'employé est en récupération ce jour-là
+    const recoveryDay = await this.prisma.recoveryDay.findFirst({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.PENDING] },
+        startDate: { lte: new Date(dto.dateDebut) },
+        endDate: { gte: new Date(dto.dateDebut) }
+      }
+    });
+
+    if (recoveryDay) {
+      throw new ConflictException(
+        `L'employé est en récupération du ${recoveryDay.startDate.toISOString().split('T')[0]} au ${recoveryDay.endDate.toISOString().split('T')[0]}. ` +
+        `Impossible de créer un planning pour cette date.`
       );
     }
 

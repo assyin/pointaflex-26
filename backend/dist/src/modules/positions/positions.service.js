@@ -16,10 +16,93 @@ let PositionsService = class PositionsService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    async generateUniqueCode(tenantId, positionName) {
+        const normalized = positionName
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toUpperCase();
+        let baseCode = normalized
+            .replace(/\s/g, '')
+            .substring(0, 3);
+        if (baseCode.length < 3) {
+            baseCode = baseCode.padEnd(3, 'X');
+        }
+        try {
+            const existing = await this.prisma.position.findFirst({
+                where: {
+                    tenantId,
+                    code: baseCode,
+                },
+            });
+            if (!existing) {
+                return baseCode;
+            }
+        }
+        catch (error) {
+            if (error.message?.includes('does not exist')) {
+                return baseCode;
+            }
+            throw error;
+        }
+        let counter = 1;
+        let uniqueCode;
+        do {
+            uniqueCode = `${baseCode}${String(counter).padStart(3, '0')}`;
+            try {
+                const existing = await this.prisma.position.findFirst({
+                    where: {
+                        tenantId,
+                        code: uniqueCode,
+                    },
+                });
+                if (!existing) {
+                    return uniqueCode;
+                }
+            }
+            catch (error) {
+                if (error.message?.includes('does not exist')) {
+                    return uniqueCode;
+                }
+                throw error;
+            }
+            counter++;
+            if (counter > 9999) {
+                return `POS${Date.now().toString().slice(-6)}`;
+            }
+        } while (true);
+    }
     async create(tenantId, createPositionDto) {
+        let finalCode = createPositionDto.code;
+        if (!finalCode) {
+            finalCode = await this.generateUniqueCode(tenantId, createPositionDto.name);
+        }
+        else {
+            try {
+                const existing = await this.prisma.position.findFirst({
+                    where: {
+                        tenantId,
+                        code: createPositionDto.code,
+                    },
+                });
+                if (existing) {
+                    throw new common_1.ConflictException(`Le code "${createPositionDto.code}" existe déjà pour ce tenant`);
+                }
+            }
+            catch (error) {
+                if (error.message?.includes('does not exist')) {
+                }
+                else {
+                    throw error;
+                }
+            }
+        }
         return this.prisma.position.create({
             data: {
                 ...createPositionDto,
+                code: finalCode,
                 tenantId,
             },
             include: {

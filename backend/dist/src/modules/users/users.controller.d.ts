@@ -161,9 +161,9 @@ export declare class UsersController {
         createdAt: Date;
         updatedAt: Date;
         userId: string;
-        notifications: import("@prisma/client/runtime/library").JsonValue | null;
         timezone: string;
         language: string;
+        notifications: import("@prisma/client/runtime/library").JsonValue | null;
         dateFormat: string;
         timeFormat: string;
         theme: string;
@@ -173,9 +173,9 @@ export declare class UsersController {
         createdAt: Date;
         updatedAt: Date;
         userId: string;
-        notifications: import("@prisma/client/runtime/library").JsonValue | null;
         timezone: string;
         language: string;
+        notifications: import("@prisma/client/runtime/library").JsonValue | null;
         dateFormat: string;
         timeFormat: string;
         theme: string;
@@ -260,12 +260,12 @@ export declare class UsersController {
                 name: string;
                 code: string | null;
                 address: string | null;
+                timezone: string | null;
+                city: string | null;
                 departmentId: string | null;
                 managerId: string | null;
-                city: string | null;
                 latitude: import("@prisma/client/runtime/library").Decimal | null;
                 longitude: import("@prisma/client/runtime/library").Decimal | null;
-                timezone: string | null;
                 workingDays: import("@prisma/client/runtime/library").JsonValue | null;
             };
             team: {
@@ -291,9 +291,9 @@ export declare class UsersController {
             phone: string | null;
             isActive: boolean;
             userId: string | null;
+            address: string | null;
             matricule: string;
             dateOfBirth: Date | null;
-            address: string | null;
             photo: string | null;
             civilite: string | null;
             situationFamiliale: string | null;
@@ -355,9 +355,9 @@ export declare class UsersController {
             createdAt: Date;
             updatedAt: Date;
             userId: string;
-            notifications: import("@prisma/client/runtime/library").JsonValue | null;
             timezone: string;
             language: string;
+            notifications: import("@prisma/client/runtime/library").JsonValue | null;
             dateFormat: string;
             timeFormat: string;
             theme: string;
@@ -385,13 +385,13 @@ export declare class UsersController {
             createdAt: Date;
             tenantId: string;
             userId: string | null;
+            ipAddress: string | null;
+            userAgent: string | null;
             action: string;
             entity: string;
             entityId: string | null;
             oldValues: import("@prisma/client/runtime/library").JsonValue | null;
             newValues: import("@prisma/client/runtime/library").JsonValue | null;
-            ipAddress: string | null;
-            userAgent: string | null;
         }[];
         exportDate: string;
     }>;

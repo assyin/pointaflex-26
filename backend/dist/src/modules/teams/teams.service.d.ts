@@ -31,8 +31,8 @@ export declare class TeamsService {
     }): Promise<{
         data: ({
             _count: {
-                schedules: number;
                 employees: number;
+                schedules: number;
             };
             employees: {
                 id: string;
@@ -67,8 +67,8 @@ export declare class TeamsService {
     }>;
     findOne(tenantId: string, id: string): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -123,8 +123,8 @@ export declare class TeamsService {
     }>;
     addMember(tenantId: string, teamId: string, dto: AddMemberDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -148,8 +148,8 @@ export declare class TeamsService {
     }>;
     removeMember(tenantId: string, teamId: string, employeeId: string): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -173,8 +173,8 @@ export declare class TeamsService {
     }>;
     addMembersBulk(tenantId: string, teamId: string, dto: BulkMembersDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -198,8 +198,8 @@ export declare class TeamsService {
     }>;
     removeMembersBulk(tenantId: string, teamId: string, dto: BulkMembersDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;

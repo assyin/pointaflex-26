@@ -7,14 +7,15 @@ import { Decimal } from '@prisma/client/runtime/library';
 export declare class AttendanceService {
     private prisma;
     constructor(prisma: PrismaService);
+    private roundOvertimeHours;
     create(tenantId: string, createAttendanceDto: CreateAttendanceDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
-            photo: string;
             userId: string;
+            matricule: string;
+            photo: string;
             department: {
                 id: string;
                 managerId: string;
@@ -30,30 +31,30 @@ export declare class AttendanceService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            phone: string | null;
             name: string;
             code: string | null;
-            tenantId: string;
-            managerId: string | null;
-            phone: string | null;
             address: string | null;
-            departmentId: string | null;
+            timezone: string | null;
             city: string | null;
+            departmentId: string | null;
+            managerId: string | null;
             latitude: Decimal | null;
             longitude: Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
         device: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
             tenantId: string;
-            siteId: string | null;
             isActive: boolean;
+            name: string;
+            siteId: string | null;
+            ipAddress: string | null;
             deviceId: string;
             deviceType: import(".prisma/client").$Enums.DeviceType;
-            ipAddress: string | null;
             apiKey: string | null;
             lastSync: Date | null;
         };
@@ -65,10 +66,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -88,14 +88,15 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     }>;
     handleWebhook(tenantId: string, deviceId: string, webhookData: WebhookAttendanceDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
             userId: string;
+            matricule: string;
             department: {
                 id: string;
                 managerId: string;
@@ -115,10 +116,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -138,6 +138,7 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     }>;
     findAll(tenantId: string, filters?: {
         employeeId?: string;
@@ -146,116 +147,155 @@ export declare class AttendanceService {
         endDate?: string;
         hasAnomaly?: boolean;
         type?: AttendanceType;
-    }, userId?: string, userPermissions?: string[]): Promise<({
-        employee: {
-            id: string;
-            matricule: string;
-            firstName: string;
-            lastName: string;
-            photo: string;
-            currentShift: {
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                code: string;
-                tenantId: string;
-                isNightShift: boolean;
-                startTime: string;
-                endTime: string;
-                breakDuration: number;
-                color: string | null;
-            };
-        };
-        site: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            name: string;
-            code: string | null;
-            tenantId: string;
-            managerId: string | null;
-            phone: string | null;
-            address: string | null;
-            departmentId: string | null;
-            city: string | null;
-            latitude: Decimal | null;
-            longitude: Decimal | null;
-            timezone: string | null;
-            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
-        };
-        device: {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            name: string;
-            tenantId: string;
-            siteId: string | null;
-            isActive: boolean;
-            deviceId: string;
-            deviceType: import(".prisma/client").$Enums.DeviceType;
-            ipAddress: string | null;
-            apiKey: string | null;
-            lastSync: Date | null;
-        };
-    } & {
+        page?: number;
+        limit?: number;
+    }, userId?: string, userPermissions?: string[]): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
         tenantId: string;
-        siteId: string | null;
-        latitude: Decimal | null;
-        longitude: Decimal | null;
-        deviceId: string | null;
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+            photo: string;
+            currentShift: {
+                id: string;
+                name: string;
+                code: string;
+                startTime: string;
+                endTime: string;
+            };
+        };
+        siteId: string;
+        site: {
+            id: string;
+            name: string;
+            code: string;
+        };
+        latitude: Decimal;
+        longitude: Decimal;
+        device: {
+            id: string;
+            name: string;
+            deviceId: string;
+            deviceType: import(".prisma/client").$Enums.DeviceType;
+        };
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
-        anomalyType: string | null;
-        anomalyNote: string | null;
+        anomalyType: string;
+        anomalyNote: string;
         isCorrected: boolean;
-        correctedBy: string | null;
-        correctedAt: Date | null;
-        correctionNote: string | null;
-        hoursWorked: Decimal | null;
-        lateMinutes: number | null;
-        earlyLeaveMinutes: number | null;
-        overtimeMinutes: number | null;
+        correctedBy: string;
+        correctedAt: Date;
+        correctionNote: string;
+        hoursWorked: Decimal;
+        lateMinutes: number;
+        earlyLeaveMinutes: number;
+        overtimeMinutes: number;
         needsApproval: boolean;
-        approvalStatus: string | null;
-        approvedBy: string | null;
-        approvedAt: Date | null;
-        rawData: import("@prisma/client/runtime/library").JsonValue | null;
-        generatedBy: string | null;
+        approvalStatus: string;
+        approvedBy: string;
+        approvedAt: Date;
+        rawData: import("@prisma/client/runtime/library").JsonValue;
+        generatedBy: string;
         isGenerated: boolean;
-    })[]>;
+        deviceId: string;
+    }[] | {
+        data: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+                photo: string;
+                currentShift: {
+                    id: string;
+                    name: string;
+                    code: string;
+                    startTime: string;
+                    endTime: string;
+                };
+            };
+            siteId: string;
+            site: {
+                id: string;
+                name: string;
+                code: string;
+            };
+            latitude: Decimal;
+            longitude: Decimal;
+            device: {
+                id: string;
+                name: string;
+                deviceId: string;
+                deviceType: import(".prisma/client").$Enums.DeviceType;
+            };
+            type: import(".prisma/client").$Enums.AttendanceType;
+            employeeId: string;
+            timestamp: Date;
+            method: import(".prisma/client").$Enums.DeviceType;
+            hasAnomaly: boolean;
+            anomalyType: string;
+            anomalyNote: string;
+            isCorrected: boolean;
+            correctedBy: string;
+            correctedAt: Date;
+            correctionNote: string;
+            hoursWorked: Decimal;
+            lateMinutes: number;
+            earlyLeaveMinutes: number;
+            overtimeMinutes: number;
+            needsApproval: boolean;
+            approvalStatus: string;
+            approvedBy: string;
+            approvedAt: Date;
+            rawData: import("@prisma/client/runtime/library").JsonValue;
+            generatedBy: string;
+            isGenerated: boolean;
+            deviceId: string;
+        }[];
+        meta: {
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        };
+    }>;
     findOne(tenantId: string, id: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
             photo: string;
             position: string;
             department: {
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string | null;
                 description: string | null;
-                tenantId: string;
                 managerId: string | null;
             };
             team: {
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
                 description: string | null;
-                tenantId: string;
                 managerId: string | null;
                 rotationEnabled: boolean;
                 rotationCycleDays: number | null;
@@ -265,30 +305,30 @@ export declare class AttendanceService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            phone: string | null;
             name: string;
             code: string | null;
-            tenantId: string;
-            managerId: string | null;
-            phone: string | null;
             address: string | null;
-            departmentId: string | null;
+            timezone: string | null;
             city: string | null;
+            departmentId: string | null;
+            managerId: string | null;
             latitude: Decimal | null;
             longitude: Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
         device: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
             tenantId: string;
-            siteId: string | null;
             isActive: boolean;
+            name: string;
+            siteId: string | null;
+            ipAddress: string | null;
             deviceId: string;
             deviceType: import(".prisma/client").$Enums.DeviceType;
-            ipAddress: string | null;
             apiKey: string | null;
             lastSync: Date | null;
         };
@@ -300,10 +340,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -323,14 +362,15 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     }>;
     correctAttendance(tenantId: string, id: string, correctionDto: CorrectAttendanceDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
             userId: string;
+            matricule: string;
         };
     } & {
         id: string;
@@ -340,10 +380,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -363,6 +402,7 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     }>;
     private requiresApproval;
     private notifyManagersOfAnomaly;
@@ -371,9 +411,9 @@ export declare class AttendanceService {
     getAnomalies(tenantId: string, date?: string, userId?: string, userPermissions?: string[]): Promise<({
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
             photo: string;
             department: {
                 id: string;
@@ -388,17 +428,17 @@ export declare class AttendanceService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            phone: string | null;
             name: string;
             code: string | null;
-            tenantId: string;
-            managerId: string | null;
-            phone: string | null;
             address: string | null;
-            departmentId: string | null;
+            timezone: string | null;
             city: string | null;
+            departmentId: string | null;
+            managerId: string | null;
             latitude: Decimal | null;
             longitude: Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
@@ -409,10 +449,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -432,6 +471,7 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     })[]>;
     getDailyReport(tenantId: string, date: string): Promise<{
         date: string;
@@ -459,10 +499,9 @@ export declare class AttendanceService {
         siteId: string | null;
         latitude: Decimal | null;
         longitude: Decimal | null;
-        deviceId: string | null;
+        type: import(".prisma/client").$Enums.AttendanceType;
         employeeId: string;
         timestamp: Date;
-        type: import(".prisma/client").$Enums.AttendanceType;
         method: import(".prisma/client").$Enums.DeviceType;
         hasAnomaly: boolean;
         anomalyType: string | null;
@@ -482,6 +521,7 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        deviceId: string | null;
     }>;
     getPresenceRate(tenantId: string, employeeId: string, startDate: Date, endDate: Date): Promise<{
         presenceRate: number;
@@ -489,6 +529,7 @@ export declare class AttendanceService {
         presentDays: number;
         absentDays: number;
         leaveDays: number;
+        recoveryDays: number;
     }>;
     getPunctualityRate(tenantId: string, employeeId: string, startDate: Date, endDate: Date): Promise<{
         punctualityRate: number;

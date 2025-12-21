@@ -1,0 +1,118 @@
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+async function assignUserRoles() {
+  try {
+    console.log('🔄 Attribution des rôles RBAC aux utilisateurs...\n');
+
+    // Récupérer le tenant
+    const tenant = await prisma.tenant.findFirst();
+    if (!tenant) {
+      console.error('❌ Aucun tenant trouvé');
+      process.exit(1);
+    }
+
+    console.log(`📋 Tenant: ${tenant.companyName}\n`);
+
+    // Récupérer tous les utilisateurs du tenant
+    const users = await prisma.user.findMany({
+      where: { tenantId: tenant.id },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+      },
+    });
+
+    console.log(`👥 ${users.length} utilisateurs trouvés\n`);
+
+    for (const user of users) {
+      console.log(`📝 Traitement de ${user.email} (${user.role})...`);
+
+      // Trouver le rôle RBAC correspondant au rôle legacy
+      const role = await prisma.role.findFirst({
+        where: {
+          tenantId: tenant.id,
+          code: user.role,
+        },
+      });
+
+      if (!role) {
+        console.log(`   ⚠️  Rôle RBAC '${user.role}' non trouvé, ignoré`);
+        continue;
+      }
+
+      // Vérifier si l'utilisateur a déjà ce rôle
+      const existingUserRole = await prisma.userTenantRole.findFirst({
+        where: {
+          userId: user.id,
+          tenantId: tenant.id,
+          roleId: role.id,
+        },
+      });
+
+      if (existingUserRole) {
+        console.log(`   ⊘ Déjà assigné au rôle ${role.name}`);
+        continue;
+      }
+
+      // Assigner le rôle à l'utilisateur
+      await prisma.userTenantRole.create({
+        data: {
+          userId: user.id,
+          tenantId: tenant.id,
+          roleId: role.id,
+          isActive: true,
+        },
+      });
+
+      // Compter les permissions du rôle
+      const permissionsCount = await prisma.rolePermission.count({
+        where: { roleId: role.id },
+      });
+
+      console.log(`   ✅ Assigné au rôle ${role.name} (${permissionsCount} permissions)\n`);
+    }
+
+    console.log('\n═══════════════════════════════════════════════════════');
+    console.log('🎉 Attribution des rôles terminée avec succès!');
+    console.log('═══════════════════════════════════════════════════════\n');
+
+    // Afficher un résumé
+    console.log('📊 RÉSUMÉ:\n');
+    for (const user of users) {
+      const userRoles = await prisma.userTenantRole.findMany({
+        where: {
+          userId: user.id,
+          tenantId: tenant.id,
+        },
+        include: {
+          role: {
+            include: {
+              _count: {
+                select: { permissions: true },
+              },
+            },
+          },
+        },
+      });
+
+      console.log(`${user.firstName} ${user.lastName} (${user.email}):`);
+      userRoles.forEach((ur) => {
+        console.log(`   - ${ur.role.name}: ${ur.role._count.permissions} permissions`);
+      });
+      console.log('');
+    }
+
+  } catch (error) {
+    console.error('❌ Erreur:', error);
+    process.exit(1);
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+assignUserRoles();

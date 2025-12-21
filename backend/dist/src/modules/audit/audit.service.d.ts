@@ -9,13 +9,13 @@ export declare class AuditService {
         createdAt: Date;
         tenantId: string;
         userId: string | null;
+        ipAddress: string | null;
+        userAgent: string | null;
         action: string;
         entity: string;
         entityId: string | null;
         oldValues: import("@prisma/client/runtime/library").JsonValue | null;
         newValues: import("@prisma/client/runtime/library").JsonValue | null;
-        ipAddress: string | null;
-        userAgent: string | null;
     }>;
     findAll(tenantId: string, page?: number, limit?: number, filters?: QueryAuditLogDto): Promise<{
         data: ({
@@ -30,13 +30,13 @@ export declare class AuditService {
             createdAt: Date;
             tenantId: string;
             userId: string | null;
+            ipAddress: string | null;
+            userAgent: string | null;
             action: string;
             entity: string;
             entityId: string | null;
             oldValues: import("@prisma/client/runtime/library").JsonValue | null;
             newValues: import("@prisma/client/runtime/library").JsonValue | null;
-            ipAddress: string | null;
-            userAgent: string | null;
         })[];
         meta: {
             total: number;
@@ -58,13 +58,13 @@ export declare class AuditService {
         createdAt: Date;
         tenantId: string;
         userId: string | null;
+        ipAddress: string | null;
+        userAgent: string | null;
         action: string;
         entity: string;
         entityId: string | null;
         oldValues: import("@prisma/client/runtime/library").JsonValue | null;
         newValues: import("@prisma/client/runtime/library").JsonValue | null;
-        ipAddress: string | null;
-        userAgent: string | null;
     }>;
     getActionSummary(tenantId: string, startDate?: string, endDate?: string): Promise<{
         action: string;
@@ -80,13 +80,13 @@ export declare class AuditService {
             createdAt: Date;
             tenantId: string;
             userId: string | null;
+            ipAddress: string | null;
+            userAgent: string | null;
             action: string;
             entity: string;
             entityId: string | null;
             oldValues: import("@prisma/client/runtime/library").JsonValue | null;
             newValues: import("@prisma/client/runtime/library").JsonValue | null;
-            ipAddress: string | null;
-            userAgent: string | null;
         }[];
         meta: {
             total: number;

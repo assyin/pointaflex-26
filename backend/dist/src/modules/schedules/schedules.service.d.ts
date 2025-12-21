@@ -32,24 +32,11 @@ export declare class SchedulesService {
         endDate?: string;
     }, userId?: string, userPermissions?: string[]): Promise<{
         data: ({
-            shift: {
-                tenantId: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                code: string;
-                startTime: string;
-                endTime: string;
-                breakDuration: number;
-                isNightShift: boolean;
-                color: string | null;
-            };
             employee: {
                 id: string;
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 position: string;
                 department: {
                     id: string;
@@ -65,18 +52,31 @@ export declare class SchedulesService {
                 name: string;
                 code: string;
             };
+            shift: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                name: string;
+                code: string;
+                startTime: string;
+                endTime: string;
+                breakDuration: number;
+                isNightShift: boolean;
+                color: string | null;
+            };
         } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
             tenantId: string;
-            employeeId: string;
-            shiftId: string;
             teamId: string | null;
             date: Date;
             customStartTime: string | null;
             customEndTime: string | null;
             notes: string | null;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
+            employeeId: string;
+            shiftId: string;
         })[];
         meta: {
             total: number;
@@ -86,24 +86,11 @@ export declare class SchedulesService {
         };
     }>;
     findOne(tenantId: string, id: string): Promise<{
-        shift: {
-            tenantId: string;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            name: string;
-            code: string;
-            startTime: string;
-            endTime: string;
-            breakDuration: number;
-            isNightShift: boolean;
-            color: string | null;
-        };
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
             position: string;
         };
         team: {
@@ -111,25 +98,11 @@ export declare class SchedulesService {
             name: string;
             code: string;
         };
-    } & {
-        tenantId: string;
-        employeeId: string;
-        shiftId: string;
-        teamId: string | null;
-        date: Date;
-        customStartTime: string | null;
-        customEndTime: string | null;
-        notes: string | null;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-    }>;
-    update(tenantId: string, id: string, dto: UpdateScheduleDto): Promise<{
         shift: {
-            tenantId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
             startTime: string;
@@ -138,42 +111,69 @@ export declare class SchedulesService {
             isNightShift: boolean;
             color: string | null;
         };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        teamId: string | null;
+        date: Date;
+        customStartTime: string | null;
+        customEndTime: string | null;
+        notes: string | null;
+        employeeId: string;
+        shiftId: string;
+    }>;
+    update(tenantId: string, id: string, dto: UpdateScheduleDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         team: {
             id: string;
             name: string;
             code: string;
         };
+        shift: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            name: string;
+            code: string;
+            startTime: string;
+            endTime: string;
+            breakDuration: number;
+            isNightShift: boolean;
+            color: string | null;
+        };
     } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
         tenantId: string;
-        employeeId: string;
-        shiftId: string;
         teamId: string | null;
         date: Date;
         customStartTime: string | null;
         customEndTime: string | null;
         notes: string | null;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
+        employeeId: string;
+        shiftId: string;
     }>;
     remove(tenantId: string, id: string): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
         tenantId: string;
-        employeeId: string;
-        shiftId: string;
         teamId: string | null;
         date: Date;
         customStartTime: string | null;
         customEndTime: string | null;
         notes: string | null;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
+        employeeId: string;
+        shiftId: string;
     }>;
     removeBulk(tenantId: string, ids: string[]): Promise<{
         count: number;
@@ -186,29 +186,11 @@ export declare class SchedulesService {
         weekStart: string;
         weekEnd: string;
         schedules: ({
-            shift: {
-                tenantId: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                code: string;
-                startTime: string;
-                endTime: string;
-                breakDuration: number;
-                isNightShift: boolean;
-                color: string | null;
-            };
             employee: {
                 id: string;
-                team: {
-                    id: string;
-                    name: string;
-                    code: string;
-                };
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 position: string;
                 department: {
                     id: string;
@@ -218,24 +200,42 @@ export declare class SchedulesService {
                     id: string;
                     name: string;
                 };
+                team: {
+                    id: string;
+                    name: string;
+                    code: string;
+                };
             };
             team: {
                 id: string;
                 name: string;
                 code: string;
             };
+            shift: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                name: string;
+                code: string;
+                startTime: string;
+                endTime: string;
+                breakDuration: number;
+                isNightShift: boolean;
+                color: string | null;
+            };
         } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
             tenantId: string;
-            employeeId: string;
-            shiftId: string;
             teamId: string | null;
             date: Date;
             customStartTime: string | null;
             customEndTime: string | null;
             notes: string | null;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
+            employeeId: string;
+            shiftId: string;
         })[];
         leaves: ({
             employee: {
@@ -244,10 +244,10 @@ export declare class SchedulesService {
                 lastName: string;
             };
             leaveType: {
-                tenantId: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
                 isPaid: boolean;
@@ -255,11 +255,12 @@ export declare class SchedulesService {
                 maxDaysPerYear: number | null;
             };
         } & {
-            tenantId: string;
-            employeeId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            employeeId: string;
+            status: import(".prisma/client").$Enums.LeaveStatus;
             leaveTypeId: string;
             startDate: Date;
             endDate: Date;
@@ -273,7 +274,6 @@ export declare class SchedulesService {
             documentUploadedAt: Date | null;
             documentUpdatedBy: string | null;
             documentUpdatedAt: Date | null;
-            status: import(".prisma/client").$Enums.LeaveStatus;
             managerApprovedBy: string | null;
             managerApprovedAt: Date | null;
             managerComment: string | null;
@@ -283,10 +283,10 @@ export declare class SchedulesService {
         })[];
         replacements: ({
             shift: {
-                tenantId: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
                 startTime: string;
@@ -306,18 +306,18 @@ export declare class SchedulesService {
                 lastName: string;
             };
         } & {
-            tenantId: string;
-            shiftId: string;
-            date: Date;
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            reason: string | null;
-            status: import(".prisma/client").$Enums.ReplacementStatus;
-            originalEmployeeId: string;
-            replacementEmployeeId: string;
+            tenantId: string;
+            date: Date;
+            shiftId: string;
             approvedBy: string | null;
             approvedAt: Date | null;
+            status: import(".prisma/client").$Enums.ReplacementStatus;
+            reason: string | null;
+            originalEmployeeId: string;
+            replacementEmployeeId: string;
         })[];
     }>;
     getMonthSchedule(tenantId: string, date: string, filters?: {
@@ -327,29 +327,11 @@ export declare class SchedulesService {
         monthStart: string;
         monthEnd: string;
         schedules: ({
-            shift: {
-                tenantId: string;
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                name: string;
-                code: string;
-                startTime: string;
-                endTime: string;
-                breakDuration: number;
-                isNightShift: boolean;
-                color: string | null;
-            };
             employee: {
                 id: string;
-                team: {
-                    id: string;
-                    name: string;
-                    code: string;
-                };
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 position: string;
                 department: {
                     id: string;
@@ -359,24 +341,42 @@ export declare class SchedulesService {
                     id: string;
                     name: string;
                 };
+                team: {
+                    id: string;
+                    name: string;
+                    code: string;
+                };
             };
             team: {
                 id: string;
                 name: string;
                 code: string;
             };
+            shift: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                name: string;
+                code: string;
+                startTime: string;
+                endTime: string;
+                breakDuration: number;
+                isNightShift: boolean;
+                color: string | null;
+            };
         } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
             tenantId: string;
-            employeeId: string;
-            shiftId: string;
             teamId: string | null;
             date: Date;
             customStartTime: string | null;
             customEndTime: string | null;
             notes: string | null;
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
+            employeeId: string;
+            shiftId: string;
         })[];
         leaves: ({
             employee: {
@@ -385,10 +385,10 @@ export declare class SchedulesService {
                 lastName: string;
             };
             leaveType: {
-                tenantId: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
                 isPaid: boolean;
@@ -396,11 +396,12 @@ export declare class SchedulesService {
                 maxDaysPerYear: number | null;
             };
         } & {
-            tenantId: string;
-            employeeId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            employeeId: string;
+            status: import(".prisma/client").$Enums.LeaveStatus;
             leaveTypeId: string;
             startDate: Date;
             endDate: Date;
@@ -414,7 +415,6 @@ export declare class SchedulesService {
             documentUploadedAt: Date | null;
             documentUpdatedBy: string | null;
             documentUpdatedAt: Date | null;
-            status: import(".prisma/client").$Enums.LeaveStatus;
             managerApprovedBy: string | null;
             managerApprovedAt: Date | null;
             managerComment: string | null;
@@ -424,10 +424,10 @@ export declare class SchedulesService {
         })[];
         replacements: ({
             shift: {
-                tenantId: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
                 startTime: string;
@@ -447,18 +447,18 @@ export declare class SchedulesService {
                 lastName: string;
             };
         } & {
-            tenantId: string;
-            shiftId: string;
-            date: Date;
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            reason: string | null;
-            status: import(".prisma/client").$Enums.ReplacementStatus;
-            originalEmployeeId: string;
-            replacementEmployeeId: string;
+            tenantId: string;
+            date: Date;
+            shiftId: string;
             approvedBy: string | null;
             approvedAt: Date | null;
+            status: import(".prisma/client").$Enums.ReplacementStatus;
+            reason: string | null;
+            originalEmployeeId: string;
+            replacementEmployeeId: string;
         })[];
     }>;
     createBulk(tenantId: string, schedules: CreateScheduleDto[]): Promise<{
@@ -469,10 +469,10 @@ export declare class SchedulesService {
     }>;
     createReplacement(tenantId: string, dto: any): Promise<{
         shift: {
-            tenantId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
             startTime: string;
@@ -483,29 +483,29 @@ export declare class SchedulesService {
         };
         originalEmployee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         replacementEmployee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
     } & {
-        tenantId: string;
-        shiftId: string;
-        date: Date;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        reason: string | null;
-        status: import(".prisma/client").$Enums.ReplacementStatus;
-        originalEmployeeId: string;
-        replacementEmployeeId: string;
+        tenantId: string;
+        date: Date;
+        shiftId: string;
         approvedBy: string | null;
         approvedAt: Date | null;
+        status: import(".prisma/client").$Enums.ReplacementStatus;
+        reason: string | null;
+        originalEmployeeId: string;
+        replacementEmployeeId: string;
     }>;
     findAllReplacements(tenantId: string, filters?: {
         status?: string;
@@ -513,10 +513,10 @@ export declare class SchedulesService {
         endDate?: string;
     }): Promise<({
         shift: {
-            tenantId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
             startTime: string;
@@ -527,36 +527,36 @@ export declare class SchedulesService {
         };
         originalEmployee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         replacementEmployee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
     } & {
-        tenantId: string;
-        shiftId: string;
-        date: Date;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        reason: string | null;
-        status: import(".prisma/client").$Enums.ReplacementStatus;
-        originalEmployeeId: string;
-        replacementEmployeeId: string;
+        tenantId: string;
+        date: Date;
+        shiftId: string;
         approvedBy: string | null;
         approvedAt: Date | null;
+        status: import(".prisma/client").$Enums.ReplacementStatus;
+        reason: string | null;
+        originalEmployeeId: string;
+        replacementEmployeeId: string;
     })[]>;
     approveReplacement(tenantId: string, id: string, approvedBy: string): Promise<{
         shift: {
-            tenantId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
             startTime: string;
@@ -576,25 +576,25 @@ export declare class SchedulesService {
             lastName: string;
         };
     } & {
-        tenantId: string;
-        shiftId: string;
-        date: Date;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        reason: string | null;
-        status: import(".prisma/client").$Enums.ReplacementStatus;
-        originalEmployeeId: string;
-        replacementEmployeeId: string;
+        tenantId: string;
+        date: Date;
+        shiftId: string;
         approvedBy: string | null;
         approvedAt: Date | null;
+        status: import(".prisma/client").$Enums.ReplacementStatus;
+        reason: string | null;
+        originalEmployeeId: string;
+        replacementEmployeeId: string;
     }>;
     rejectReplacement(tenantId: string, id: string, approvedBy: string): Promise<{
         shift: {
-            tenantId: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
             startTime: string;
@@ -614,18 +614,18 @@ export declare class SchedulesService {
             lastName: string;
         };
     } & {
-        tenantId: string;
-        shiftId: string;
-        date: Date;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        reason: string | null;
-        status: import(".prisma/client").$Enums.ReplacementStatus;
-        originalEmployeeId: string;
-        replacementEmployeeId: string;
+        tenantId: string;
+        date: Date;
+        shiftId: string;
         approvedBy: string | null;
         approvedAt: Date | null;
+        status: import(".prisma/client").$Enums.ReplacementStatus;
+        reason: string | null;
+        originalEmployeeId: string;
+        replacementEmployeeId: string;
     }>;
     private parseDate;
     importFromExcel(tenantId: string, fileBuffer: Buffer): Promise<ImportScheduleResultDto>;

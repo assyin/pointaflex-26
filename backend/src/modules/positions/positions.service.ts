@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { UpdatePositionDto } from './dto/update-position.dto';
@@ -7,10 +7,117 @@ import { UpdatePositionDto } from './dto/update-position.dto';
 export class PositionsService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Génère un code unique basé sur le nom de la position
+   * Format: 3 premières lettres (majuscules, sans accents) + numéro si nécessaire
+   * Exemple: "Développeur Full Stack" -> "DEV", "Développeur Full Stack 2" -> "DEV001"
+   */
+  private async generateUniqueCode(tenantId: string, positionName: string): Promise<string> {
+    // Normaliser le nom: enlever accents, garder seulement lettres et chiffres
+    const normalized = positionName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Enlever caractères spéciaux
+      .replace(/\s+/g, ' ') // Normaliser les espaces
+      .trim()
+      .toUpperCase();
+
+    // Extraire les 3 premières lettres/chiffres (enlever les espaces)
+    let baseCode = normalized
+      .replace(/\s/g, '')
+      .substring(0, 3);
+
+    // Si moins de 3 caractères, compléter avec des X
+    if (baseCode.length < 3) {
+      baseCode = baseCode.padEnd(3, 'X');
+    }
+
+    // Vérifier si le code de base existe déjà
+    try {
+      const existing = await this.prisma.position.findFirst({
+        where: {
+          tenantId,
+          code: baseCode,
+        },
+      });
+
+      if (!existing) {
+        return baseCode;
+      }
+    } catch (error) {
+      // Si la colonne code n'existe pas, retourner le code de base
+      if (error.message?.includes('does not exist')) {
+        return baseCode;
+      }
+      throw error;
+    }
+
+    // Si le code existe, essayer avec des numéros incrémentaux
+    let counter = 1;
+    let uniqueCode: string;
+    do {
+      uniqueCode = `${baseCode}${String(counter).padStart(3, '0')}`;
+      
+      try {
+        const existing = await this.prisma.position.findFirst({
+          where: {
+            tenantId,
+            code: uniqueCode,
+          },
+        });
+
+        if (!existing) {
+          return uniqueCode;
+        }
+      } catch (error) {
+        // Si la colonne code n'existe pas, retourner le code généré
+        if (error.message?.includes('does not exist')) {
+          return uniqueCode;
+        }
+        throw error;
+      }
+
+      counter++;
+      // Limite de sécurité pour éviter les boucles infinies
+      if (counter > 9999) {
+        // Si on atteint la limite, utiliser un UUID court
+        return `POS${Date.now().toString().slice(-6)}`;
+      }
+    } while (true);
+  }
+
   async create(tenantId: string, createPositionDto: CreatePositionDto) {
+    // Générer automatiquement un code unique si non fourni
+    let finalCode = createPositionDto.code;
+    if (!finalCode) {
+      finalCode = await this.generateUniqueCode(tenantId, createPositionDto.name);
+    } else {
+      // Vérifier que le code fourni n'existe pas déjà pour ce tenant
+      try {
+        const existing = await this.prisma.position.findFirst({
+          where: {
+            tenantId,
+            code: createPositionDto.code,
+          },
+        });
+
+        if (existing) {
+          throw new ConflictException(`Le code "${createPositionDto.code}" existe déjà pour ce tenant`);
+        }
+      } catch (error) {
+        // Si la colonne code n'existe pas, ignorer la vérification
+        if (error.message?.includes('does not exist')) {
+          // Colonne code n'existe pas encore, continuer sans vérification
+        } else {
+          throw error;
+        }
+      }
+    }
+
     return this.prisma.position.create({
       data: {
         ...createPositionDto,
+        code: finalCode,
         tenantId,
       },
       include: {

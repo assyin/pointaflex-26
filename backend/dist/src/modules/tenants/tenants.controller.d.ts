@@ -35,7 +35,9 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
             requireBreakPunch: boolean;
+            temporaryMatriculeExpiryDays: number;
         };
     } & {
         id: string;
@@ -43,13 +45,13 @@ export declare class TenantsController {
         updatedAt: Date;
         email: string;
         phone: string | null;
-        address: string | null;
-        city: string | null;
-        timezone: string;
         companyName: string;
         slug: string;
         logo: string | null;
+        address: string | null;
         country: string;
+        timezone: string;
+        city: string | null;
         displayName: string | null;
         hrEmail: string | null;
         language: string;
@@ -90,7 +92,9 @@ export declare class TenantsController {
                 twoLevelWorkflow: boolean;
                 recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
                 recoveryExpiryDays: number;
+                dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
                 requireBreakPunch: boolean;
+                temporaryMatriculeExpiryDays: number;
             };
         } & {
             id: string;
@@ -98,13 +102,13 @@ export declare class TenantsController {
             updatedAt: Date;
             email: string;
             phone: string | null;
-            address: string | null;
-            city: string | null;
-            timezone: string;
             companyName: string;
             slug: string;
             logo: string | null;
+            address: string | null;
             country: string;
+            timezone: string;
+            city: string | null;
             displayName: string | null;
             hrEmail: string | null;
             language: string;
@@ -152,7 +156,9 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
             requireBreakPunch: boolean;
+            temporaryMatriculeExpiryDays: number;
         };
     } & {
         id: string;
@@ -160,13 +166,13 @@ export declare class TenantsController {
         updatedAt: Date;
         email: string;
         phone: string | null;
-        address: string | null;
-        city: string | null;
-        timezone: string;
         companyName: string;
         slug: string;
         logo: string | null;
+        address: string | null;
         country: string;
+        timezone: string;
+        city: string | null;
         displayName: string | null;
         hrEmail: string | null;
         language: string;
@@ -202,7 +208,9 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
             requireBreakPunch: boolean;
+            temporaryMatriculeExpiryDays: number;
         };
     } & {
         id: string;
@@ -210,13 +218,13 @@ export declare class TenantsController {
         updatedAt: Date;
         email: string;
         phone: string | null;
-        address: string | null;
-        city: string | null;
-        timezone: string;
         companyName: string;
         slug: string;
         logo: string | null;
+        address: string | null;
         country: string;
+        timezone: string;
+        city: string | null;
         displayName: string | null;
         hrEmail: string | null;
         language: string;
@@ -228,13 +236,13 @@ export declare class TenantsController {
         updatedAt: Date;
         email: string;
         phone: string | null;
-        address: string | null;
-        city: string | null;
-        timezone: string;
         companyName: string;
         slug: string;
         logo: string | null;
+        address: string | null;
         country: string;
+        timezone: string;
+        city: string | null;
         displayName: string | null;
         hrEmail: string | null;
         language: string;
@@ -269,7 +277,9 @@ export declare class TenantsController {
         twoLevelWorkflow?: boolean;
         recoveryConversionRate?: import("@prisma/client/runtime/library").Decimal;
         recoveryExpiryDays?: number;
+        dailyWorkingHours?: import("@prisma/client/runtime/library").Decimal;
         requireBreakPunch?: boolean;
+        temporaryMatriculeExpiryDays?: number;
         legalName: any;
         displayName: any;
         country: any;
@@ -308,20 +318,22 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
             requireBreakPunch: boolean;
+            temporaryMatriculeExpiryDays: number;
         };
         id: string;
         createdAt: Date;
         updatedAt: Date;
         email: string;
         phone: string | null;
-        address: string | null;
-        city: string | null;
-        timezone: string;
         companyName: string;
         slug: string;
         logo: string | null;
+        address: string | null;
         country: string;
+        timezone: string;
+        city: string | null;
         displayName: string | null;
         hrEmail: string | null;
         language: string;
@@ -357,7 +369,9 @@ export declare class TenantsController {
             twoLevelWorkflow: boolean;
             recoveryConversionRate: import("@prisma/client/runtime/library").Decimal;
             recoveryExpiryDays: number;
+            dailyWorkingHours: import("@prisma/client/runtime/library").Decimal;
             requireBreakPunch: boolean;
+            temporaryMatriculeExpiryDays: number;
         };
     }>;
 }

@@ -2,9 +2,10 @@ import { IsString, IsEmail, IsOptional, IsDateString, IsBoolean, IsUUID } from '
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateEmployeeDto {
-  @ApiProperty({ description: 'Matricule unique de l\'employé' })
+  @ApiPropertyOptional({ description: 'Matricule unique de l\'employé (généré automatiquement si non fourni)' })
   @IsString()
-  matricule: string;
+  @IsOptional()
+  matricule?: string;
 
   @ApiProperty({ description: 'Prénom' })
   @IsString()
@@ -29,6 +30,11 @@ export class CreateEmployeeDto {
   @IsOptional()
   dateOfBirth?: string;
 
+  @ApiPropertyOptional({ description: 'Civilité (Monsieur, Madame, Mademoiselle)' })
+  @IsString()
+  @IsOptional()
+  civilite?: string;
+
   @ApiPropertyOptional({ description: 'Adresse' })
   @IsString()
   @IsOptional()
@@ -39,9 +45,10 @@ export class CreateEmployeeDto {
   @IsOptional()
   photo?: string;
 
-  @ApiProperty({ description: 'Poste' })
+  @ApiPropertyOptional({ description: 'Poste (texte libre)' })
   @IsString()
-  position: string;
+  @IsOptional()
+  position?: string;
 
   @ApiPropertyOptional({ description: 'ID de la fonction/position (relation vers Position)' })
   @IsUUID()

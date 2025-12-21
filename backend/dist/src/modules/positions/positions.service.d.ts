@@ -4,6 +4,7 @@ import { UpdatePositionDto } from './dto/update-position.dto';
 export declare class PositionsService {
     private prisma;
     constructor(prisma: PrismaService);
+    private generateUniqueCode;
     create(tenantId: string, createPositionDto: CreatePositionDto): Promise<{
         _count: {
             employees: number;

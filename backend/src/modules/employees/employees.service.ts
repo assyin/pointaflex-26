@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -8,6 +10,7 @@ import { BulkAssignSiteDto } from './dto/bulk-assign-site.dto';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 import { UserTenantRolesService } from '../users/user-tenant-roles.service';
 import { RolesService } from '../roles/roles.service';
+import { TerminalMatriculeMappingService } from '../terminal-matricule-mapping/terminal-matricule-mapping.service';
 import { generateSecurePassword } from '../../common/utils/password-generator.util';
 import { generateUniqueEmail } from '../../common/utils/email-generator.util';
 import * as bcrypt from 'bcrypt';
@@ -21,21 +24,98 @@ export class EmployeesService {
     private prisma: PrismaService,
     private userTenantRolesService: UserTenantRolesService,
     private rolesService: RolesService,
+    private terminalMatriculeMappingService: TerminalMatriculeMappingService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
+  /**
+   * Invalide le cache des employés pour un tenant
+   * Note: cache-manager in-memory ne supporte pas les wildcards ni reset()
+   * Pour une vraie implémentation Redis, utiliser del avec pattern matching
+   */
+  private async invalidateEmployeesCache(tenantId: string) {
+    // Pour l'instant, on ne peut pas invalider sélectivement avec cache-manager in-memory
+    // Les clés expireront automatiquement après le TTL (2 minutes)
+    // TODO: Implémenter avec Redis pour une meilleure gestion du cache
+  }
+
+  /**
+   * Génère un matricule temporaire unique
+   */
+  private async generateTemporaryMatricule(tenantId: string): Promise<string> {
+    // Trouver le dernier matricule temporaire
+    const lastTemp = await this.prisma.employee.findFirst({
+      where: {
+        tenantId,
+        matricule: {
+          startsWith: 'TEMP-',
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    let nextNumber = 1;
+    if (lastTemp) {
+      // Extraire le numéro du dernier matricule temporaire
+      const match = lastTemp.matricule.match(/TEMP-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
+      }
+    }
+
+    // Générer le nouveau matricule temporaire
+    let tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
+
+    // Vérifier l'unicité
+    let counter = 0;
+    while (
+      await this.prisma.employee.findUnique({
+        where: {
+          tenantId_matricule: {
+            tenantId,
+            matricule: tempMatricule,
+          },
+        },
+      })
+    ) {
+      nextNumber++;
+      tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
+      counter++;
+      if (counter > 1000) {
+        // Sécurité pour éviter les boucles infinies
+        throw new Error('Impossible de générer un matricule temporaire unique');
+      }
+    }
+
+    return tempMatricule;
+  }
+
   async create(tenantId: string, createEmployeeDto: CreateEmployeeDto, createdByUserId?: string) {
+    // Générer un matricule temporaire si non fourni
+    let finalMatricule = createEmployeeDto.matricule;
+    if (!finalMatricule || finalMatricule.trim() === '') {
+      finalMatricule = await this.generateTemporaryMatricule(tenantId);
+      this.logger.log(
+        `Matricule temporaire généré pour le nouvel employé: ${finalMatricule}`,
+      );
+    }
+
     // Vérifier si le matricule existe déjà
     const existing = await this.prisma.employee.findUnique({
       where: {
         tenantId_matricule: {
           tenantId,
-          matricule: createEmployeeDto.matricule,
+          matricule: finalMatricule,
         },
       },
     });
 
     if (existing) {
-      throw new ConflictException(`Employee with matricule ${createEmployeeDto.matricule} already exists`);
+      throw new ConflictException(
+        `Employee with matricule ${finalMatricule} already exists`,
+      );
     }
 
     // Récupérer le tenant pour le slug
@@ -49,7 +129,7 @@ export class EmployeesService {
     }
 
     // Créer Employee et User en transaction si demandé
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       let userId: string | undefined = createEmployeeDto.userId;
       let generatedPassword: string | undefined;
       let userEmail: string | undefined;
@@ -96,7 +176,7 @@ export class EmployeesService {
 
         userId = user.id;
 
-        // Assigner le rôle EMPLOYEE via UserTenantRole
+        // Assigner le rôle EMPLOYEE via UserTenantRole (directement dans la transaction)
         try {
           const employeeRole = await tx.role.findFirst({
             where: {
@@ -107,12 +187,40 @@ export class EmployeesService {
           });
 
           if (employeeRole) {
-            await this.userTenantRolesService.assignRoles(
-              user.id,
-              tenantId,
-              [employeeRole.id],
-              createdByUserId || user.id, // Utiliser l'ID du créateur ou du user lui-même
-            );
+            // Vérifier si le rôle n'est pas déjà assigné
+            const existingRole = await tx.userTenantRole.findUnique({
+              where: {
+                userId_tenantId_roleId: {
+                  userId: user.id,
+                  tenantId: tenantId,
+                  roleId: employeeRole.id,
+                },
+              },
+            });
+
+            if (!existingRole) {
+              // Créer le UserTenantRole dans la transaction
+              await tx.userTenantRole.create({
+                data: {
+                  userId: user.id,
+                  tenantId: tenantId,
+                  roleId: employeeRole.id,
+                  assignedBy: createdByUserId || user.id,
+                },
+              });
+              this.logger.log(`Role EMPLOYEE assigned to user ${user.id} in tenant ${tenantId}`);
+            } else if (!existingRole.isActive) {
+              // Réactiver si désactivé
+              await tx.userTenantRole.update({
+                where: { id: existingRole.id },
+                data: {
+                  isActive: true,
+                  assignedBy: createdByUserId || user.id,
+                  assignedAt: new Date(),
+                },
+              });
+              this.logger.log(`Role EMPLOYEE reactivated for user ${user.id} in tenant ${tenantId}`);
+            }
           } else {
             this.logger.warn(`Role EMPLOYEE not found for tenant ${tenantId}. User created but no role assigned.`);
           }
@@ -156,9 +264,13 @@ export class EmployeesService {
       const employee = await tx.employee.create({
         data: {
           ...createEmployeeDto,
+          matricule: finalMatricule, // Utiliser le matricule final (temporaire ou fourni)
+          position: createEmployeeDto.position || 'Non spécifié', // Valeur par défaut si non fourni
           tenantId,
           hireDate: new Date(createEmployeeDto.hireDate),
-          dateOfBirth: createEmployeeDto.dateOfBirth ? new Date(createEmployeeDto.dateOfBirth) : undefined,
+          dateOfBirth: createEmployeeDto.dateOfBirth
+            ? new Date(createEmployeeDto.dateOfBirth)
+            : undefined,
           userId: userId,
         },
         include: {
@@ -195,8 +307,35 @@ export class EmployeesService {
         };
       }
 
+      // Créer le mapping terminal matricule directement dans la transaction
+      try {
+        await tx.terminalMatriculeMapping.create({
+          data: {
+            tenantId,
+            employeeId: employee.id,
+            terminalMatricule: finalMatricule, // Matricule utilisé sur le terminal
+            officialMatricule: finalMatricule, // Matricule officiel (initialement le même)
+            assignedAt: new Date(),
+          },
+        });
+        this.logger.log(
+          `Mapping terminal créé pour l'employé ${employee.id}: ${finalMatricule}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Erreur lors de la création du mapping terminal: ${error.message}`,
+        );
+        // Ne pas faire échouer la création de l'employé si le mapping échoue
+        // Le mapping pourra être créé manuellement plus tard
+      }
+
       return employee;
     });
+
+    // Invalider le cache après création
+    await this.invalidateEmployeesCache(tenantId);
+
+    return result;
   }
 
   /**
@@ -464,10 +603,21 @@ export class EmployeesService {
       teamId?: string;
       isActive?: boolean;
       search?: string;
+      page?: number;
+      limit?: number;
     },
     userId?: string,
     userPermissions?: string[],
   ) {
+    // Créer une clé de cache unique basée sur les paramètres
+    const cacheKey = `employees:${tenantId}:${userId || 'none'}:${JSON.stringify(filters || {})}:${JSON.stringify(userPermissions || [])}`;
+
+    // Vérifier le cache
+    const cached = await this.cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     const where: any = { tenantId };
 
     // Filtrer par employé si l'utilisateur n'a que la permission 'employee.view_own'
@@ -532,25 +682,61 @@ export class EmployeesService {
       ];
     }
 
-    return this.prisma.employee.findMany({
-      where,
-      include: {
-        site: true,
-        department: true,
-        team: true,
-        currentShift: true,
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true,
-            role: true,
+    // Pagination par défaut pour améliorer les performances
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 50; // Limite par défaut de 50 éléments
+    const skip = (page - 1) * limit;
+
+    // Si pas de pagination demandée explicitement, limiter quand même à 1000 pour éviter les problèmes de performance
+    const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
+    const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+
+    const [data, total] = await Promise.all([
+      this.prisma.employee.findMany({
+        where,
+        skip: shouldPaginate ? skip : undefined,
+        take: maxLimit,
+        include: {
+          site: true,
+          department: true,
+          team: true,
+          currentShift: true,
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              role: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.employee.count({ where }),
+    ]);
+
+    // Préparer le résultat
+    let result;
+    if (shouldPaginate) {
+      result = {
+        data,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    } else {
+      // Sinon, retourner juste les données (compatibilité avec l'ancien code)
+      result = data;
+    }
+
+    // Mettre en cache (2 minutes pour les listes d'employés car elles changent moins fréquemment)
+    await this.cacheManager.set(cacheKey, result, 120000);
+
+    return result;
   }
 
   async findOne(tenantId: string, id: string) {
@@ -720,7 +906,7 @@ export class EmployeesService {
       throw new NotFoundException(`Employee with ID ${id} not found`);
     }
 
-    return this.prisma.employee.update({
+    const result = await this.prisma.employee.update({
       where: { id },
       data: {
         ...updateEmployeeDto,
@@ -743,6 +929,11 @@ export class EmployeesService {
         },
       },
     });
+
+    // Invalider le cache après modification
+    await this.invalidateEmployeesCache(tenantId);
+
+    return result;
   }
 
   async remove(tenantId: string, id: string) {
@@ -754,9 +945,14 @@ export class EmployeesService {
       throw new NotFoundException(`Employee with ID ${id} not found`);
     }
 
-    return this.prisma.employee.delete({
+    const result = await this.prisma.employee.delete({
       where: { id },
     });
+
+    // Invalider le cache après suppression
+    await this.invalidateEmployeesCache(tenantId);
+
+    return result;
   }
 
   async updateBiometricData(tenantId: string, id: string, biometricData: BiometricDataDto) {

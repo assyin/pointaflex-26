@@ -9,6 +9,85 @@ export class SitesService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * Génère un code unique basé sur le nom du site
+   * Format: 3 premières lettres (majuscules, sans accents) + numéro si nécessaire
+   * Exemple: "Casablanca" -> "CAS", "Casablanca 2" -> "CAS001"
+   */
+  private async generateUniqueCode(tenantId: string, siteName: string): Promise<string> {
+    // Normaliser le nom: enlever accents, garder seulement lettres et chiffres
+    const normalized = siteName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Enlever caractères spéciaux
+      .replace(/\s+/g, ' ') // Normaliser les espaces
+      .trim()
+      .toUpperCase();
+
+    // Extraire les 3 premières lettres/chiffres (enlever les espaces)
+    let baseCode = normalized
+      .replace(/\s/g, '')
+      .substring(0, 3);
+
+    // Si moins de 3 caractères, compléter avec des X
+    if (baseCode.length < 3) {
+      baseCode = baseCode.padEnd(3, 'X');
+    }
+
+    // Vérifier si le code de base existe déjà
+    try {
+      const existing = await this.prisma.site.findFirst({
+        where: {
+          tenantId,
+          code: baseCode,
+        },
+      });
+
+      if (!existing) {
+        return baseCode;
+      }
+    } catch (error) {
+      // Si la colonne code n'existe pas, retourner le code de base
+      if (error.message?.includes('does not exist')) {
+        return baseCode;
+      }
+      throw error;
+    }
+
+    // Si le code existe, essayer avec des numéros incrémentaux
+    let counter = 1;
+    let uniqueCode: string;
+    do {
+      uniqueCode = `${baseCode}${String(counter).padStart(3, '0')}`;
+      
+      try {
+        const existing = await this.prisma.site.findFirst({
+          where: {
+            tenantId,
+            code: uniqueCode,
+          },
+        });
+
+        if (!existing) {
+          return uniqueCode;
+        }
+      } catch (error) {
+        // Si la colonne code n'existe pas, retourner le code généré
+        if (error.message?.includes('does not exist')) {
+          return uniqueCode;
+        }
+        throw error;
+      }
+
+      counter++;
+      // Limite de sécurité pour éviter les boucles infinies
+      if (counter > 9999) {
+        // Si on atteint la limite, utiliser un UUID court
+        return `SITE${Date.now().toString().slice(-6)}`;
+      }
+    } while (true);
+  }
+
+  /**
    * Valide qu'un manager ne gère pas déjà un site dans un autre département
    * Contrainte: Un manager régional ne peut gérer qu'un seul département
    */
@@ -56,8 +135,12 @@ export class SitesService {
   }
 
   async create(tenantId: string, dto: CreateSiteDto) {
-    // Vérifier que le code n'existe pas déjà pour ce tenant (si la colonne existe)
-    if (dto.code) {
+    // Générer automatiquement un code unique si non fourni
+    let finalCode = dto.code;
+    if (!finalCode) {
+      finalCode = await this.generateUniqueCode(tenantId, dto.name);
+    } else {
+      // Vérifier que le code fourni n'existe pas déjà pour ce tenant (si la colonne existe)
       try {
         const existing = await this.prisma.site.findFirst({
           where: {
@@ -115,6 +198,7 @@ export class SitesService {
     // Exclure code si la colonne n'existe pas
     const data: any = {
       ...dto,
+      code: finalCode,
       tenantId,
       workingDays: dto.workingDays || null,
     };

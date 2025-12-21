@@ -16,6 +16,7 @@ exports.OvertimeController = void 0;
 const common_1 = require("@nestjs/common");
 const swagger_1 = require("@nestjs/swagger");
 const overtime_service_1 = require("./overtime.service");
+const recovery_days_service_1 = require("../recovery-days/recovery-days.service");
 const create_overtime_dto_1 = require("./dto/create-overtime.dto");
 const update_overtime_dto_1 = require("./dto/update-overtime.dto");
 const approve_overtime_dto_1 = require("./dto/approve-overtime.dto");
@@ -25,8 +26,9 @@ const permissions_decorator_1 = require("../../common/decorators/permissions.dec
 const roles_guard_1 = require("../../common/guards/roles.guard");
 const client_1 = require("@prisma/client");
 let OvertimeController = class OvertimeController {
-    constructor(overtimeService) {
+    constructor(overtimeService, recoveryDaysService) {
         this.overtimeService = overtimeService;
+        this.recoveryDaysService = recoveryDaysService;
     }
     create(user, dto) {
         return this.overtimeService.create(user.tenantId, dto);
@@ -57,6 +59,9 @@ let OvertimeController = class OvertimeController {
     }
     getBalance(user, employeeId) {
         return this.overtimeService.getBalance(user.tenantId, employeeId);
+    }
+    getCumulativeBalance(user, employeeId) {
+        return this.recoveryDaysService.getCumulativeBalance(user.tenantId, employeeId);
     }
     remove(user, id) {
         return this.overtimeService.remove(user.tenantId, id);
@@ -144,6 +149,16 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], OvertimeController.prototype, "getBalance", null);
 __decorate([
+    (0, common_1.Get)('cumulative-balance/:employeeId'),
+    (0, permissions_decorator_1.RequirePermissions)('overtime.view_all', 'overtime.view_own'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get cumulative overtime balance for conversion to recovery days' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('employeeId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], OvertimeController.prototype, "getCumulativeBalance", null);
+__decorate([
     (0, common_1.Delete)(':id'),
     (0, permissions_decorator_1.RequirePermissions)('overtime.delete'),
     (0, swagger_1.ApiOperation)({ summary: 'Delete overtime record' }),
@@ -158,6 +173,7 @@ exports.OvertimeController = OvertimeController = __decorate([
     (0, common_1.Controller)('overtime'),
     (0, swagger_1.ApiBearerAuth)(),
     (0, common_1.UseGuards)(roles_guard_1.RolesGuard),
-    __metadata("design:paramtypes", [overtime_service_1.OvertimeService])
+    __metadata("design:paramtypes", [overtime_service_1.OvertimeService,
+        recovery_days_service_1.RecoveryDaysService])
 ], OvertimeController);
 //# sourceMappingURL=overtime.controller.js.map

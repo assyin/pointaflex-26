@@ -28,8 +28,8 @@ export declare class TeamsController {
     findAll(user: any, page?: string, limit?: string, search?: string, rotationEnabled?: string): Promise<{
         data: ({
             _count: {
-                schedules: number;
                 employees: number;
+                schedules: number;
             };
             employees: {
                 id: string;
@@ -64,8 +64,8 @@ export declare class TeamsController {
     }>;
     findOne(user: any, id: string): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -120,8 +120,8 @@ export declare class TeamsController {
     }>;
     addMember(user: any, id: string, dto: AddMemberDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -145,8 +145,8 @@ export declare class TeamsController {
     }>;
     removeMember(user: any, id: string, employeeId: string): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -170,8 +170,8 @@ export declare class TeamsController {
     }>;
     addMembersBulk(user: any, id: string, dto: BulkMembersDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;
@@ -195,8 +195,8 @@ export declare class TeamsController {
     }>;
     removeMembersBulk(user: any, id: string, dto: BulkMembersDto): Promise<{
         _count: {
-            schedules: number;
             employees: number;
+            schedules: number;
         };
         employees: {
             id: string;

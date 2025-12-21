@@ -9,116 +9,120 @@ datasource db {
 }
 
 model Tenant {
-  id                String             @id @default(uuid())
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  companyName       String
-  slug              String             @unique
-  logo              String?
-  email             String
-  phone             String?
-  address           String?
-  country           String             @default("MA")
-  timezone          String             @default("Africa/Casablanca")
-  city              String?
-  displayName       String?
-  hrEmail           String?
-  language          String             @default("fr")
-  legalName         String?
-  attendance        Attendance[]
-  devices           AttendanceDevice[]
-  auditLogs         AuditLog[]
-  departments       Department[]
-  positions         Position[]
-  employees         Employee[]
-  holidays          Holiday[]
-  leaves            Leave[]
-  leaveTypes        LeaveType[]
-  notifications     Notification[]
-  overtime          Overtime[]
-  recovery          Recovery[]
-  schedules         Schedule[]
-  shifts            Shift[]
-  shiftReplacements ShiftReplacement[]
-  sites             Site[]
-  teams             Team[]
-  siteManagers      SiteManager[]
-  settings          TenantSettings?
-  users             User[]
-  userTenantRoles   UserTenantRole[]
-  roles             Role[] // Rôles personnalisés par tenant (optionnel)
-  reportHistory     ReportHistory[]
+  id                        String                     @id @default(uuid())
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  companyName               String
+  slug                      String                     @unique
+  logo                      String?
+  email                     String
+  phone                     String?
+  address                   String?
+  country                   String                     @default("MA")
+  timezone                  String                     @default("Africa/Casablanca")
+  city                      String?
+  displayName               String?
+  hrEmail                   String?
+  language                  String                     @default("fr")
+  legalName                 String?
+  attendance                Attendance[]
+  devices                   AttendanceDevice[]
+  auditLogs                 AuditLog[]
+  departments               Department[]
+  positions                 Position[]
+  employees                 Employee[]
+  holidays                  Holiday[]
+  leaves                    Leave[]
+  leaveTypes                LeaveType[]
+  notifications             Notification[]
+  overtime                  Overtime[]
+  recovery                  Recovery[]
+  schedules                 Schedule[]
+  shifts                    Shift[]
+  shiftReplacements         ShiftReplacement[]
+  sites                     Site[]
+  teams                     Team[]
+  siteManagers              SiteManager[]
+  settings                  TenantSettings?
+  users                     User[]
+  userTenantRoles           UserTenantRole[]
+  roles                     Role[] // Rôles personnalisés par tenant (optionnel)
+  reportHistory             ReportHistory[]
+  terminalMatriculeMappings TerminalMatriculeMapping[]
+  RecoveryDay               RecoveryDay[]
 
   @@index([slug])
 }
 
 model TenantSettings {
-  id                       String   @id @default(uuid())
-  tenantId                 String   @unique
-  workDaysPerWeek          Int      @default(6)
-  maxWeeklyHours           Decimal  @default(44)
-  breakDuration            Int      @default(60)
-  alertWeeklyHoursExceeded Boolean  @default(true)
-  alertInsufficientRest    Boolean  @default(true)
-  alertNightWorkRepetitive Boolean  @default(true)
-  alertMinimumStaffing     Boolean  @default(true)
-  annualLeaveDays          Int      @default(18)
-  leaveApprovalLevels      Int      @default(2)
-  overtimeRate             Decimal  @default(1.25)
-  nightShiftRate           Decimal  @default(1.50)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-  anticipatedLeave         Boolean  @default(false)
-  earlyToleranceExit       Int      @default(5)
-  firstDayOfWeek           String   @default("monday")
-  lateToleranceEntry       Int      @default(10)
-  monthlyPayrollEmail      Boolean  @default(false)
-  nightShiftEnd            String   @default("06:00")
-  nightShiftStart          String   @default("21:00")
-  overtimeRounding         Int      @default(15)
-  sfptExport               Boolean  @default(false)
-  twoLevelWorkflow         Boolean  @default(true)
-  workingDays              Json?
-  recoveryConversionRate   Decimal  @default(1.0) // Taux de conversion heures supp -> récupération (1.0 = 1h supp = 1h récup)
-  recoveryExpiryDays       Int      @default(90) // Nombre de jours avant expiration de la récupération
-  requireBreakPunch        Boolean  @default(false) // Activer/désactiver le pointage des repos (pauses)
-  tenant                   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                           String   @id @default(uuid())
+  tenantId                     String   @unique
+  workDaysPerWeek              Int      @default(6)
+  maxWeeklyHours               Decimal  @default(44)
+  breakDuration                Int      @default(60)
+  alertWeeklyHoursExceeded     Boolean  @default(true)
+  alertInsufficientRest        Boolean  @default(true)
+  alertNightWorkRepetitive     Boolean  @default(true)
+  alertMinimumStaffing         Boolean  @default(true)
+  annualLeaveDays              Int      @default(18)
+  leaveApprovalLevels          Int      @default(2)
+  overtimeRate                 Decimal  @default(1.25)
+  nightShiftRate               Decimal  @default(1.50)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+  anticipatedLeave             Boolean  @default(false)
+  earlyToleranceExit           Int      @default(5)
+  firstDayOfWeek               String   @default("monday")
+  lateToleranceEntry           Int      @default(10)
+  monthlyPayrollEmail          Boolean  @default(false)
+  nightShiftEnd                String   @default("06:00")
+  nightShiftStart              String   @default("21:00")
+  overtimeRounding             Int      @default(15)
+  sfptExport                   Boolean  @default(false)
+  twoLevelWorkflow             Boolean  @default(true)
+  workingDays                  Json?
+  recoveryConversionRate       Decimal  @default(1.0) // Taux de conversion heures supp -> récupération (1.0 = 1h supp = 1h récup)
+  recoveryExpiryDays           Int      @default(90) // Nombre de jours avant expiration de la récupération
+  dailyWorkingHours            Decimal  @default(7.33) // Nombre d'heures équivalent à une journée normale (par défaut: 44h/6j = 7.33h)
+  requireBreakPunch            Boolean  @default(false) // Activer/désactiver le pointage des repos (pauses)
+  temporaryMatriculeExpiryDays Int      @default(8) // Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)
+  tenant                       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
 
 model User {
-  id              String           @id @default(uuid())
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  tenantId        String? // Optionnel pour compatibilité, mais on utilisera UserTenantRole
-  email           String           @unique // Email unique globalement
-  password        String
-  firstName       String
-  lastName        String
-  phone           String?
-  avatar          String?
-  isActive        Boolean          @default(true)
-  lastLoginAt     DateTime?
-  forcePasswordChange Boolean      @default(false) // Forcer changement mot de passe à la première connexion
-  role            LegacyRole?      @default(EMPLOYEE) // Optionnel pour compatibilité
-  auditLogs       AuditLog[]
-  employee        Employee?
-  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userTenantRoles UserTenantRole[]
-  preferences     UserPreferences?
-  sessions        UserSession[]
-  credentials     UserCredentials?
-  reportHistory   ReportHistory[]
+  id                  String           @id @default(uuid())
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  tenantId            String? // Optionnel pour compatibilité, mais on utilisera UserTenantRole
+  email               String           @unique // Email unique globalement
+  password            String
+  firstName           String
+  lastName            String
+  phone               String?
+  avatar              String?
+  isActive            Boolean          @default(true)
+  lastLoginAt         DateTime?
+  forcePasswordChange Boolean          @default(false) // Forcer changement mot de passe à la première connexion
+  role                LegacyRole?      @default(EMPLOYEE) // Optionnel pour compatibilité
+  auditLogs           AuditLog[]
+  employee            Employee?
+  tenant              Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userTenantRoles     UserTenantRole[]
+  preferences         UserPreferences?
+  sessions            UserSession[]
+  credentials         UserCredentials?
+  reportHistory       ReportHistory[]
 
   @@index([tenantId])
   @@index([email])
 }
 
 model Employee {
-  id                        String             @id @default(uuid())
-  createdAt                 DateTime           @default(now())
-  updatedAt                 DateTime           @updatedAt
+  id                        String                     @id @default(uuid())
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
   tenantId                  String
   matricule                 String
   firstName                 String
@@ -150,28 +154,30 @@ model Employee {
   rfidBadge                 String?
   qrCode                    String?
   pinCode                   String?
-  isActive                  Boolean            @default(true)
-  userId                    String?            @unique
+  isActive                  Boolean                    @default(true)
+  userId                    String?                    @unique
   attendance                Attendance[]
-  currentShift              Shift?             @relation(fields: [currentShiftId], references: [id])
-  department                Department?        @relation(fields: [departmentId], references: [id])
-  positionRef               Position?          @relation(fields: [positionId], references: [id])
-  site                      Site?              @relation(fields: [siteId], references: [id])
-  team                      Team?              @relation(fields: [teamId], references: [id])
-  tenant                    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user                      User?              @relation(fields: [userId], references: [id])
+  currentShift              Shift?                     @relation(fields: [currentShiftId], references: [id])
+  department                Department?                @relation(fields: [departmentId], references: [id])
+  positionRef               Position?                  @relation(fields: [positionId], references: [id])
+  site                      Site?                      @relation(fields: [siteId], references: [id])
+  team                      Team?                      @relation(fields: [teamId], references: [id])
+  tenant                    Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                      User?                      @relation(fields: [userId], references: [id])
   leaves                    Leave[]
   notifications             Notification[]
   overtime                  Overtime[]
   recovery                  Recovery[]
+  recoveryDays              RecoveryDay[]
   schedules                 Schedule[]
-  replacementsAsOriginal    ShiftReplacement[] @relation("OriginalEmployee")
-  replacementsAsReplacement ShiftReplacement[] @relation("ReplacementEmployee")
-  managedTeams              Team[]             @relation("TeamManager")
-  managedSites              Site[]             @relation("SiteManagerLegacy") // DEPRECATED
-  managedDepartments        Department[]       @relation("DepartmentManager")
+  replacementsAsOriginal    ShiftReplacement[]         @relation("OriginalEmployee")
+  replacementsAsReplacement ShiftReplacement[]         @relation("ReplacementEmployee")
+  managedTeams              Team[]                     @relation("TeamManager")
+  managedSites              Site[]                     @relation("SiteManagerLegacy") // DEPRECATED
+  managedDepartments        Department[]               @relation("DepartmentManager")
   siteManagements           SiteManager[] // Nouvelle relation: gestion de sites par département
   credentials               UserCredentials? // Credentials temporaires du compte d'accès
+  terminalMatriculeMappings TerminalMatriculeMapping[] // Mappings matricule terminal -> matricule officiel
 
   @@unique([tenantId, matricule])
   @@index([tenantId])
@@ -179,6 +185,30 @@ model Employee {
   @@index([departmentId])
   @@index([teamId])
   @@index([positionId])
+  @@index([isActive])
+  @@index([tenantId, departmentId, isActive])
+}
+
+model TerminalMatriculeMapping {
+  id                String   @id @default(uuid())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  tenantId          String
+  employeeId        String
+  terminalMatricule String // Matricule utilisé sur le terminal (temporaire ou officiel)
+  officialMatricule String // Matricule officiel dans le système
+  deviceId          String? // ID du terminal (optionnel, si mapping par terminal)
+  isActive          Boolean  @default(true)
+  assignedAt        DateTime @default(now()) // Date d'assignation du matricule temporaire
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, terminalMatricule]) // Un matricule terminal unique par tenant
+  @@index([tenantId])
+  @@index([employeeId])
+  @@index([terminalMatricule])
+  @@index([isActive])
 }
 
 model Site {
@@ -391,15 +421,15 @@ model Attendance {
   isCorrected       Boolean           @default(false)
   correctedBy       String?
   correctedAt       DateTime?
-  correctionNote    String?           // Note de correction
-  hoursWorked       Decimal?          // Heures travaillées calculées
-  lateMinutes       Int?              // Minutes de retard
-  earlyLeaveMinutes Int?              // Minutes de départ anticipé
-  overtimeMinutes   Int?              // Minutes d'heures supplémentaires
+  correctionNote    String? // Note de correction
+  hoursWorked       Decimal? // Heures travaillées calculées
+  lateMinutes       Int? // Minutes de retard
+  earlyLeaveMinutes Int? // Minutes de départ anticipé
+  overtimeMinutes   Int? // Minutes d'heures supplémentaires
   needsApproval     Boolean           @default(false) // Nécessite approbation pour correction
-  approvalStatus    String?           // PENDING_APPROVAL, APPROVED, REJECTED
-  approvedBy        String?            // ID de l'utilisateur qui a approuvé
-  approvedAt        DateTime?         // Date d'approbation
+  approvalStatus    String? // PENDING_APPROVAL, APPROVED, REJECTED
+  approvedBy        String? // ID de l'utilisateur qui a approuvé
+  approvedAt        DateTime? // Date d'approbation
   rawData           Json?
   generatedBy       String?
   isGenerated       Boolean           @default(false)
@@ -413,6 +443,7 @@ model Attendance {
   @@index([timestamp])
   @@index([hasAnomaly])
   @@index([needsApproval])
+  @@index([tenantId, employeeId, timestamp])
 }
 
 model LeaveType {
@@ -432,66 +463,74 @@ model LeaveType {
 }
 
 model Leave {
-  id                String      @id @default(uuid())
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  tenantId          String
-  employeeId        String
-  leaveTypeId       String
-  startDate         DateTime    @db.Date
-  endDate           DateTime    @db.Date
-  days              Decimal
-  reason            String?
-  document          String?     // Chemin ou URL du fichier
-  documentName      String?     // Nom original du fichier
-  documentSize      Int?        // Taille en bytes
-  documentMimeType  String?     // Type MIME (application/pdf, etc.)
-  documentUploadedBy String?    // ID de l'utilisateur qui a uploadé
-  documentUploadedAt DateTime?  // Date d'upload
-  documentUpdatedBy  String?    // ID du dernier utilisateur qui a modifié
-  documentUpdatedAt  DateTime?  // Date de dernière modification
-  status            LeaveStatus @default(PENDING)
-  managerApprovedBy String?
-  managerApprovedAt DateTime?
-  managerComment    String?
-  hrApprovedBy      String?
-  hrApprovedAt      DateTime?
-  hrComment         String?
-  employee          Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  leaveType         LeaveType   @relation(fields: [leaveTypeId], references: [id])
-  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                 String      @id @default(uuid())
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  tenantId           String
+  employeeId         String
+  leaveTypeId        String
+  startDate          DateTime    @db.Date
+  endDate            DateTime    @db.Date
+  days               Decimal
+  reason             String?
+  document           String? // Chemin ou URL du fichier
+  documentName       String? // Nom original du fichier
+  documentSize       Int? // Taille en bytes
+  documentMimeType   String? // Type MIME (application/pdf, etc.)
+  documentUploadedBy String? // ID de l'utilisateur qui a uploadé
+  documentUploadedAt DateTime? // Date d'upload
+  documentUpdatedBy  String? // ID du dernier utilisateur qui a modifié
+  documentUpdatedAt  DateTime? // Date de dernière modification
+  status             LeaveStatus @default(PENDING)
+  managerApprovedBy  String?
+  managerApprovedAt  DateTime?
+  managerComment     String?
+  hrApprovedBy       String?
+  hrApprovedAt       DateTime?
+  hrComment          String?
+  employee           Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([employeeId])
   @@index([startDate])
+  @@index([tenantId, employeeId, startDate, endDate])
 }
 
 model Overtime {
-  id                  String         @id @default(uuid())
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  tenantId            String
-  employeeId          String
-  date                DateTime       @db.Date
-  hours               Decimal
-  approvedHours       Decimal?       // Nombre d'heures validées par le manager (peut différer de hours)
-  type                OvertimeType   @default(STANDARD)
-  isNightShift        Boolean        @default(false) // DEPRECATED: Utiliser type à la place
-  rate                Decimal        @default(1.25)
-  convertedToRecovery Boolean        @default(false)
-  recoveryId          String?
-  status              OvertimeStatus @default(PENDING)
-  approvedBy          String?
-  approvedAt          DateTime?
-  rejectionReason    String?        // Raison du rejet si la demande est rejetée
-  notes               String?        // Notes/justification de la demande
-  employee            Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                           String                @id @default(uuid())
+  createdAt                    DateTime              @default(now())
+  updatedAt                    DateTime              @updatedAt
+  tenantId                     String
+  employeeId                   String
+  date                         DateTime              @db.Date
+  hours                        Decimal
+  approvedHours                Decimal? // Nombre d'heures validées par le manager (peut différer de hours)
+  type                         OvertimeType          @default(STANDARD)
+  isNightShift                 Boolean               @default(false) // DEPRECATED: Utiliser type à la place
+  rate                         Decimal               @default(1.25)
+  // Conversion en récupération (heures)
+  convertedToRecovery          Boolean               @default(false)
+  recoveryId                   String?
+  convertedHoursToRecovery     Decimal               @default(0) // Heures converties en Recovery
+  // Conversion en récupération (journées) - NOUVEAU
+  convertedToRecoveryDays      Boolean               @default(false)
+  convertedHoursToRecoveryDays Decimal               @default(0) // Heures converties en RecoveryDay
+  status                       OvertimeStatus        @default(PENDING)
+  approvedBy                   String?
+  approvedAt                   DateTime?
+  rejectionReason              String? // Raison du rejet si la demande est rejetée
+  notes                        String? // Notes/justification de la demande
+  employee                     Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant                       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recoveryDays                 OvertimeRecoveryDay[] // Relations avec RecoveryDay
 
   @@index([tenantId])
   @@index([employeeId])
   @@index([status])
   @@index([type])
+  @@index([tenantId, employeeId, date, status])
 }
 
 model Recovery {
@@ -510,6 +549,53 @@ model Recovery {
 
   @@index([tenantId])
   @@index([employeeId])
+}
+
+// NOUVEAU : Journées de récupération
+model RecoveryDay {
+  id              String                @id @default(uuid())
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  tenantId        String
+  employeeId      String
+  startDate       DateTime              @db.Date
+  endDate         DateTime              @db.Date
+  days            Decimal
+  sourceHours     Decimal // Heures supp utilisées pour cette récupération
+  conversionRate  Decimal? // Taux utilisé (si différent du défaut)
+  status          RecoveryDayStatus     @default(PENDING)
+  approvedBy      String?
+  approvedAt      DateTime?
+  notes           String?
+  employee        Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  overtimeSources OvertimeRecoveryDay[]
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@index([startDate])
+  @@index([status])
+}
+
+// NOUVEAU : Table de liaison Overtime ↔ RecoveryDay
+model OvertimeRecoveryDay {
+  id            String      @id @default(uuid())
+  overtimeId    String
+  recoveryDayId String
+  hoursUsed     Decimal // Nombre d'heures de cet overtime utilisées
+  overtime      Overtime    @relation(fields: [overtimeId], references: [id], onDelete: Cascade)
+  recoveryDay   RecoveryDay @relation(fields: [recoveryDayId], references: [id], onDelete: Cascade)
+
+  @@unique([overtimeId, recoveryDayId])
+  @@index([overtimeId])
+  @@index([recoveryDayId])
+}
+
+enum RecoveryDayStatus {
+  PENDING
+  APPROVED
+  USED
+  CANCELLED
 }
 
 model Holiday {
@@ -662,16 +748,16 @@ model UserSession {
 }
 
 model UserCredentials {
-  id         String   @id @default(uuid())
-  createdAt  DateTime @default(now())
-  userId     String   @unique
-  employeeId String?  @unique // Optionnel: lien vers l'employé (unique si présent)
+  id         String    @id @default(uuid())
+  createdAt  DateTime  @default(now())
+  userId     String    @unique
+  employeeId String?   @unique // Optionnel: lien vers l'employé (unique si présent)
   email      String
-  password   String   // Mot de passe en clair (temporaire, expirera)
+  password   String // Mot de passe en clair (temporaire, expirera)
   expiresAt  DateTime // Expiration après 7 jours
   viewedAt   DateTime? // Date de dernière consultation
-  viewCount  Int      @default(0) // Nombre de fois consulté
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  viewCount  Int       @default(0) // Nombre de fois consulté
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@index([userId])
@@ -701,18 +787,18 @@ model UserTenantRole {
 }
 
 model ReportHistory {
-  id          String   @id @default(uuid())
-  createdAt   DateTime @default(now())
-  tenantId    String
-  userId      String
-  reportType  String   // attendance, overtime, absences, payroll
-  format      String   // PDF, EXCEL, CSV
-  fileName    String
-  filePath    String?  // Chemin du fichier stocké (optionnel)
-  fileSize    Int?     // Taille en bytes
-  filters     Json?    // Filtres utilisés pour générer le rapport
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  createdAt  DateTime @default(now())
+  tenantId   String
+  userId     String
+  reportType String // attendance, overtime, absences, payroll
+  format     String // PDF, EXCEL, CSV
+  fileName   String
+  filePath   String? // Chemin du fichier stocké (optionnel)
+  fileSize   Int? // Taille en bytes
+  filters    Json? // Filtres utilisés pour générer le rapport
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([userId])
@@ -796,4 +882,6 @@ enum NotificationType {
   ATTENDANCE_ANOMALY
   ATTENDANCE_CORRECTED
   ATTENDANCE_APPROVAL_REQUIRED
+  TEMPORARY_MATRICULE_EXPIRING
+  TEMPORARY_MATRICULE_EXPIRED
 }

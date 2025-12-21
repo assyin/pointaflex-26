@@ -16,8 +16,9 @@ class CreateEmployeeDto {
 }
 exports.CreateEmployeeDto = CreateEmployeeDto;
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Matricule unique de l\'employé' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Matricule unique de l\'employé (généré automatiquement si non fourni)' }),
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "matricule", void 0);
 __decorate([
@@ -49,6 +50,12 @@ __decorate([
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "dateOfBirth", void 0);
 __decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Civilité (Monsieur, Madame, Mademoiselle)' }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], CreateEmployeeDto.prototype, "civilite", void 0);
+__decorate([
     (0, swagger_1.ApiPropertyOptional)({ description: 'Adresse' }),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.IsOptional)(),
@@ -61,8 +68,9 @@ __decorate([
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "photo", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Poste' }),
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Poste (texte libre)' }),
     (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
     __metadata("design:type", String)
 ], CreateEmployeeDto.prototype, "position", void 0);
 __decorate([

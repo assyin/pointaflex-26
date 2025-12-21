@@ -5,31 +5,31 @@ export declare class SitesController {
     private readonly sitesService;
     constructor(sitesService: SitesService);
     create(user: any, dto: CreateSiteDto): Promise<{
+        _count: {
+            devices: number;
+            employees: number;
+        };
         manager: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
-        };
-        _count: {
-            employees: number;
-            devices: number;
+            matricule: string;
         };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
+        phone: string | null;
         name: string;
         code: string | null;
-        tenantId: string;
-        managerId: string | null;
-        phone: string | null;
         address: string | null;
-        departmentId: string | null;
+        timezone: string | null;
         city: string | null;
+        departmentId: string | null;
+        managerId: string | null;
         latitude: import("@prisma/client/runtime/library").Decimal | null;
         longitude: import("@prisma/client/runtime/library").Decimal | null;
-        timezone: string | null;
         workingDays: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     findAll(user: any): Promise<{
@@ -42,87 +42,87 @@ export declare class SitesController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
+            phone: string | null;
             name: string;
             code: string | null;
-            tenantId: string;
-            managerId: string | null;
-            phone: string | null;
             address: string | null;
-            departmentId: string | null;
+            timezone: string | null;
             city: string | null;
+            departmentId: string | null;
+            managerId: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         }[];
         total: number;
     }>;
     findOne(user: any, id: string): Promise<{
-        manager: {
-            id: string;
-            matricule: string;
-            firstName: string;
-            lastName: string;
-        };
-        employees: {
-            id: string;
-            matricule: string;
-            firstName: string;
-            lastName: string;
-        }[];
         _count: {
-            employees: number;
             attendance: number;
             devices: number;
+            employees: number;
         };
         devices: {
             id: string;
             name: string;
             deviceId: string;
         }[];
+        employees: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        }[];
+        manager: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
+        phone: string | null;
         name: string;
         code: string | null;
-        tenantId: string;
-        managerId: string | null;
-        phone: string | null;
         address: string | null;
-        departmentId: string | null;
+        timezone: string | null;
         city: string | null;
+        departmentId: string | null;
+        managerId: string | null;
         latitude: import("@prisma/client/runtime/library").Decimal | null;
         longitude: import("@prisma/client/runtime/library").Decimal | null;
-        timezone: string | null;
         workingDays: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     update(user: any, id: string, dto: UpdateSiteDto): Promise<{
+        _count: {
+            devices: number;
+            employees: number;
+        };
         manager: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
-        };
-        _count: {
-            employees: number;
-            devices: number;
+            matricule: string;
         };
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
+        phone: string | null;
         name: string;
         code: string | null;
-        tenantId: string;
-        managerId: string | null;
-        phone: string | null;
         address: string | null;
-        departmentId: string | null;
+        timezone: string | null;
         city: string | null;
+        departmentId: string | null;
+        managerId: string | null;
         latitude: import("@prisma/client/runtime/library").Decimal | null;
         longitude: import("@prisma/client/runtime/library").Decimal | null;
-        timezone: string | null;
         workingDays: import("@prisma/client/runtime/library").JsonValue | null;
     }>;
     remove(user: any, id: string): Promise<{

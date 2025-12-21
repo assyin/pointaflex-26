@@ -11,12 +11,13 @@ const common_1 = require("@nestjs/common");
 const overtime_service_1 = require("./overtime.service");
 const overtime_controller_1 = require("./overtime.controller");
 const prisma_module_1 = require("../../database/prisma.module");
+const recovery_days_module_1 = require("../recovery-days/recovery-days.module");
 let OvertimeModule = class OvertimeModule {
 };
 exports.OvertimeModule = OvertimeModule;
 exports.OvertimeModule = OvertimeModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule],
+        imports: [prisma_module_1.PrismaModule, recovery_days_module_1.RecoveryDaysModule],
         controllers: [overtime_controller_1.OvertimeController],
         providers: [overtime_service_1.OvertimeService],
         exports: [overtime_service_1.OvertimeService],

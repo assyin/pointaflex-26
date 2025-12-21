@@ -1,6 +1,8 @@
 import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
+import { CacheModule } from '@nestjs/cache-manager';
 import { PrismaModule } from './database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
@@ -12,6 +14,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { SchedulesModule } from './modules/schedules/schedules.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { OvertimeModule } from './modules/overtime/overtime.module';
+import { RecoveryDaysModule } from './modules/recovery-days/recovery-days.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { DevicesModule } from './modules/devices/devices.module';
@@ -23,6 +26,8 @@ import { PositionsModule } from './modules/positions/positions.module';
 import { HolidaysModule } from './modules/holidays/holidays.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
+import { TerminalMatriculeMappingModule } from './modules/terminal-matricule-mapping/terminal-matricule-mapping.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -32,6 +37,12 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+    }),
+    ScheduleModule.forRoot(),
+    CacheModule.register({
+      isGlobal: true,
+      ttl: 300000, // 5 minutes par défaut
+      max: 100, // 100 éléments max en cache
     }),
     PrismaModule,
     AuthModule,
@@ -44,6 +55,7 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     SchedulesModule,
     LeavesModule,
     OvertimeModule,
+    RecoveryDaysModule,
     ReportsModule,
     AuditModule,
     DevicesModule,
@@ -55,6 +67,8 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     HolidaysModule,
     RolesModule,
     PermissionsModule,
+    TerminalMatriculeMappingModule,
+    DashboardModule,
   ],
   providers: [
     {

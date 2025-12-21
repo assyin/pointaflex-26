@@ -1,17 +1,15 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
-const bcrypt = require("bcrypt");
 const prisma = new client_1.PrismaClient();
-async function testLogin() {
-    console.log('🔍 Test de connexion pour employee@demo.com...\n');
+async function testLogin(email) {
     try {
-        const user = await prisma.user.findFirst({
-            where: { email: 'employee@demo.com' },
+        console.log(`\n🔐 Test de connexion pour: ${email}\n`);
+        const user = await prisma.user.findUnique({
+            where: { email: email.toLowerCase().trim() },
             select: {
                 id: true,
                 email: true,
-                password: true,
                 firstName: true,
                 lastName: true,
                 role: true,
@@ -20,80 +18,60 @@ async function testLogin() {
             },
         });
         if (!user) {
-            console.log('❌ Utilisateur employee@demo.com n\'existe pas!');
+            console.log('❌ Utilisateur non trouvé');
             return;
         }
-        console.log('✅ Utilisateur trouvé:');
-        console.log('   - ID:', user.id);
-        console.log('   - Email:', user.email);
-        console.log('   - Nom:', user.firstName, user.lastName);
-        console.log('   - Rôle:', user.role);
-        console.log('   - Tenant ID:', user.tenantId);
-        console.log('   - Actif:', user.isActive);
-        console.log('   - Password hash (premiers 20 caractères):', user.password.substring(0, 20) + '...');
-        if (!user.isActive) {
-            console.log('\n⚠️  PROBLÈME: L\'utilisateur est inactif!');
-            return;
-        }
-        if (!user.tenantId) {
-            console.log('\n⚠️  PROBLÈME: L\'utilisateur n\'a pas de tenant!');
-            return;
-        }
-        console.log('\n🔐 Test du mot de passe "Test123!"...');
-        const testPassword = 'Test123!';
-        const isPasswordValid = await bcrypt.compare(testPassword, user.password);
-        if (isPasswordValid) {
-            console.log('✅ Mot de passe VALIDE!');
-        }
-        else {
-            console.log('❌ Mot de passe INVALIDE!');
-            console.log('\n💡 Le hash dans la base de données ne correspond pas à "Test123!"');
-            console.log('   Réinitialisation du mot de passe...');
-            const hashedPassword = await bcrypt.hash(testPassword, 10);
-            await prisma.user.update({
-                where: { id: user.id },
-                data: { password: hashedPassword },
-            });
-            console.log('✅ Mot de passe réinitialisé!');
-            const isPasswordValidAfter = await bcrypt.compare(testPassword, hashedPassword);
-            if (isPasswordValidAfter) {
-                console.log('✅ Vérification: Le nouveau mot de passe fonctionne!');
-            }
-        }
-        console.log('\n🔍 Vérification des doublons...');
-        const allUsersWithEmail = await prisma.user.findMany({
-            where: { email: 'employee@demo.com' },
-            select: {
-                id: true,
-                email: true,
-                tenantId: true,
+        console.log(`✅ Utilisateur trouvé: ${user.firstName} ${user.lastName}`);
+        console.log(`   Rôle legacy: ${user.role}`);
+        console.log(`   Statut: ${user.isActive ? 'Actif' : 'Inactif'}\n`);
+        const userTenantRoles = await prisma.userTenantRole.findMany({
+            where: {
+                userId: user.id,
+                tenantId: user.tenantId,
                 isActive: true,
             },
+            include: {
+                role: {
+                    include: {
+                        permissions: {
+                            include: {
+                                permission: true,
+                            },
+                        },
+                    },
+                },
+            },
         });
-        if (allUsersWithEmail.length > 1) {
-            console.log(`⚠️  ATTENTION: ${allUsersWithEmail.length} utilisateurs trouvés avec cet email!`);
-            allUsersWithEmail.forEach((u, index) => {
-                console.log(`   ${index + 1}. ID: ${u.id}, Tenant: ${u.tenantId}, Actif: ${u.isActive}`);
+        console.log(`📋 Rôles RBAC assignés: ${userTenantRoles.length}\n`);
+        let allPermissions = new Set();
+        userTenantRoles.forEach((utr) => {
+            console.log(`   🎭 Rôle: ${utr.role.name} (${utr.role.code})`);
+            console.log(`      Permissions: ${utr.role.permissions.length}`);
+            const permsList = utr.role.permissions
+                .slice(0, 5)
+                .map((rp) => rp.permission.code)
+                .join(', ');
+            console.log(`      Exemples: ${permsList}${utr.role.permissions.length > 5 ? ', ...' : ''}\n`);
+            utr.role.permissions.forEach((rp) => {
+                if (rp.permission && rp.permission.isActive && rp.permission.code) {
+                    allPermissions.add(rp.permission.code);
+                }
             });
-            console.log('\n💡 Le backend utilise findFirst() qui peut retourner le mauvais utilisateur!');
-        }
-        else {
-            console.log('✅ Un seul utilisateur trouvé (pas de doublon)');
-        }
-        console.log('\n✅ Test terminé!');
-        console.log('\n📋 Résumé:');
-        console.log('   - Utilisateur existe:', user ? 'Oui' : 'Non');
-        console.log('   - Utilisateur actif:', user?.isActive ? 'Oui' : 'Non');
-        console.log('   - Tenant ID:', user?.tenantId || 'Manquant');
-        console.log('   - Mot de passe valide:', isPasswordValid ? 'Oui' : 'Non');
+        });
+        console.log(`\n✨ Total des permissions uniques: ${allPermissions.size}`);
     }
     catch (error) {
-        console.error('❌ Erreur:', error.message);
-        console.error(error);
-    }
-    finally {
-        await prisma.$disconnect();
+        console.error('❌ Erreur:', error);
     }
 }
-testLogin();
+async function main() {
+    console.log('\n═══════════════════════════════════════════════════════');
+    console.log('🧪 TEST DE CONNEXION ET PERMISSIONS');
+    console.log('═══════════════════════════════════════════════════════');
+    await testLogin('rh@demo.com');
+    await testLogin('manager@demo.com');
+    await testLogin('employee@demo.com');
+    await prisma.$disconnect();
+}
+main();
 //# sourceMappingURL=test-login.js.map

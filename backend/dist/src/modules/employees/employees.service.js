@@ -8,36 +8,88 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 var EmployeesService_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.EmployeesService = void 0;
 const common_1 = require("@nestjs/common");
+const cache_manager_1 = require("@nestjs/cache-manager");
 const prisma_service_1 = require("../../database/prisma.service");
 const manager_level_util_1 = require("../../common/utils/manager-level.util");
 const user_tenant_roles_service_1 = require("../users/user-tenant-roles.service");
 const roles_service_1 = require("../roles/roles.service");
+const terminal_matricule_mapping_service_1 = require("../terminal-matricule-mapping/terminal-matricule-mapping.service");
 const password_generator_util_1 = require("../../common/utils/password-generator.util");
 const email_generator_util_1 = require("../../common/utils/email-generator.util");
 const bcrypt = require("bcrypt");
 const XLSX = require("xlsx");
 let EmployeesService = EmployeesService_1 = class EmployeesService {
-    constructor(prisma, userTenantRolesService, rolesService) {
+    constructor(prisma, userTenantRolesService, rolesService, terminalMatriculeMappingService, cacheManager) {
         this.prisma = prisma;
         this.userTenantRolesService = userTenantRolesService;
         this.rolesService = rolesService;
+        this.terminalMatriculeMappingService = terminalMatriculeMappingService;
+        this.cacheManager = cacheManager;
         this.logger = new common_1.Logger(EmployeesService_1.name);
     }
+    async invalidateEmployeesCache(tenantId) {
+    }
+    async generateTemporaryMatricule(tenantId) {
+        const lastTemp = await this.prisma.employee.findFirst({
+            where: {
+                tenantId,
+                matricule: {
+                    startsWith: 'TEMP-',
+                },
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+        });
+        let nextNumber = 1;
+        if (lastTemp) {
+            const match = lastTemp.matricule.match(/TEMP-(\d+)/);
+            if (match) {
+                nextNumber = parseInt(match[1], 10) + 1;
+            }
+        }
+        let tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
+        let counter = 0;
+        while (await this.prisma.employee.findUnique({
+            where: {
+                tenantId_matricule: {
+                    tenantId,
+                    matricule: tempMatricule,
+                },
+            },
+        })) {
+            nextNumber++;
+            tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
+            counter++;
+            if (counter > 1000) {
+                throw new Error('Impossible de générer un matricule temporaire unique');
+            }
+        }
+        return tempMatricule;
+    }
     async create(tenantId, createEmployeeDto, createdByUserId) {
+        let finalMatricule = createEmployeeDto.matricule;
+        if (!finalMatricule || finalMatricule.trim() === '') {
+            finalMatricule = await this.generateTemporaryMatricule(tenantId);
+            this.logger.log(`Matricule temporaire généré pour le nouvel employé: ${finalMatricule}`);
+        }
         const existing = await this.prisma.employee.findUnique({
             where: {
                 tenantId_matricule: {
                     tenantId,
-                    matricule: createEmployeeDto.matricule,
+                    matricule: finalMatricule,
                 },
             },
         });
         if (existing) {
-            throw new common_1.ConflictException(`Employee with matricule ${createEmployeeDto.matricule} already exists`);
+            throw new common_1.ConflictException(`Employee with matricule ${finalMatricule} already exists`);
         }
         const tenant = await this.prisma.tenant.findUnique({
             where: { id: tenantId },
@@ -46,7 +98,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
         if (!tenant) {
             throw new common_1.NotFoundException('Tenant not found');
         }
-        return this.prisma.$transaction(async (tx) => {
+        const result = await this.prisma.$transaction(async (tx) => {
             let userId = createEmployeeDto.userId;
             let generatedPassword;
             let userEmail;
@@ -88,7 +140,37 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                         },
                     });
                     if (employeeRole) {
-                        await this.userTenantRolesService.assignRoles(user.id, tenantId, [employeeRole.id], createdByUserId || user.id);
+                        const existingRole = await tx.userTenantRole.findUnique({
+                            where: {
+                                userId_tenantId_roleId: {
+                                    userId: user.id,
+                                    tenantId: tenantId,
+                                    roleId: employeeRole.id,
+                                },
+                            },
+                        });
+                        if (!existingRole) {
+                            await tx.userTenantRole.create({
+                                data: {
+                                    userId: user.id,
+                                    tenantId: tenantId,
+                                    roleId: employeeRole.id,
+                                    assignedBy: createdByUserId || user.id,
+                                },
+                            });
+                            this.logger.log(`Role EMPLOYEE assigned to user ${user.id} in tenant ${tenantId}`);
+                        }
+                        else if (!existingRole.isActive) {
+                            await tx.userTenantRole.update({
+                                where: { id: existingRole.id },
+                                data: {
+                                    isActive: true,
+                                    assignedBy: createdByUserId || user.id,
+                                    assignedAt: new Date(),
+                                },
+                            });
+                            this.logger.log(`Role EMPLOYEE reactivated for user ${user.id} in tenant ${tenantId}`);
+                        }
                     }
                     else {
                         this.logger.warn(`Role EMPLOYEE not found for tenant ${tenantId}. User created but no role assigned.`);
@@ -125,9 +207,13 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
             const employee = await tx.employee.create({
                 data: {
                     ...createEmployeeDto,
+                    matricule: finalMatricule,
+                    position: createEmployeeDto.position || 'Non spécifié',
                     tenantId,
                     hireDate: new Date(createEmployeeDto.hireDate),
-                    dateOfBirth: createEmployeeDto.dateOfBirth ? new Date(createEmployeeDto.dateOfBirth) : undefined,
+                    dateOfBirth: createEmployeeDto.dateOfBirth
+                        ? new Date(createEmployeeDto.dateOfBirth)
+                        : undefined,
                     userId: userId,
                 },
                 include: {
@@ -159,8 +245,25 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                     password: generatedPassword,
                 };
             }
+            try {
+                await tx.terminalMatriculeMapping.create({
+                    data: {
+                        tenantId,
+                        employeeId: employee.id,
+                        terminalMatricule: finalMatricule,
+                        officialMatricule: finalMatricule,
+                        assignedAt: new Date(),
+                    },
+                });
+                this.logger.log(`Mapping terminal créé pour l'employé ${employee.id}: ${finalMatricule}`);
+            }
+            catch (error) {
+                this.logger.error(`Erreur lors de la création du mapping terminal: ${error.message}`);
+            }
             return employee;
         });
+        await this.invalidateEmployeesCache(tenantId);
+        return result;
     }
     async createUserAccount(tenantId, employeeId, createUserAccountDto, createdByUserId) {
         const employee = await this.prisma.employee.findFirst({
@@ -360,6 +463,11 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
         });
     }
     async findAll(tenantId, filters, userId, userPermissions) {
+        const cacheKey = `employees:${tenantId}:${userId || 'none'}:${JSON.stringify(filters || {})}:${JSON.stringify(userPermissions || [])}`;
+        const cached = await this.cacheManager.get(cacheKey);
+        if (cached) {
+            return cached;
+        }
         const where = { tenantId };
         const hasViewAll = userPermissions?.includes('employee.view_all');
         const hasViewOwn = userPermissions?.includes('employee.view_own');
@@ -411,25 +519,52 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                 { email: { contains: filters.search, mode: 'insensitive' } },
             ];
         }
-        return this.prisma.employee.findMany({
-            where,
-            include: {
-                site: true,
-                department: true,
-                team: true,
-                currentShift: true,
-                user: {
-                    select: {
-                        id: true,
-                        email: true,
-                        firstName: true,
-                        lastName: true,
-                        role: true,
+        const page = filters?.page || 1;
+        const limit = filters?.limit || 50;
+        const skip = (page - 1) * limit;
+        const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
+        const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+        const [data, total] = await Promise.all([
+            this.prisma.employee.findMany({
+                where,
+                skip: shouldPaginate ? skip : undefined,
+                take: maxLimit,
+                include: {
+                    site: true,
+                    department: true,
+                    team: true,
+                    currentShift: true,
+                    user: {
+                        select: {
+                            id: true,
+                            email: true,
+                            firstName: true,
+                            lastName: true,
+                            role: true,
+                        },
                     },
                 },
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.employee.count({ where }),
+        ]);
+        let result;
+        if (shouldPaginate) {
+            result = {
+                data,
+                meta: {
+                    total,
+                    page,
+                    limit,
+                    totalPages: Math.ceil(total / limit),
+                },
+            };
+        }
+        else {
+            result = data;
+        }
+        await this.cacheManager.set(cacheKey, result, 120000);
+        return result;
     }
     async findOne(tenantId, id) {
         const employee = await this.prisma.employee.findFirst({
@@ -564,7 +699,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
         if (!employee) {
             throw new common_1.NotFoundException(`Employee with ID ${id} not found`);
         }
-        return this.prisma.employee.update({
+        const result = await this.prisma.employee.update({
             where: { id },
             data: {
                 ...updateEmployeeDto,
@@ -587,6 +722,8 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                 },
             },
         });
+        await this.invalidateEmployeesCache(tenantId);
+        return result;
     }
     async remove(tenantId, id) {
         const employee = await this.prisma.employee.findFirst({
@@ -595,9 +732,11 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
         if (!employee) {
             throw new common_1.NotFoundException(`Employee with ID ${id} not found`);
         }
-        return this.prisma.employee.delete({
+        const result = await this.prisma.employee.delete({
             where: { id },
         });
+        await this.invalidateEmployeesCache(tenantId);
+        return result;
     }
     async updateBiometricData(tenantId, id, biometricData) {
         const employee = await this.prisma.employee.findFirst({
@@ -1028,8 +1167,10 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
 exports.EmployeesService = EmployeesService;
 exports.EmployeesService = EmployeesService = EmployeesService_1 = __decorate([
     (0, common_1.Injectable)(),
+    __param(4, (0, common_1.Inject)(cache_manager_1.CACHE_MANAGER)),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
         user_tenant_roles_service_1.UserTenantRolesService,
-        roles_service_1.RolesService])
+        roles_service_1.RolesService,
+        terminal_matricule_mapping_service_1.TerminalMatriculeMappingService, Object])
 ], EmployeesService);
 //# sourceMappingURL=employees.service.js.map

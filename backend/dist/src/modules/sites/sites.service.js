@@ -17,6 +17,64 @@ let SitesService = class SitesService {
     constructor(prisma) {
         this.prisma = prisma;
     }
+    async generateUniqueCode(tenantId, siteName) {
+        const normalized = siteName
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-zA-Z0-9\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toUpperCase();
+        let baseCode = normalized
+            .replace(/\s/g, '')
+            .substring(0, 3);
+        if (baseCode.length < 3) {
+            baseCode = baseCode.padEnd(3, 'X');
+        }
+        try {
+            const existing = await this.prisma.site.findFirst({
+                where: {
+                    tenantId,
+                    code: baseCode,
+                },
+            });
+            if (!existing) {
+                return baseCode;
+            }
+        }
+        catch (error) {
+            if (error.message?.includes('does not exist')) {
+                return baseCode;
+            }
+            throw error;
+        }
+        let counter = 1;
+        let uniqueCode;
+        do {
+            uniqueCode = `${baseCode}${String(counter).padStart(3, '0')}`;
+            try {
+                const existing = await this.prisma.site.findFirst({
+                    where: {
+                        tenantId,
+                        code: uniqueCode,
+                    },
+                });
+                if (!existing) {
+                    return uniqueCode;
+                }
+            }
+            catch (error) {
+                if (error.message?.includes('does not exist')) {
+                    return uniqueCode;
+                }
+                throw error;
+            }
+            counter++;
+            if (counter > 9999) {
+                return `SITE${Date.now().toString().slice(-6)}`;
+            }
+        } while (true);
+    }
     async validateManagerDepartmentConstraint(managerId, departmentId, currentSiteId) {
         if (!managerId) {
             return;
@@ -48,7 +106,11 @@ let SitesService = class SitesService {
         }
     }
     async create(tenantId, dto) {
-        if (dto.code) {
+        let finalCode = dto.code;
+        if (!finalCode) {
+            finalCode = await this.generateUniqueCode(tenantId, dto.name);
+        }
+        else {
             try {
                 const existing = await this.prisma.site.findFirst({
                     where: {
@@ -91,6 +153,7 @@ let SitesService = class SitesService {
         }
         const data = {
             ...dto,
+            code: finalCode,
             tenantId,
             workingDays: dto.workingDays || null,
         };

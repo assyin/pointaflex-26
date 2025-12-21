@@ -11,17 +11,17 @@ export declare class LeavesService {
     create(tenantId: string, dto: CreateLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -63,9 +63,9 @@ export declare class LeavesService {
         data: ({
             employee: {
                 id: string;
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 site: {
                     id: string;
                     name: string;
@@ -76,9 +76,9 @@ export declare class LeavesService {
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                tenantId: string;
                 name: string;
                 code: string;
-                tenantId: string;
                 isPaid: boolean;
                 requiresDocument: boolean;
                 maxDaysPerYear: number | null;
@@ -120,19 +120,19 @@ export declare class LeavesService {
     findOne(tenantId: string, id: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
+            email: string;
             firstName: string;
             lastName: string;
-            email: string;
+            matricule: string;
             position: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -167,17 +167,17 @@ export declare class LeavesService {
     update(tenantId: string, id: string, dto: UpdateLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -212,17 +212,17 @@ export declare class LeavesService {
     approve(tenantId: string, id: string, userId: string, userRole: LegacyRole, dto: ApproveLeaveDto): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -257,17 +257,17 @@ export declare class LeavesService {
     cancel(tenantId: string, id: string, userId: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -330,9 +330,9 @@ export declare class LeavesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -341,9 +341,9 @@ export declare class LeavesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -352,9 +352,9 @@ export declare class LeavesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -363,9 +363,9 @@ export declare class LeavesService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -373,17 +373,17 @@ export declare class LeavesService {
     uploadDocument(tenantId: string, leaveId: string, file: Express.Multer.File, userId: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;
@@ -423,17 +423,17 @@ export declare class LeavesService {
     deleteDocument(tenantId: string, leaveId: string, userId: string): Promise<{
         employee: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
         };
         leaveType: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            tenantId: string;
             name: string;
             code: string;
-            tenantId: string;
             isPaid: boolean;
             requiresDocument: boolean;
             maxDaysPerYear: number | null;

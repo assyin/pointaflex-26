@@ -22,6 +22,13 @@ let DataGeneratorService = DataGeneratorService_1 = class DataGeneratorService {
         this.attendanceService = attendanceService;
         this.logger = new common_1.Logger(DataGeneratorService_1.name);
     }
+    roundOvertimeHours(hours, roundingMinutes) {
+        if (roundingMinutes <= 0)
+            return hours;
+        const totalMinutes = hours * 60;
+        const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
+        return roundedMinutes / 60;
+    }
     async generateSingleDay(tenantId, dto) {
         this.logger.log(`Génération de pointage pour ${dto.employeeId} le ${dto.date} (scénario: ${dto.scenario})`);
         const employee = await this.prisma.employee.findFirst({
@@ -329,7 +336,7 @@ let DataGeneratorService = DataGeneratorService_1 = class DataGeneratorService {
             if (overtimeMinutes < thresholdMinutes) {
                 return false;
             }
-            const overtimeHours = overtimeMinutes / 60;
+            let overtimeHours = overtimeMinutes / 60;
             const existing = await this.prisma.overtime.findFirst({
                 where: {
                     tenantId,
@@ -340,6 +347,8 @@ let DataGeneratorService = DataGeneratorService_1 = class DataGeneratorService {
             const settings = await this.prisma.tenantSettings.findUnique({
                 where: { tenantId },
             });
+            const roundingMinutes = settings?.overtimeRounding || 15;
+            overtimeHours = this.roundOvertimeHours(overtimeHours, roundingMinutes);
             const rate = shift.isNightShift
                 ? Number(settings?.nightShiftRate || 1.5)
                 : Number(settings?.overtimeRate || 1.25);

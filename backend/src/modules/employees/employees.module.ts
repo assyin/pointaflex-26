@@ -6,9 +6,15 @@ import { UserTenantRolesService } from '../users/user-tenant-roles.service';
 import { RolesService } from '../roles/roles.service';
 import { PermissionsModule } from '../permissions/permissions.module';
 import { AuditModule } from '../audit/audit.module';
+import { TerminalMatriculeMappingModule } from '../terminal-matricule-mapping/terminal-matricule-mapping.module';
 
 @Module({
-  imports: [PrismaModule, PermissionsModule, AuditModule],
+  imports: [
+    PrismaModule,
+    PermissionsModule,
+    AuditModule,
+    TerminalMatriculeMappingModule,
+  ],
   controllers: [EmployeesController],
   providers: [EmployeesService, UserTenantRolesService, RolesService],
   exports: [EmployeesService],

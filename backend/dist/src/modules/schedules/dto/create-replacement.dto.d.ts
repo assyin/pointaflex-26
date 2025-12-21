@@ -5,6 +5,7 @@ export declare class CreateReplacementDto {
     replacementEmployeeId: string;
     shiftId: string;
     reason?: string;
+    leaveId?: string;
 }
 export declare class UpdateReplacementDto {
     status?: ReplacementStatus;

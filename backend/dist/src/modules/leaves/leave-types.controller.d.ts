@@ -8,9 +8,9 @@ export declare class LeaveTypesController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -19,9 +19,9 @@ export declare class LeaveTypesController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -30,9 +30,9 @@ export declare class LeaveTypesController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;
@@ -41,9 +41,9 @@ export declare class LeaveTypesController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        tenantId: string;
         name: string;
         code: string;
-        tenantId: string;
         isPaid: boolean;
         requiresDocument: boolean;
         maxDaysPerYear: number | null;

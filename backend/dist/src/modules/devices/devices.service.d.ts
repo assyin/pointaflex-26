@@ -14,12 +14,12 @@ export declare class DevicesService {
             name: string;
             code: string | null;
             address: string | null;
+            timezone: string | null;
+            city: string | null;
             departmentId: string | null;
             managerId: string | null;
-            city: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
@@ -30,8 +30,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -49,12 +49,12 @@ export declare class DevicesService {
             name: string;
             code: string | null;
             address: string | null;
+            timezone: string | null;
+            city: string | null;
             departmentId: string | null;
             managerId: string | null;
-            city: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
@@ -65,8 +65,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -84,12 +84,12 @@ export declare class DevicesService {
             name: string;
             code: string | null;
             address: string | null;
+            timezone: string | null;
+            city: string | null;
             departmentId: string | null;
             managerId: string | null;
-            city: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
@@ -100,8 +100,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -114,8 +114,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -130,12 +130,12 @@ export declare class DevicesService {
             name: string;
             code: string | null;
             address: string | null;
+            timezone: string | null;
+            city: string | null;
             departmentId: string | null;
             managerId: string | null;
-            city: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            timezone: string | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
     } & {
@@ -146,8 +146,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -160,8 +160,8 @@ export declare class DevicesService {
         isActive: boolean;
         name: string;
         siteId: string | null;
-        deviceId: string;
         ipAddress: string | null;
+        deviceId: string;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
         lastSync: Date | null;
@@ -185,12 +185,12 @@ export declare class DevicesService {
                 name: string;
                 code: string | null;
                 address: string | null;
+                timezone: string | null;
+                city: string | null;
                 departmentId: string | null;
                 managerId: string | null;
-                city: string | null;
                 latitude: import("@prisma/client/runtime/library").Decimal | null;
                 longitude: import("@prisma/client/runtime/library").Decimal | null;
-                timezone: string | null;
                 workingDays: import("@prisma/client/runtime/library").JsonValue | null;
             };
         } & {
@@ -201,8 +201,8 @@ export declare class DevicesService {
             isActive: boolean;
             name: string;
             siteId: string | null;
-            deviceId: string;
             ipAddress: string | null;
+            deviceId: string;
             deviceType: import(".prisma/client").$Enums.DeviceType;
             apiKey: string | null;
             lastSync: Date | null;

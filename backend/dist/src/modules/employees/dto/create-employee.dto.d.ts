@@ -1,13 +1,14 @@
 export declare class CreateEmployeeDto {
-    matricule: string;
+    matricule?: string;
     firstName: string;
     lastName: string;
     email?: string;
     phone?: string;
     dateOfBirth?: string;
+    civilite?: string;
     address?: string;
     photo?: string;
-    position: string;
+    position?: string;
     positionId?: string;
     hireDate: string;
     contractType?: string;

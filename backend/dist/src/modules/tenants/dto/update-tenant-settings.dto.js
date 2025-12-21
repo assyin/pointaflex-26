@@ -96,18 +96,6 @@ __decorate([
 __decorate([
     (0, swagger_1.ApiPropertyOptional)(),
     (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], UpdateTenantSettingsDto.prototype, "nightShiftStart", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)(),
-    (0, class_validator_1.IsOptional)(),
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], UpdateTenantSettingsDto.prototype, "nightShiftEnd", void 0);
-__decorate([
-    (0, swagger_1.ApiPropertyOptional)(),
-    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], UpdateTenantSettingsDto.prototype, "twoLevelWorkflow", void 0);
@@ -135,4 +123,44 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], UpdateTenantSettingsDto.prototype, "requireBreakPunch", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)',
+        example: 8,
+        default: 8,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "temporaryMatriculeExpiryDays", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Taux de conversion heures supplémentaires -> récupération (1.0 = 1h supp = 1h récup)',
+        example: 1.0,
+        default: 1.0,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "recoveryConversionRate", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Nombre de jours avant expiration de la récupération',
+        example: 90,
+        default: 90,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "recoveryExpiryDays", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Nombre d\'heures équivalent à une journée normale de travail (par défaut: 44h/6j = 7.33h)',
+        example: 7.33,
+        default: 7.33,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "dailyWorkingHours", void 0);
 //# sourceMappingURL=update-tenant-settings.dto.js.map

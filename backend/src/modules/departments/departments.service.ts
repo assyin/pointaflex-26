@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
@@ -8,10 +8,117 @@ import { getManagerLevel } from '../../common/utils/manager-level.util';
 export class DepartmentsService {
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Génère un code unique basé sur le nom du département
+   * Format: 3 premières lettres (majuscules, sans accents) + numéro si nécessaire
+   * Exemple: "Ressources Humaines" -> "RES", "Ressources Humaines 2" -> "RES001"
+   */
+  private async generateUniqueCode(tenantId: string, departmentName: string): Promise<string> {
+    // Normaliser le nom: enlever accents, garder seulement lettres et chiffres
+    const normalized = departmentName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Enlever caractères spéciaux
+      .replace(/\s+/g, ' ') // Normaliser les espaces
+      .trim()
+      .toUpperCase();
+
+    // Extraire les 3 premières lettres/chiffres (enlever les espaces)
+    let baseCode = normalized
+      .replace(/\s/g, '')
+      .substring(0, 3);
+
+    // Si moins de 3 caractères, compléter avec des X
+    if (baseCode.length < 3) {
+      baseCode = baseCode.padEnd(3, 'X');
+    }
+
+    // Vérifier si le code de base existe déjà
+    try {
+      const existing = await this.prisma.department.findFirst({
+        where: {
+          tenantId,
+          code: baseCode,
+        },
+      });
+
+      if (!existing) {
+        return baseCode;
+      }
+    } catch (error) {
+      // Si la colonne code n'existe pas, retourner le code de base
+      if (error.message?.includes('does not exist')) {
+        return baseCode;
+      }
+      throw error;
+    }
+
+    // Si le code existe, essayer avec des numéros incrémentaux
+    let counter = 1;
+    let uniqueCode: string;
+    do {
+      uniqueCode = `${baseCode}${String(counter).padStart(3, '0')}`;
+      
+      try {
+        const existing = await this.prisma.department.findFirst({
+          where: {
+            tenantId,
+            code: uniqueCode,
+          },
+        });
+
+        if (!existing) {
+          return uniqueCode;
+        }
+      } catch (error) {
+        // Si la colonne code n'existe pas, retourner le code généré
+        if (error.message?.includes('does not exist')) {
+          return uniqueCode;
+        }
+        throw error;
+      }
+
+      counter++;
+      // Limite de sécurité pour éviter les boucles infinies
+      if (counter > 9999) {
+        // Si on atteint la limite, utiliser un UUID court
+        return `DEPT${Date.now().toString().slice(-6)}`;
+      }
+    } while (true);
+  }
+
   async create(tenantId: string, createDepartmentDto: CreateDepartmentDto) {
+    // Générer automatiquement un code unique si non fourni
+    let finalCode = createDepartmentDto.code;
+    if (!finalCode) {
+      finalCode = await this.generateUniqueCode(tenantId, createDepartmentDto.name);
+    } else {
+      // Vérifier que le code fourni n'existe pas déjà pour ce tenant
+      try {
+        const existing = await this.prisma.department.findFirst({
+          where: {
+            tenantId,
+            code: createDepartmentDto.code,
+          },
+        });
+
+        if (existing) {
+          throw new ConflictException(`Le code "${createDepartmentDto.code}" existe déjà pour ce tenant`);
+        }
+      } catch (error) {
+        // Si la colonne code n'existe pas, ignorer la vérification
+        if (error.message?.includes('does not exist')) {
+          // Colonne code n'existe pas encore, continuer sans vérification
+        } else {
+          throw error;
+        }
+      }
+    }
+
     return this.prisma.department.create({
       data: {
         ...createDepartmentDto,
+        code: finalCode,
         tenantId,
       },
       include: {

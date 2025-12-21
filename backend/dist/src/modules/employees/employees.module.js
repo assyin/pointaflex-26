@@ -15,12 +15,18 @@ const user_tenant_roles_service_1 = require("../users/user-tenant-roles.service"
 const roles_service_1 = require("../roles/roles.service");
 const permissions_module_1 = require("../permissions/permissions.module");
 const audit_module_1 = require("../audit/audit.module");
+const terminal_matricule_mapping_module_1 = require("../terminal-matricule-mapping/terminal-matricule-mapping.module");
 let EmployeesModule = class EmployeesModule {
 };
 exports.EmployeesModule = EmployeesModule;
 exports.EmployeesModule = EmployeesModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule, permissions_module_1.PermissionsModule, audit_module_1.AuditModule],
+        imports: [
+            prisma_module_1.PrismaModule,
+            permissions_module_1.PermissionsModule,
+            audit_module_1.AuditModule,
+            terminal_matricule_mapping_module_1.TerminalMatriculeMappingModule,
+        ],
         controllers: [employees_controller_1.EmployeesController],
         providers: [employees_service_1.EmployeesService, user_tenant_roles_service_1.UserTenantRolesService, roles_service_1.RolesService],
         exports: [employees_service_1.EmployeesService],

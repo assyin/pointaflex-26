@@ -66,6 +66,27 @@ let LeavesService = class LeavesService {
         if (overlapping) {
             throw new common_1.BadRequestException('Leave request overlaps with existing leave');
         }
+        const conflictingRecoveryDays = await this.prisma.recoveryDay.findMany({
+            where: {
+                tenantId,
+                employeeId: dto.employeeId,
+                status: {
+                    in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.PENDING],
+                },
+                OR: [
+                    {
+                        startDate: { lte: endDate },
+                        endDate: { gte: startDate },
+                    },
+                ],
+            },
+        });
+        if (conflictingRecoveryDays.length > 0) {
+            const dates = conflictingRecoveryDays
+                .map((rd) => `${rd.startDate.toISOString().split('T')[0]} - ${rd.endDate.toISOString().split('T')[0]}`)
+                .join(', ');
+            throw new common_1.BadRequestException(`Conflit avec des journées de récupération existantes : ${dates}. Veuillez choisir d'autres dates ou annuler les récupérations concernées.`);
+        }
         return this.prisma.leave.create({
             data: {
                 tenantId,

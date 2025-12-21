@@ -3,7 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { UpdateLeaveDto } from './dto/update-leave.dto';
 import { ApproveLeaveDto } from './dto/approve-leave.dto';
-import { LeaveStatus, LegacyRole } from '@prisma/client';
+import { LeaveStatus, LegacyRole, RecoveryDayStatus } from '@prisma/client';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 import { FileStorageService } from './services/file-storage.service';
 
@@ -72,6 +72,35 @@ export class LeavesService {
 
     if (overlapping) {
       throw new BadRequestException('Leave request overlaps with existing leave');
+    }
+
+    // AJOUT: Vérifier les chevauchements avec les récupérations
+    const conflictingRecoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId,
+        status: {
+          in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.PENDING],
+        },
+        OR: [
+          {
+            startDate: { lte: endDate },
+            endDate: { gte: startDate },
+          },
+        ],
+      },
+    });
+
+    if (conflictingRecoveryDays.length > 0) {
+      const dates = conflictingRecoveryDays
+        .map(
+          (rd) =>
+            `${rd.startDate.toISOString().split('T')[0]} - ${rd.endDate.toISOString().split('T')[0]}`,
+        )
+        .join(', ');
+      throw new BadRequestException(
+        `Conflit avec des journées de récupération existantes : ${dates}. Veuillez choisir d'autres dates ou annuler les récupérations concernées.`,
+      );
     }
 
     return this.prisma.leave.create({

@@ -42,6 +42,12 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateReplacementDto.prototype, "reason", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Optional link to a leave/absence' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsUUID)(),
+    __metadata("design:type", String)
+], CreateReplacementDto.prototype, "leaveId", void 0);
 class UpdateReplacementDto {
 }
 exports.UpdateReplacementDto = UpdateReplacementDto;

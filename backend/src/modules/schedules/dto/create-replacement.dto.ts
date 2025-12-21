@@ -23,6 +23,11 @@ export class CreateReplacementDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @ApiPropertyOptional({ description: 'Optional link to a leave/absence' })
+  @IsOptional()
+  @IsUUID()
+  leaveId?: string;
 }
 
 export class UpdateReplacementDto {

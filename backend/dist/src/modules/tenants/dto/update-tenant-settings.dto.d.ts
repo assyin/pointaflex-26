@@ -12,11 +12,13 @@ export declare class UpdateTenantSettingsDto {
     lateToleranceEntry?: number;
     earlyToleranceExit?: number;
     overtimeRounding?: number;
-    nightShiftStart?: string;
-    nightShiftEnd?: string;
     twoLevelWorkflow?: boolean;
     anticipatedLeave?: boolean;
     monthlyPayrollEmail?: boolean;
     sfptExport?: boolean;
     requireBreakPunch?: boolean;
+    temporaryMatriculeExpiryDays?: number;
+    recoveryConversionRate?: number;
+    recoveryExpiryDays?: number;
+    dailyWorkingHours?: number;
 }

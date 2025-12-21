@@ -18,6 +18,20 @@ export class DataGeneratorService {
   ) {}
 
   /**
+   * Arrondit les heures supplémentaires selon la configuration du tenant
+   * @param hours Heures en décimal (ex: 1.75 pour 1h45)
+   * @param roundingMinutes Minutes d'arrondi (15, 30, ou 60)
+   * @returns Heures arrondies
+   */
+  private roundOvertimeHours(hours: number, roundingMinutes: number): number {
+    if (roundingMinutes <= 0) return hours;
+    
+    const totalMinutes = hours * 60;
+    const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
+    return roundedMinutes / 60;
+  }
+
+  /**
    * Générer un pointage pour un employé pour une journée spécifique
    */
   async generateSingleDay(
@@ -507,7 +521,7 @@ export class DataGeneratorService {
         return false;
       }
 
-      const overtimeHours = overtimeMinutes / 60;
+      let overtimeHours = overtimeMinutes / 60;
 
       // Vérifier si un overtime existe déjà pour cette date
       const existing = await this.prisma.overtime.findFirst({
@@ -518,10 +532,14 @@ export class DataGeneratorService {
         },
       });
 
-      // Récupérer les paramètres du tenant pour les taux
+      // Récupérer les paramètres du tenant pour les taux et l'arrondi
       const settings = await this.prisma.tenantSettings.findUnique({
         where: { tenantId },
       });
+
+      // Appliquer l'arrondi aux heures supplémentaires
+      const roundingMinutes = settings?.overtimeRounding || 15;
+      overtimeHours = this.roundOvertimeHours(overtimeHours, roundingMinutes);
 
       const rate = shift.isNightShift
         ? Number(settings?.nightShiftRate || 1.5)
@@ -544,7 +562,7 @@ export class DataGeneratorService {
             tenantId,
             employeeId: employee.id,
             date: new Date(date),
-            hours: overtimeHours,
+            hours: overtimeHours, // Déjà arrondi
             isNightShift: shift.isNightShift || false,
             rate,
             status: OvertimeStatus.PENDING,

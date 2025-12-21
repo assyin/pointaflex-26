@@ -70,16 +70,6 @@ export class UpdateTenantSettingsDto {
   @IsInt()
   overtimeRounding?: number;
 
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  nightShiftStart?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsString()
-  nightShiftEnd?: string;
-
   // Leave Rules
   @ApiPropertyOptional()
   @IsOptional()
@@ -106,4 +96,41 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsBoolean()
   requireBreakPunch?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)',
+    example: 8,
+    default: 8,
+  })
+  @IsOptional()
+  @IsInt()
+  temporaryMatriculeExpiryDays?: number;
+
+  // Recovery Settings
+  @ApiPropertyOptional({
+    description: 'Taux de conversion heures supplémentaires -> récupération (1.0 = 1h supp = 1h récup)',
+    example: 1.0,
+    default: 1.0,
+  })
+  @IsOptional()
+  @IsNumber()
+  recoveryConversionRate?: number;
+
+  @ApiPropertyOptional({
+    description: 'Nombre de jours avant expiration de la récupération',
+    example: 90,
+    default: 90,
+  })
+  @IsOptional()
+  @IsInt()
+  recoveryExpiryDays?: number;
+
+  @ApiPropertyOptional({
+    description: 'Nombre d\'heures équivalent à une journée normale de travail (par défaut: 44h/6j = 7.33h)',
+    example: 7.33,
+    default: 7.33,
+  })
+  @IsOptional()
+  @IsNumber()
+  dailyWorkingHours?: number;
 }

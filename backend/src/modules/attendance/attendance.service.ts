@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
+import { RecoveryDayStatus } from '@prisma/client';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
@@ -11,6 +12,20 @@ import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manag
 @Injectable()
 export class AttendanceService {
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Arrondit les heures supplémentaires selon la configuration du tenant
+   * @param hours Heures en décimal (ex: 1.75 pour 1h45)
+   * @param roundingMinutes Minutes d'arrondi (15, 30, ou 60)
+   * @returns Heures arrondies
+   */
+  private roundOvertimeHours(hours: number, roundingMinutes: number): number {
+    if (roundingMinutes <= 0) return hours;
+    
+    const totalMinutes = hours * 60;
+    const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
+    return roundedMinutes / 60;
+  }
 
   async create(tenantId: string, createAttendanceDto: CreateAttendanceDto) {
     // Vérifier que l'employé existe
@@ -120,7 +135,35 @@ export class AttendanceService {
       },
     });
 
-    // Si pas trouvé par ID, chercher par matricule avec gestion des zéros à gauche
+    // Si pas trouvé par ID, chercher dans le mapping terminal matricule
+    if (!employee) {
+      try {
+        const mapping = await this.prisma.terminalMatriculeMapping.findFirst({
+          where: {
+            tenantId,
+            terminalMatricule: webhookData.employeeId,
+            isActive: true,
+          },
+          include: {
+            employee: true,
+          },
+        });
+
+        if (mapping) {
+          employee = mapping.employee;
+          console.log(
+            `[AttendanceService] ✅ Employé trouvé via mapping terminal: ${mapping.terminalMatricule} → ${mapping.officialMatricule} (${employee.firstName} ${employee.lastName})`,
+          );
+        }
+      } catch (error) {
+        console.error(
+          `[AttendanceService] Erreur lors de la recherche dans le mapping terminal:`,
+          error,
+        );
+      }
+    }
+
+    // Si toujours pas trouvé, chercher par matricule avec gestion des zéros à gauche
     if (!employee) {
       try {
         employee = await findEmployeeByMatriculeFlexible(
@@ -130,7 +173,10 @@ export class AttendanceService {
         );
       } catch (error) {
         // Log l'erreur pour le débogage mais continue
-        console.error(`[AttendanceService] Erreur lors de la recherche flexible du matricule ${webhookData.employeeId}:`, error);
+        console.error(
+          `[AttendanceService] Erreur lors de la recherche flexible du matricule ${webhookData.employeeId}:`,
+          error,
+        );
       }
     }
 
@@ -227,6 +273,8 @@ export class AttendanceService {
       endDate?: string;
       hasAnomaly?: boolean;
       type?: AttendanceType;
+      page?: number;
+      limit?: number;
     },
     userId?: string,
     userPermissions?: string[],
@@ -317,25 +365,105 @@ export class AttendanceService {
       }
     }
 
-    return this.prisma.attendance.findMany({
-      where,
-      include: {
-        employee: {
-          select: {
-            id: true,
-            matricule: true,
-            firstName: true,
-            lastName: true,
-            photo: true,
-            currentShift: true,
+    // Pagination par défaut pour améliorer les performances
+    const page = filters?.page || 1;
+    const limit = filters?.limit || 50; // Limite par défaut de 50 éléments
+    const skip = (page - 1) * limit;
+
+    // Si pas de pagination demandée explicitement, limiter quand même à 1000 pour éviter les problèmes de performance
+    const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
+    const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+
+    const [data, total] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        skip: shouldPaginate ? skip : undefined,
+        take: maxLimit,
+        select: {
+          id: true,
+          createdAt: true,
+          updatedAt: true,
+          tenantId: true,
+          employeeId: true,
+          siteId: true,
+          deviceId: true,
+          timestamp: true,
+          type: true,
+          method: true,
+          latitude: true,
+          longitude: true,
+          hasAnomaly: true,
+          anomalyType: true,
+          anomalyNote: true,
+          isCorrected: true,
+          correctedBy: true,
+          correctedAt: true,
+          correctionNote: true,
+          hoursWorked: true,
+          lateMinutes: true,
+          earlyLeaveMinutes: true,
+          overtimeMinutes: true,
+          needsApproval: true,
+          approvalStatus: true,
+          approvedBy: true,
+          approvedAt: true,
+          rawData: true,
+          generatedBy: true,
+          isGenerated: true,
+          employee: {
+            select: {
+              id: true,
+              matricule: true,
+              firstName: true,
+              lastName: true,
+              photo: true,
+              currentShift: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  startTime: true,
+                  endTime: true,
+                },
+              },
+            },
+          },
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+            },
+          },
+          device: {
+            select: {
+              id: true,
+              name: true,
+              deviceId: true,
+              deviceType: true,
+            },
           },
         },
-        site: true,
-        device: true,
-      },
-      orderBy: { timestamp: 'desc' },
-      take: 1000, // Limite pour performance
-    });
+        orderBy: { timestamp: 'desc' },
+      }),
+      this.prisma.attendance.count({ where }),
+    ]);
+
+    // Si pagination demandée, retourner avec métadonnées
+    if (shouldPaginate) {
+      return {
+        data,
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    }
+
+    // Sinon, retourner juste les données (compatibilité avec l'ancien code)
+    return data;
   }
 
   async findOne(tenantId: string, id: string) {
@@ -882,6 +1010,71 @@ export class AttendanceService {
       }
     }
 
+    // Calculer les heures supplémentaires si c'est une sortie
+    if (type === AttendanceType.OUT) {
+      const inRecord = todayRecords.find(r => r.type === AttendanceType.IN);
+      if (inRecord) {
+        // Récupérer le planning de l'employé
+        const schedule = await this.prisma.schedule.findFirst({
+          where: {
+            tenantId,
+            employeeId,
+            date: {
+              gte: startOfDay,
+              lte: endOfDay,
+            },
+          },
+          include: {
+            shift: true,
+          },
+        });
+
+        if (schedule?.shift) {
+          // Calculer les heures travaillées
+          const workedMinutes = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60);
+          
+          // Calculer les heures prévues du shift
+          const expectedStartTime = this.parseTimeString(
+            schedule.customStartTime || schedule.shift.startTime,
+          );
+          const expectedEndTime = this.parseTimeString(
+            schedule.customEndTime || schedule.shift.endTime,
+          );
+          
+          // Convertir en minutes depuis minuit
+          const startMinutes = expectedStartTime.hours * 60 + expectedStartTime.minutes;
+          const endMinutes = expectedEndTime.hours * 60 + expectedEndTime.minutes;
+          
+          let plannedMinutes = endMinutes - startMinutes;
+          // Gérer le cas d'un shift de nuit (ex: 22h-6h)
+          if (plannedMinutes < 0) {
+            plannedMinutes += 24 * 60; // Ajouter 24 heures
+          }
+          
+          // Soustraire la pause
+          plannedMinutes -= schedule.shift.breakDuration || 60;
+          
+          // Calculer les heures supplémentaires
+          const overtimeMinutes = workedMinutes - plannedMinutes;
+          
+          if (overtimeMinutes > 0) {
+            // Récupérer les settings pour l'arrondi
+            const settings = await this.prisma.tenantSettings.findUnique({
+              where: { tenantId },
+              select: { overtimeRounding: true },
+            });
+            
+            const roundingMinutes = settings?.overtimeRounding || 15;
+            const overtimeHours = overtimeMinutes / 60;
+            const roundedHours = this.roundOvertimeHours(overtimeHours, roundingMinutes);
+            
+            // Convertir en minutes pour le stockage
+            metrics.overtimeMinutes = Math.round(roundedHours * 60);
+          }
+        }
+      }
+    }
+
     return metrics;
   }
 
@@ -1230,6 +1423,7 @@ export class AttendanceService {
     presentDays: number;
     absentDays: number;
     leaveDays: number;
+    recoveryDays: number;
   }> {
     // Récupérer les plannings dans la période
     const schedules = await this.prisma.schedule.findMany({
@@ -1252,6 +1446,7 @@ export class AttendanceService {
         presentDays: 0,
         absentDays: 0,
         leaveDays: 0,
+        recoveryDays: 0,
       };
     }
 
@@ -1298,6 +1493,23 @@ export class AttendanceService {
       },
     });
 
+    // AJOUT: Récupérer les journées de récupération approuvées dans la période
+    const recoveryDays = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        status: {
+          in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED],
+        },
+        OR: [
+          {
+            startDate: { lte: endDate },
+            endDate: { gte: startDate },
+          },
+        ],
+      },
+    });
+
     // Calculer les jours de congé qui chevauchent avec les plannings
     let leaveDays = 0;
     schedules.forEach((schedule) => {
@@ -1312,18 +1524,33 @@ export class AttendanceService {
       }
     });
 
-    // Jours absents = jours planifiés - jours présents - jours de congé
-    const absentDays = totalDays - presentDays - leaveDays;
+    // AJOUT: Calculer les jours de récupération qui chevauchent avec les plannings
+    let recoveryDaysCount = 0;
+    schedules.forEach((schedule) => {
+      const scheduleDate = new Date(schedule.date);
+      const hasRecovery = recoveryDays.some(
+        (rd) =>
+          scheduleDate >= new Date(rd.startDate) &&
+          scheduleDate <= new Date(rd.endDate),
+      );
+      if (hasRecovery) {
+        recoveryDaysCount++;
+      }
+    });
 
-    // Taux de présence = (jours présents / jours planifiés) * 100
-    const presenceRate = totalDays > 0 ? (presentDays / totalDays) * 100 : 0;
+    // Jours absents = jours planifiés - jours présents - jours de congé - jours de récupération
+    const absentDays = totalDays - presentDays - leaveDays - recoveryDaysCount;
+
+    // Taux de présence = (jours présents + jours de récupération) / jours planifiés * 100
+    const presenceRate = totalDays > 0 ? ((presentDays + recoveryDaysCount) / totalDays) * 100 : 0;
 
     return {
       presenceRate: Math.round(presenceRate * 100) / 100, // Arrondir à 2 décimales
       totalDays,
-      presentDays,
+      presentDays: presentDays + recoveryDaysCount, // MODIFIÉ: inclure les récupérations
       absentDays,
       leaveDays,
+      recoveryDays: recoveryDaysCount, // NOUVEAU
     };
   }
 

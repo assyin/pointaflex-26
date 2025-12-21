@@ -1,3 +1,4 @@
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../../database/prisma.service';
 import { DashboardStatsQueryDto } from './dto/dashboard-stats.dto';
 import { AttendanceReportDto } from './dto/attendance-report.dto';
@@ -6,239 +7,9 @@ import { AbsencesReportDto } from './dto/absences-report.dto';
 import { PayrollReportDto } from './dto/payroll-report.dto';
 export declare class ReportsService {
     private prisma;
-    constructor(prisma: PrismaService);
-    getDashboardStats(tenantId: string | null, query: DashboardStatsQueryDto, userId?: string, userRole?: string): Promise<{
-        scope: string;
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number | import("@prisma/client/runtime/library").Decimal;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        personal: {
-            workedDays: number;
-            totalHours: number;
-            lateCount: number;
-            overtimeHours: number | import("@prisma/client/runtime/library").Decimal;
-            leaveDays: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        weeklyAttendance: any[];
-    } | {
-        scope: string;
-        team: {
-            id: string;
-            name: string;
-        };
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        attendanceRate: number;
-        weeklyAttendance: any[];
-    } | {
-        scope: string;
-        department: {
-            id: string;
-            name: string;
-            code: string;
-        };
-        sites: {
-            id: string;
-            name: string;
-            code: string;
-            employeeCount: number;
-        }[];
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number | import("@prisma/client/runtime/library").Decimal;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        attendanceRate: number;
-        weeklyAttendance: any[];
-    } | {
-        scope: string;
-        site: {
-            id: string;
-            name: string;
-            code: string;
-            city: string;
-        };
-        departments: {
-            id: string;
-            name: string;
-            code: string;
-            employeeCount: number;
-        }[];
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number | import("@prisma/client/runtime/library").Decimal;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        attendanceRate: number;
-        weeklyAttendance: any[];
-    } | {
-        scope: string;
-        attendanceRate: number;
-        lates: number;
-        totalPointages: number;
-        overtimeHours: number | import("@prisma/client/runtime/library").Decimal;
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number | import("@prisma/client/runtime/library").Decimal;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        weeklyAttendance: any[];
-        shiftDistribution: {
-            name: string;
-            value: number;
-        }[];
-        overtimeTrend: any[];
-        anomalies: number;
-    } | {
-        scope: string;
-        tenants: {
-            total: number;
-            active: number;
-        };
-        employees: {
-            total: number;
-            activeToday: number;
-            onLeave: number;
-        };
-        pendingApprovals: {
-            leaves: number;
-            overtime: number;
-        };
-        attendance: {
-            total: number;
-            anomalies: number;
-            anomalyRate: string | number;
-        };
-        overtime: {
-            totalRecords: number;
-            totalHours: number | import("@prisma/client/runtime/library").Decimal;
-        };
-        leaves: {
-            totalRequests: number;
-            totalDays: number | import("@prisma/client/runtime/library").Decimal;
-            current: number;
-        };
-        period: {
-            startDate: string;
-            endDate: string;
-        };
-        attendanceRate: number;
-    }>;
+    private cacheManager;
+    constructor(prisma: PrismaService, cacheManager: Cache);
+    getDashboardStats(tenantId: string | null, query: DashboardStatsQueryDto, userId?: string, userRole?: string): Promise<any>;
     private validateScopeAccess;
     getPersonalDashboardStats(userId: string, tenantId: string | null, query: DashboardStatsQueryDto): Promise<{
         scope: string;
@@ -482,9 +253,9 @@ export declare class ReportsService {
         data: ({
             employee: {
                 id: string;
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 department: {
                     name: string;
                 };
@@ -503,10 +274,9 @@ export declare class ReportsService {
             siteId: string | null;
             latitude: import("@prisma/client/runtime/library").Decimal | null;
             longitude: import("@prisma/client/runtime/library").Decimal | null;
-            deviceId: string | null;
+            type: import(".prisma/client").$Enums.AttendanceType;
             employeeId: string;
             timestamp: Date;
-            type: import(".prisma/client").$Enums.AttendanceType;
             method: import(".prisma/client").$Enums.DeviceType;
             hasAnomaly: boolean;
             anomalyType: string | null;
@@ -526,11 +296,36 @@ export declare class ReportsService {
             rawData: import("@prisma/client/runtime/library").JsonValue | null;
             generatedBy: string | null;
             isGenerated: boolean;
+            deviceId: string | null;
+        })[];
+        recoveryDays: ({
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            notes: string | null;
+            employeeId: string;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            status: import(".prisma/client").$Enums.RecoveryDayStatus;
+            startDate: Date;
+            endDate: Date;
+            days: import("@prisma/client/runtime/library").Decimal;
+            sourceHours: import("@prisma/client/runtime/library").Decimal;
+            conversionRate: import("@prisma/client/runtime/library").Decimal | null;
         })[];
         summary: {
             total: number;
             anomalies: number;
             totalWorkedHours: number;
+            totalRecoveryHours: number;
             uniqueEmployees: number;
             totalDays: number;
             byDay: {
@@ -602,9 +397,9 @@ export declare class ReportsService {
         };
         employees: {
             id: string;
-            matricule: string;
             firstName: string;
             lastName: string;
+            matricule: string;
             position: string;
         }[];
     }>;
@@ -612,9 +407,9 @@ export declare class ReportsService {
         data: ({
             employee: {
                 id: string;
-                matricule: string;
                 firstName: string;
                 lastName: string;
+                matricule: string;
                 department: {
                     name: string;
                 };
@@ -630,25 +425,67 @@ export declare class ReportsService {
             createdAt: Date;
             updatedAt: Date;
             tenantId: string;
-            employeeId: string;
+            isNightShift: boolean;
+            date: Date;
             type: import(".prisma/client").$Enums.OvertimeType;
+            notes: string | null;
+            employeeId: string;
             approvedBy: string | null;
             approvedAt: Date | null;
-            date: Date;
             hours: import("@prisma/client/runtime/library").Decimal;
             approvedHours: import("@prisma/client/runtime/library").Decimal | null;
-            isNightShift: boolean;
             rate: import("@prisma/client/runtime/library").Decimal;
             convertedToRecovery: boolean;
             recoveryId: string | null;
+            convertedHoursToRecovery: import("@prisma/client/runtime/library").Decimal;
+            convertedToRecoveryDays: boolean;
+            convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
             status: import(".prisma/client").$Enums.OvertimeStatus;
             rejectionReason: string | null;
+        })[];
+        recoveryDays: ({
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+            };
+            overtimeSources: ({
+                overtime: {
+                    id: string;
+                    date: Date;
+                    type: import(".prisma/client").$Enums.OvertimeType;
+                    hours: import("@prisma/client/runtime/library").Decimal;
+                    approvedHours: import("@prisma/client/runtime/library").Decimal;
+                };
+            } & {
+                id: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
+                overtimeId: string;
+                recoveryDayId: string;
+            })[];
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
             notes: string | null;
+            employeeId: string;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            status: import(".prisma/client").$Enums.RecoveryDayStatus;
+            startDate: Date;
+            endDate: Date;
+            days: import("@prisma/client/runtime/library").Decimal;
+            sourceHours: import("@prisma/client/runtime/library").Decimal;
+            conversionRate: import("@prisma/client/runtime/library").Decimal | null;
         })[];
         summary: {
             total: number;
             totalHours: number;
             totalApprovedHours: number;
+            totalHoursConvertedToRecovery: number;
+            totalHoursPaid: number;
             byStatus: Record<string, number>;
             byType: Record<string, number>;
             period: {
@@ -663,9 +500,9 @@ export declare class ReportsService {
                 type: string;
                 employee: {
                     id: string;
-                    matricule: string;
                     firstName: string;
                     lastName: string;
+                    matricule: string;
                     department: {
                         name: string;
                     };
@@ -680,7 +517,6 @@ export declare class ReportsService {
                 siteId: string | null;
                 latitude: import("@prisma/client/runtime/library").Decimal | null;
                 longitude: import("@prisma/client/runtime/library").Decimal | null;
-                deviceId: string | null;
                 employeeId: string;
                 timestamp: Date;
                 method: import(".prisma/client").$Enums.DeviceType;
@@ -702,12 +538,30 @@ export declare class ReportsService {
                 rawData: import("@prisma/client/runtime/library").JsonValue | null;
                 generatedBy: string | null;
                 isGenerated: boolean;
+                deviceId: string | null;
             }[];
             absences: any[];
+            recoveryDays: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                notes: string | null;
+                employeeId: string;
+                approvedBy: string | null;
+                approvedAt: Date | null;
+                status: import(".prisma/client").$Enums.RecoveryDayStatus;
+                startDate: Date;
+                endDate: Date;
+                days: import("@prisma/client/runtime/library").Decimal;
+                sourceHours: import("@prisma/client/runtime/library").Decimal;
+                conversionRate: import("@prisma/client/runtime/library").Decimal | null;
+            }[];
         };
         summary: {
             totalAnomalies: number;
             totalAbsences: number;
+            totalRecoveryDays: number;
             lateCount: number;
             earlyLeaveCount: number;
             period: {
@@ -738,6 +592,8 @@ export declare class ReportsService {
             leaveDays: number;
             lateHours: number;
             absenceDays: number;
+            recoveryDays: number;
+            recoveryHours: number;
             totalHours: number;
         }[];
         summary: {
@@ -746,6 +602,9 @@ export declare class ReportsService {
             totalNormalHours: number;
             totalOvertimeHours: number;
             totalLeaveDays: number;
+            totalRecoveryDays: number;
+            totalRecoveryHours: number;
+            totalHours: number;
             period: {
                 startDate: string;
                 endDate: string;
@@ -753,7 +612,7 @@ export declare class ReportsService {
         };
     }>;
     getPlanningReport(tenantId: string, dto: any): Promise<{
-        data: {
+        data: ({
             id: any;
             date: any;
             employee: {
@@ -775,11 +634,131 @@ export declare class ReportsService {
             customStartTime: any;
             customEndTime: any;
             notes: any;
-        }[];
+        } | {
+            id: string;
+            date: Date;
+            employee: {
+                id: string;
+                name: string;
+                employeeNumber: string;
+                department: string;
+                position: string;
+                site: string;
+                team: string;
+            };
+            shift: any;
+            isRecoveryDay: boolean;
+            recoveryDay: {
+                employee: {
+                    department: {
+                        id: string;
+                        createdAt: Date;
+                        updatedAt: Date;
+                        tenantId: string;
+                        name: string;
+                        code: string | null;
+                        description: string | null;
+                        managerId: string | null;
+                    };
+                    positionRef: {
+                        id: string;
+                        createdAt: Date;
+                        updatedAt: Date;
+                        tenantId: string;
+                        name: string;
+                        code: string | null;
+                        description: string | null;
+                        category: string | null;
+                    };
+                    site: {
+                        id: string;
+                        createdAt: Date;
+                        updatedAt: Date;
+                        tenantId: string;
+                        phone: string | null;
+                        name: string;
+                        code: string | null;
+                        address: string | null;
+                        timezone: string | null;
+                        city: string | null;
+                        departmentId: string | null;
+                        managerId: string | null;
+                        latitude: import("@prisma/client/runtime/library").Decimal | null;
+                        longitude: import("@prisma/client/runtime/library").Decimal | null;
+                        workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+                    };
+                    team: {
+                        id: string;
+                        createdAt: Date;
+                        updatedAt: Date;
+                        tenantId: string;
+                        name: string;
+                        code: string;
+                        description: string | null;
+                        managerId: string | null;
+                        rotationEnabled: boolean;
+                        rotationCycleDays: number | null;
+                    };
+                } & {
+                    id: string;
+                    createdAt: Date;
+                    updatedAt: Date;
+                    tenantId: string;
+                    email: string | null;
+                    firstName: string;
+                    lastName: string;
+                    phone: string | null;
+                    isActive: boolean;
+                    userId: string | null;
+                    address: string | null;
+                    matricule: string;
+                    dateOfBirth: Date | null;
+                    photo: string | null;
+                    civilite: string | null;
+                    situationFamiliale: string | null;
+                    nombreEnfants: number | null;
+                    cnss: string | null;
+                    cin: string | null;
+                    ville: string | null;
+                    rib: string | null;
+                    region: string | null;
+                    categorie: string | null;
+                    position: string;
+                    positionId: string | null;
+                    hireDate: Date;
+                    contractType: string | null;
+                    siteId: string | null;
+                    departmentId: string | null;
+                    teamId: string | null;
+                    currentShiftId: string | null;
+                    fingerprintData: string | null;
+                    faceData: string | null;
+                    rfidBadge: string | null;
+                    qrCode: string | null;
+                    pinCode: string | null;
+                };
+            } & {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                tenantId: string;
+                notes: string | null;
+                employeeId: string;
+                approvedBy: string | null;
+                approvedAt: Date | null;
+                status: import(".prisma/client").$Enums.RecoveryDayStatus;
+                startDate: Date;
+                endDate: Date;
+                days: import("@prisma/client/runtime/library").Decimal;
+                sourceHours: import("@prisma/client/runtime/library").Decimal;
+                conversionRate: import("@prisma/client/runtime/library").Decimal | null;
+            };
+        })[];
         summary: {
             totalSchedules: number;
             uniqueEmployees: number;
             uniqueShifts: number;
+            totalRecoveryDays: number;
             period: {
                 startDate: any;
                 endDate: any;
@@ -796,9 +775,9 @@ export declare class ReportsService {
         filters: import("@prisma/client/runtime/library").JsonValue;
         user: {
             id: string;
+            email: string;
             firstName: string;
             lastName: string;
-            email: string;
         };
     }[]>;
 }

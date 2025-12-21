@@ -236,10 +236,11 @@ export class TenantsService {
       const validSettingsFields = [
         'firstDayOfWeek', 'workingDays', 'workDaysPerWeek', 'maxWeeklyHours',
         'lateToleranceEntry', 'earlyToleranceExit', 'breakDuration',
-        'overtimeRounding', 'overtimeRate', 'nightShiftStart', 'nightShiftEnd', 'nightShiftRate',
+        'overtimeRounding', 'overtimeRate', 'nightShiftRate',
         'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
         'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
-        'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch'
+        'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'temporaryMatriculeExpiryDays',
+        'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours'
       ];
 
       for (const [key, value] of Object.entries(settingsData)) {
@@ -309,7 +310,7 @@ export class TenantsService {
         const validSettingsFields = [
           'firstDayOfWeek', 'workingDays', 'workDaysPerWeek', 'maxWeeklyHours',
           'lateToleranceEntry', 'earlyToleranceExit', 'breakDuration',
-          'overtimeRounding', 'overtimeRate', 'nightShiftStart', 'nightShiftEnd', 'nightShiftRate',
+          'overtimeRounding', 'overtimeRate', 'nightShiftRate',
           'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
           'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
           'monthlyPayrollEmail', 'sfptExport'
