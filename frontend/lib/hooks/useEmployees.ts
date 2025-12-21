@@ -33,8 +33,13 @@ export function useCreateEmployee() {
 
   return useMutation({
     mutationFn: (data: CreateEmployeeDto) => employeesApi.create(data),
-    onSuccess: () => {
+    onSuccess: (newEmployee) => {
+      // Invalider toutes les requêtes d'employés pour forcer le refetch
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+      
+      // Forcer le refetch immédiat de toutes les requêtes d'employés
+      queryClient.refetchQueries({ queryKey: ['employees'] });
+      
       toast.success('Employé créé avec succès');
     },
     onError: (error: any) => {

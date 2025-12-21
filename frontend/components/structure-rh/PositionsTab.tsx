@@ -68,6 +68,38 @@ export function PositionsTab() {
     description: '',
   });
 
+  /**
+   * Génère un code à partir du nom (pour l'aperçu en temps réel)
+   * Format: 3 premières lettres (majuscules, sans accents)
+   */
+  const generateCodePreview = (name: string): string => {
+    if (!name.trim()) return '';
+    
+    // Normaliser le nom: enlever accents, garder seulement lettres et chiffres
+    const normalized = name
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Enlever caractères spéciaux
+      .replace(/\s+/g, ' ') // Normaliser les espaces
+      .trim()
+      .toUpperCase();
+
+    // Extraire les 3 premières lettres/chiffres (enlever les espaces)
+    let baseCode = normalized
+      .replace(/\s/g, '')
+      .substring(0, 3);
+
+    // Si moins de 3 caractères, compléter avec des X
+    if (baseCode.length < 3) {
+      baseCode = baseCode.padEnd(3, 'X');
+    }
+
+    return baseCode;
+  };
+
+  // Code généré en temps réel pour l'aperçu
+  const generatedCode = formData.name ? generateCodePreview(formData.name) : '';
+
   const { data: positions, isLoading } = usePositions(
     categoryFilter === 'all' ? undefined : categoryFilter
   );
@@ -88,7 +120,9 @@ export function PositionsTab() {
       return;
     }
     try {
-      await createMutation.mutateAsync(formData);
+      // Ne pas envoyer le code, il sera généré automatiquement par le backend
+      const { code, ...dataToSend } = formData;
+      await createMutation.mutateAsync(dataToSend);
       setIsCreateOpen(false);
       setFormData({ name: '', code: '', category: '', description: '' });
     } catch (error) {
@@ -114,9 +148,11 @@ export function PositionsTab() {
     }
     if (editingPosition) {
       try {
+        // Ne pas envoyer le code lors de la mise à jour (il ne peut pas être modifié)
+        const { code, ...dataToSend } = formData;
         await updateMutation.mutateAsync({
           id: editingPosition.id,
-          data: formData,
+          data: dataToSend,
         });
         setEditingPosition(null);
         setFormData({ name: '', code: '', category: '', description: '' });
@@ -335,6 +371,11 @@ export function PositionsTab() {
             setIsCreateOpen(false);
             setEditingPosition(null);
             setFormData({ name: '', code: '', category: '', description: '' });
+          } else {
+            // Réinitialiser le formulaire lors de l'ouverture
+            if (!editingPosition) {
+              setFormData({ name: '', code: '', category: '', description: '' });
+            }
           }
         }}
       >
@@ -371,16 +412,34 @@ export function PositionsTab() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="code" className="text-sm font-semibold text-gray-700">
-                  Code
+                  Code {!editingPosition && <span className="text-xs font-normal text-gray-500">(généré automatiquement)</span>}
                 </Label>
-                <Input
-                  id="code"
-                  value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                  placeholder="Ex: DEV-FS"
-                  maxLength={20}
-                  className="h-11 border-gray-300 focus:border-purple-500 focus:ring-purple-500"
-                />
+                {editingPosition && editingPosition.code ? (
+                  <>
+                    <Input
+                      id="code"
+                      value={editingPosition.code}
+                      disabled
+                      readOnly
+                      className="h-11 border-gray-300 bg-gray-50 text-gray-600 cursor-not-allowed"
+                    />
+                    <p className="text-xs text-gray-500">Le code est généré automatiquement et ne peut pas être modifié</p>
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      id="code"
+                      value={generatedCode}
+                      disabled
+                      readOnly
+                      placeholder="Le code sera généré automatiquement"
+                      className="h-11 border-gray-300 bg-gray-50 text-gray-600 cursor-not-allowed"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Code généré à partir du nom : <span className="font-mono font-semibold">{generatedCode || '...'}</span>
+                    </p>
+                  </>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="category" className="text-sm font-semibold text-gray-700">

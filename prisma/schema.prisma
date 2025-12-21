@@ -309,6 +309,16 @@ model Schedule {
 
   notes      String?
 
+  // Soft delete pour remplacements
+  isReplaced      Boolean   @default(false)
+  replacedAt      DateTime?
+  replacedById    String?   // ID du ShiftReplacement qui a remplacé ce planning
+
+  // Relations avec les remplacements
+  replacementsAsOriginal    ShiftReplacement[] @relation("OriginalSchedule")
+  replacementsAsReplacement ShiftReplacement[] @relation("ReplacementSchedule")
+  replacement                ShiftReplacement? @relation("ReplacedSchedule", fields: [replacedById], references: [id], onDelete: SetNull)
+
   @@unique([employeeId, date])
   @@index([tenantId])
   @@index([date])
@@ -342,14 +352,40 @@ model ShiftReplacement {
   approvedBy String?
   approvedAt DateTime?
 
+  // Relations avec les plannings (pour traçabilité)
+  originalScheduleId String?
+  originalSchedule   Schedule? @relation("OriginalSchedule", fields: [originalScheduleId], references: [id], onDelete: SetNull)
+
+  replacementScheduleId String?
+  replacementSchedule   Schedule? @relation("ReplacementSchedule", fields: [replacementScheduleId], references: [id], onDelete: SetNull)
+
+  // Lien optionnel avec un congé/absence
+  leaveId   String?
+  leave     Leave?  @relation(fields: [leaveId], references: [id], onDelete: SetNull)
+
+  // Type de remplacement
+  type ReplacementType @default(REPLACEMENT)
+
+  // Lien vers le planning remplacé (soft delete)
+  replacedScheduleId String? @unique
+  replacedSchedule   Schedule? @relation("ReplacedSchedule")
+
   @@index([tenantId])
   @@index([date])
+  @@index([originalScheduleId])
+  @@index([replacementScheduleId])
+  @@index([leaveId])
 }
 
 enum ReplacementStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum ReplacementType {
+  REPLACEMENT  // Remplacement simple (A absent, B le remplace)
+  EXCHANGE     // Échange (A et B échangent leurs plannings)
 }
 
 // ===================================
@@ -504,6 +540,9 @@ model Leave {
   hrApprovedBy      String?
   hrApprovedAt      DateTime?
   hrComment         String?
+
+  // Relations avec les remplacements
+  replacements      ShiftReplacement[]
 
   @@index([tenantId])
   @@index([employeeId])

@@ -13,9 +13,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Search, Download, Printer, Plus, Calendar, AlertTriangle, Clock, Loader2, Upload,
-  ChevronLeft, ChevronRight, Filter, X, Users, Building2, Eye, EyeOff, Grid3x3, List
+  ChevronLeft, ChevronRight, Filter, X, Users, Building2, Eye, EyeOff, Grid3x3, List,
+  Edit, Trash2, Save
 } from 'lucide-react';
 import {
   useSchedules,
@@ -24,7 +29,7 @@ import {
   useDeleteSchedule,
   useBulkDeleteSchedules,
 } from '@/lib/hooks/useSchedules';
-import { useShifts } from '@/lib/hooks/useShifts';
+import { useShifts, useCreateShift, useUpdateShift, useDeleteShift } from '@/lib/hooks/useShifts';
 import { useTeams } from '@/lib/hooks/useTeams';
 import { useEmployees } from '@/lib/hooks/useEmployees';
 import { useSites } from '@/lib/hooks/useSites';
@@ -67,6 +72,9 @@ export default function ShiftsPlanningPage() {
   const router = useRouter();
   const canDelete = canDeleteSchedule();
   
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'planning' | 'shifts'>('planning');
+  
   // View state
   const [viewMode, setViewMode] = useState<'grouped' | 'detailed'>('grouped');
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
@@ -95,6 +103,19 @@ export default function ShiftsPlanningPage() {
   // Modals
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  
+  // Shifts management state
+  const [showShiftModal, setShowShiftModal] = useState(false);
+  const [editingShift, setEditingShift] = useState<any>(null);
+  const [shiftFormData, setShiftFormData] = useState({
+    name: '',
+    code: '',
+    startTime: '08:00',
+    endTime: '17:00',
+    breakDuration: 60,
+    isNightShift: false,
+    color: '#0052CC',
+  });
 
   // API hooks - use direct API call for date range
   const [schedulesData, setSchedulesData] = useState<any[]>([]);
@@ -179,6 +200,11 @@ export default function ShiftsPlanningPage() {
   const deleteScheduleMutation = useDeleteSchedule();
   const bulkDeleteMutation = useBulkDeleteSchedules();
   const createScheduleMutation = useCreateSchedule();
+  
+  // Shifts management hooks
+  const createShiftMutation = useCreateShift();
+  const updateShiftMutation = useUpdateShift();
+  const deleteShiftMutation = useDeleteShift();
 
   // Update date range when filters change
   useEffect(() => {
@@ -308,8 +334,8 @@ export default function ShiftsPlanningPage() {
   // Paginated employees for detailed view
   const paginatedEmployees = useMemo(() => {
     if (!selectedShiftDetails) return [];
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
     return selectedShiftDetails.employees.slice(startIndex, endIndex);
   }, [selectedShiftDetails, currentPage, itemsPerPage]);
 
@@ -421,6 +447,89 @@ export default function ShiftsPlanningPage() {
     }
   };
 
+  // Shifts management handlers
+  const handleOpenShiftModal = (shift?: any) => {
+    if (shift) {
+      setEditingShift(shift);
+      setShiftFormData({
+        name: shift.name || '',
+        code: shift.code || '',
+        startTime: shift.startTime || '08:00',
+        endTime: shift.endTime || '17:00',
+        breakDuration: shift.breakDuration || 60,
+        isNightShift: shift.isNightShift || false,
+        color: shift.color || '#0052CC',
+      });
+    } else {
+      setEditingShift(null);
+      setShiftFormData({
+        name: '',
+        code: '',
+        startTime: '08:00',
+        endTime: '17:00',
+        breakDuration: 60,
+        isNightShift: false,
+        color: '#0052CC',
+      });
+    }
+    setShowShiftModal(true);
+  };
+
+  const handleCloseShiftModal = () => {
+    setShowShiftModal(false);
+    setEditingShift(null);
+    setShiftFormData({
+      name: '',
+      code: '',
+      startTime: '08:00',
+      endTime: '17:00',
+      breakDuration: 60,
+      isNightShift: false,
+      color: '#0052CC',
+    });
+  };
+
+  const handleSaveShift = async () => {
+    if (!shiftFormData.name || !shiftFormData.code || !shiftFormData.startTime || !shiftFormData.endTime) {
+      toast.error('Veuillez remplir tous les champs obligatoires');
+      return;
+    }
+
+    try {
+      if (editingShift) {
+        await updateShiftMutation.mutateAsync({
+          id: editingShift.id,
+          data: shiftFormData,
+        });
+      } else {
+        await createShiftMutation.mutateAsync(shiftFormData);
+      }
+      handleCloseShiftModal();
+    } catch (error) {
+      // Error is handled by the mutation hook
+    }
+  };
+
+  const handleDeleteShift = async (id: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce shift ?')) {
+      return;
+    }
+
+    try {
+      await deleteShiftMutation.mutateAsync(id);
+    } catch (error) {
+      // Error is handled by the mutation hook
+    }
+  };
+
+  // Extract shifts array
+  const shifts = useMemo(() => {
+    if (!shiftsData) return [];
+    if (Array.isArray(shiftsData)) return shiftsData;
+    if (shiftsData?.data && Array.isArray(shiftsData.data)) return shiftsData.data;
+    return [];
+  }, [shiftsData]);
+
   return (
     <ProtectedRoute permissions={['schedule.view_all', 'schedule.view_own', 'schedule.view_team']}>
       <DashboardLayout
@@ -428,6 +537,19 @@ export default function ShiftsPlanningPage() {
         subtitle="Planification des équipes et gestion des plannings"
       >
       <div className="space-y-6">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'planning' | 'shifts')}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="planning">
+              <Calendar className="h-4 w-4 mr-2" />
+              Planning
+            </TabsTrigger>
+            <TabsTrigger value="shifts">
+              <Clock className="h-4 w-4 mr-2" />
+              Gestion des Shifts
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="planning" className="space-y-6">
         {/* Alert Summary Banner */}
         {filteredAlerts.length > 0 && (
           <Alert className="border-primary bg-primary/5">
@@ -459,9 +581,9 @@ export default function ShiftsPlanningPage() {
         {/* Filters and Actions */}
         <Card>
           <CardHeader>
-        <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between">
               <CardTitle className="text-lg">Filtres et actions</CardTitle>
-          <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -490,14 +612,14 @@ export default function ShiftsPlanningPage() {
                     Importer
                   </Button>
                 </PermissionGate>
-          </div>
-        </div>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {/* Basic filters */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
+                <div>
                   <Label htmlFor="search">Recherche</Label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-text-secondary" />
@@ -508,13 +630,13 @@ export default function ShiftsPlanningPage() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="pl-10"
                     />
-              </div>
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="dateStart">Date début</Label>
-                <Input
+                  <Input
                     id="dateStart"
-                  type="date"
+                    type="date"
                     value={filterDateStart}
                     onChange={(e) => setFilterDateStart(e.target.value)}
                   />
@@ -554,12 +676,12 @@ export default function ShiftsPlanningPage() {
                     >
                       <option value="">Toutes les équipes</option>
                       {teamsData?.data?.map((team: any) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                      </option>
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
                       ))}
                     </select>
-              </div>
+                  </div>
                   <div>
                     <Label htmlFor="filterShift">Shift</Label>
                     <select
@@ -575,7 +697,7 @@ export default function ShiftsPlanningPage() {
                         </option>
                       ))}
                     </select>
-                </div>
+                  </div>
                   <div>
                     <Label htmlFor="filterSite">Site</Label>
                     <select
@@ -592,7 +714,7 @@ export default function ShiftsPlanningPage() {
                         </option>
                       ))}
                     </select>
-              </div>
+                  </div>
                 </div>
               )}
 
@@ -715,7 +837,7 @@ export default function ShiftsPlanningPage() {
                         }}
                       >
                         <Clock className="h-6 w-6" />
-                    </div>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -725,21 +847,21 @@ export default function ShiftsPlanningPage() {
                         <span className="font-medium">
                           {group.startTime} - {group.endTime}
                         </span>
-                    </div>
+                      </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-text-secondary flex items-center gap-1">
                           <Users className="h-4 w-4" />
                           Employés
                         </span>
                         <span className="font-medium">{group.employeeCount}</span>
-                    </div>
+                      </div>
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-text-secondary flex items-center gap-1">
                           <Calendar className="h-4 w-4" />
                           Plannings
                         </span>
                         <span className="font-medium">{group.scheduleCount}</span>
-                    </div>
+                      </div>
                       {group.sites.length > 0 && (
                         <div className="flex items-center justify-between text-sm">
                           <span className="text-text-secondary flex items-center gap-1">
@@ -775,13 +897,13 @@ export default function ShiftsPlanningPage() {
                           <Eye className="h-4 w-4 mr-2" />
                           Voir les détails
                         </Button>
-                  </div>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
               ))
             )}
-                      </div>
+          </div>
         ) : (
           /* Detailed View */
           selectedShiftDetails && (
@@ -812,11 +934,11 @@ export default function ShiftsPlanningPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse">
-                        <thead>
-                          <tr className="bg-table-header">
-                            <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border w-12">
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="bg-table-header">
+                        <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border w-12">
                           <input
                             type="checkbox"
                             checked={selectedSchedules.size === selectedShiftDetails.employees.reduce((acc, emp) => acc + emp.schedules.length, 0)}
@@ -832,10 +954,10 @@ export default function ShiftsPlanningPage() {
                               }
                             }}
                           />
-                            </th>
-                            <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
                           Employé
-                            </th>
+                        </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary border">
                           Matricule
                         </th>
@@ -848,11 +970,11 @@ export default function ShiftsPlanningPage() {
                             className="px-3 py-3 text-center text-xs font-medium text-text-secondary border min-w-[100px]"
                           >
                             {format(day, 'EEE d', { locale: fr })}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
                       {paginatedEmployees.map((employee) => (
                         <tr key={employee.id} className="hover:bg-table-hover">
                           <td className="px-4 py-3 border text-center">
@@ -860,16 +982,16 @@ export default function ShiftsPlanningPage() {
                               type="checkbox"
                               checked={employee.schedules.every(s => selectedSchedules.has(s.id))}
                               onChange={(e) => {
-                                            const newSelected = new Set(selectedSchedules);
+                                const newSelected = new Set(selectedSchedules);
                                 if (e.target.checked) {
                                   employee.schedules.forEach(s => newSelected.add(s.id));
-                                        } else {
+                                } else {
                                   employee.schedules.forEach(s => newSelected.delete(s.id));
                                 }
                                 setSelectedSchedules(newSelected);
                               }}
                             />
-                                </td>
+                          </td>
                           <td className="px-4 py-3 border font-medium">{employee.name}</td>
                           <td className="px-4 py-3 border text-sm text-text-secondary">{employee.matricule}</td>
                           <td className="px-4 py-3 border text-sm text-text-secondary">{employee.department || '-'}</td>
@@ -881,7 +1003,7 @@ export default function ShiftsPlanningPage() {
                                 end: endOfDay(day),
                               });
                             });
-                                  return (
+                            return (
                               <td key={day.toISOString()} className="px-3 py-3 border text-center">
                                 {schedule ? (
                                   <div className="flex flex-col items-center gap-1">
@@ -892,7 +1014,7 @@ export default function ShiftsPlanningPage() {
                                       }}
                                     >
                                       {schedule.customStartTime || selectedShiftDetails.startTime}
-                                            </div>
+                                    </div>
                                     <div className="text-xs text-text-secondary">
                                       {schedule.customEndTime || selectedShiftDetails.endTime}
                                     </div>
@@ -906,93 +1028,93 @@ export default function ShiftsPlanningPage() {
                                         <X className="h-3 w-3" />
                                       </Button>
                                     </PermissionGate>
-                                          </div>
+                                  </div>
                                 ) : (
                                   <span className="text-text-secondary text-xs">-</span>
                                 )}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                      ))}
-                        </tbody>
-                      </table>
-                    </div>
-
-                  {/* Pagination Controls */}
-                {selectedShiftDetails.employees.length > 0 && (
-                    <div className="mt-4 flex items-center justify-between border-t border-table-border pt-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-text-secondary">
-                        Affichage de {((currentPage - 1) * itemsPerPage) + 1} à {Math.min(currentPage * itemsPerPage, selectedShiftDetails.employees.length)} sur {selectedShiftDetails.employees.length} employé(s)
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center gap-2 mr-4">
-                          <label className="text-sm text-text-secondary">Lignes par page:</label>
-                          <select
-                            value={itemsPerPage}
-                            onChange={(e) => {
-                              setItemsPerPage(Number(e.target.value));
-                              setCurrentPage(1);
-                            }}
-                            className="border border-border rounded px-2 py-1 text-sm"
-                          >
-                            <option value={10}>10</option>
-                            <option value={25}>25</option>
-                            <option value={50}>50</option>
-                            <option value={100}>100</option>
-                          </select>
-                        </div>
-
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(currentPage - 1)}
-                          disabled={currentPage === 1}
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </Button>
-
-                        <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                            let pageNum;
-                          if (totalPages <= 7) {
-                              pageNum = i + 1;
-                          } else if (currentPage <= 4) {
-                              pageNum = i + 1;
-                          } else if (currentPage >= totalPages - 3) {
-                            pageNum = totalPages - 6 + i;
-                            } else {
-                            pageNum = currentPage - 3 + i;
-                            }
-
-                            return (
-                              <Button
-                                key={pageNum}
-                              variant={currentPage === pageNum ? "primary" : "outline"}
-                                size="sm"
-                                onClick={() => setCurrentPage(pageNum)}
-                              className="min-w-[40px]"
-                              >
-                                {pageNum}
-                              </Button>
+                              </td>
                             );
                           })}
-                        </div>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setCurrentPage(currentPage + 1)}
-                          disabled={currentPage === totalPages}
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
+                {/* Pagination Controls */}
+                {selectedShiftDetails.employees.length > 0 && (
+                  <div className="mt-4 flex items-center justify-between border-t border-table-border pt-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-text-secondary">
+                        Affichage de {((currentPage - 1) * itemsPerPage) + 1} à {Math.min(currentPage * itemsPerPage, selectedShiftDetails.employees.length)} sur {selectedShiftDetails.employees.length} employé(s)
+                      </span>
                     </div>
-                  )}
+
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 mr-4">
+                        <label className="text-sm text-text-secondary">Lignes par page:</label>
+                        <select
+                          value={itemsPerPage}
+                          onChange={(e) => {
+                            setItemsPerPage(Number(e.target.value));
+                            setCurrentPage(1);
+                          }}
+                          className="border border-border rounded px-2 py-1 text-sm"
+                        >
+                          <option value={10}>10</option>
+                          <option value={25}>25</option>
+                          <option value={50}>50</option>
+                          <option value={100}>100</option>
+                        </select>
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(currentPage - 1)}
+                        disabled={currentPage === 1}
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </Button>
+
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                          let pageNum;
+                          if (totalPages <= 7) {
+                            pageNum = i + 1;
+                          } else if (currentPage <= 4) {
+                            pageNum = i + 1;
+                          } else if (currentPage >= totalPages - 3) {
+                            pageNum = totalPages - 6 + i;
+                          } else {
+                            pageNum = currentPage - 3 + i;
+                          }
+
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "primary" : "outline"}
+                              size="sm"
+                              onClick={() => setCurrentPage(pageNum)}
+                              className="min-w-[40px]"
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        })}
+                      </div>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )
@@ -1023,8 +1145,229 @@ export default function ShiftsPlanningPage() {
               refetch();
             }}
           />
-                                )}
+        )}
+          </TabsContent>
+
+          <TabsContent value="shifts" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Gestion des Shifts</CardTitle>
+                  <PermissionGate permissions={['shift.create', 'shift.manage']}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleOpenShiftModal()}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Créer un shift
+                    </Button>
+                  </PermissionGate>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {shiftsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : shifts.length === 0 ? (
+                  <div className="text-center py-8 text-text-secondary">
+                    Aucun shift trouvé. Créez votre premier shift.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {shifts.map((shift: any) => (
+                      <Card key={shift.id} className="relative">
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <CardTitle className="text-base flex items-center gap-2">
+                                <div
+                                  className="w-3 h-3 rounded-full"
+                                  style={{ backgroundColor: shift.color || '#0052CC' }}
+                                />
+                                {shift.name}
+                              </CardTitle>
+                              <p className="text-sm text-text-secondary mt-1">
+                                Code: {shift.code}
+                              </p>
+                            </div>
+                            <div className="flex gap-1">
+                              <PermissionGate permissions={['shift.update', 'shift.manage']}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleOpenShiftModal(shift)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              </PermissionGate>
+                              <PermissionGate permissions={['shift.delete', 'shift.manage']}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleDeleteShift(shift.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              </PermissionGate>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-text-secondary">Début:</span>
+                              <span className="font-medium">{shift.startTime}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-text-secondary">Fin:</span>
+                              <span className="font-medium">{shift.endTime}</span>
+                            </div>
+                            {shift.breakDuration && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-text-secondary">Pause:</span>
+                                <span className="font-medium">{shift.breakDuration} min</span>
                               </div>
+                            )}
+                            {shift.isNightShift && (
+                              <Badge variant="secondary" className="mt-2">
+                                Shift de nuit
+                              </Badge>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Shift Create/Edit Modal */}
+            <Dialog open={showShiftModal} onOpenChange={setShowShiftModal}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingShift ? 'Modifier le shift' : 'Créer un nouveau shift'}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="shift-name">Nom du shift *</Label>
+                      <Input
+                        id="shift-name"
+                        value={shiftFormData.name}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, name: e.target.value })}
+                        placeholder="Ex: Matin, Soir, Nuit"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="shift-code">Code *</Label>
+                      <Input
+                        id="shift-code"
+                        value={shiftFormData.code}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, code: e.target.value.toUpperCase() })}
+                        placeholder="Ex: MAT, SOIR, NUIT"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="shift-start">Heure de début *</Label>
+                      <Input
+                        id="shift-start"
+                        type="time"
+                        value={shiftFormData.startTime}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, startTime: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="shift-end">Heure de fin *</Label>
+                      <Input
+                        id="shift-end"
+                        type="time"
+                        value={shiftFormData.endTime}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, endTime: e.target.value })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="shift-break">Durée de pause (minutes)</Label>
+                      <Input
+                        id="shift-break"
+                        type="number"
+                        min="0"
+                        value={shiftFormData.breakDuration}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, breakDuration: parseInt(e.target.value) || 0 })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="shift-color">Couleur</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="shift-color"
+                          type="color"
+                          value={shiftFormData.color}
+                          onChange={(e) => setShiftFormData({ ...shiftFormData, color: e.target.value })}
+                          className="w-20 h-10"
+                        />
+                        <Input
+                          value={shiftFormData.color}
+                          onChange={(e) => setShiftFormData({ ...shiftFormData, color: e.target.value })}
+                          placeholder="#0052CC"
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="shift-night"
+                        checked={shiftFormData.isNightShift}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, isNightShift: e.target.checked })}
+                        className="rounded border-gray-300"
+                      />
+                      <Label htmlFor="shift-night" className="cursor-pointer">
+                        Shift de nuit
+                      </Label>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={handleCloseShiftModal}>
+                    Annuler
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleSaveShift}
+                    disabled={createShiftMutation.isPending || updateShiftMutation.isPending}
+                  >
+                    {createShiftMutation.isPending || updateShiftMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Enregistrement...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4 mr-2" />
+                        {editingShift ? 'Modifier' : 'Créer'}
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+        </Tabs>
+      </div>
       </DashboardLayout>
     </ProtectedRoute>
   );
@@ -1163,95 +1506,95 @@ function CreateScheduleModalComponent({
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Créer un planning</CardTitle>
           <Button variant="outline" size="sm" onClick={onClose}>
-                      <X className="h-4 w-4" />
-                    </Button>
+            <X className="h-4 w-4" />
+          </Button>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
-                      <div>
-                        <SearchableEmployeeSelect
-                          value={formData.employeeId}
-                          onChange={(value) => {
-                            setFormData({ ...formData, employeeId: value });
-                            setValidationErrors([]);
-                          }}
-                          employees={
-                            // Gérer différentes structures de données
-                            Array.isArray(employeesData)
-                              ? employeesData.filter((emp: any) => emp.isActive !== false) // Filtrer les employés actifs
-                              : employeesData?.data
-                              ? employeesData.data.filter((emp: any) => emp.isActive !== false)
-                              : []
-                          }
-                          isLoading={employeesLoading || false}
-                          placeholder="Rechercher un employé par nom ou matricule..."
-                          label="Employé"
-                          required
-                          error={validationErrors.find((e) => e.includes('employé'))}
-                        />
-                      </div>
+            <div>
+              <SearchableEmployeeSelect
+                value={formData.employeeId}
+                onChange={(value) => {
+                  setFormData({ ...formData, employeeId: value });
+                  setValidationErrors([]);
+                }}
+                employees={
+                  // Gérer différentes structures de données
+                  Array.isArray(employeesData)
+                    ? employeesData.filter((emp: any) => emp.isActive !== false) // Filtrer les employés actifs
+                    : employeesData?.data
+                    ? employeesData.data.filter((emp: any) => emp.isActive !== false)
+                    : []
+                }
+                isLoading={employeesLoading || false}
+                placeholder="Rechercher un employé par nom ou matricule..."
+                label="Employé"
+                required
+                error={validationErrors.find((e) => e.includes('employé'))}
+              />
+            </div>
 
-                      <div>
-                          <Label htmlFor="shiftId">Shift *</Label>
+            <div>
+              <Label htmlFor="shiftId">Shift *</Label>
               <select
                 id="shiftId"
                 required
                 value={formData.shiftId}
                 onChange={(e) => setFormData({ ...formData, shiftId: e.target.value })}
                 className="w-full border border-border rounded-md px-3 py-2 text-sm"
-                        >
-                          <option value="">Sélectionner un shift</option>
+              >
+                <option value="">Sélectionner un shift</option>
                 {shiftsData?.data?.map((shift: any) => (
-                              <option key={shift.id} value={shift.id}>
+                  <option key={shift.id} value={shift.id}>
                     {shift.name} ({shift.code}) - {shift.startTime} à {shift.endTime}
-                              </option>
+                  </option>
                 ))}
               </select>
-                      </div>
+            </div>
 
-                      <div>
+            <div>
               <Label>Type de planning</Label>
-                        <div className="flex gap-4 mt-2">
+              <div className="flex gap-4 mt-2">
                 <label className="flex items-center">
-                            <input
-                              type="radio"
-                              value="single"
-                              checked={scheduleType === 'single'}
+                  <input
+                    type="radio"
+                    value="single"
+                    checked={scheduleType === 'single'}
                     onChange={(e) => setScheduleType(e.target.value as 'single' | 'range')}
                     className="mr-2"
                   />
                   Jour unique
-                          </label>
+                </label>
                 <label className="flex items-center">
-                            <input
-                              type="radio"
-                              value="range"
-                              checked={scheduleType === 'range'}
+                  <input
+                    type="radio"
+                    value="range"
+                    checked={scheduleType === 'range'}
                     onChange={(e) => setScheduleType(e.target.value as 'single' | 'range')}
                     className="mr-2"
-                            />
+                  />
                   Intervalle
-                          </label>
-                        </div>
-                      </div>
+                </label>
+              </div>
+            </div>
 
-                        <div>
+            <div>
               <Label htmlFor="dateDebut">Date de début *</Label>
-                          <Input
-                            id="dateDebut"
-                            type="date"
+              <Input
+                id="dateDebut"
+                type="date"
                 required
                 value={formData.dateDebut}
                 onChange={(e) => setFormData({ ...formData, dateDebut: e.target.value })}
-                          />
-                        </div>
+              />
+            </div>
 
-                        {scheduleType === 'range' && (
-                          <div>
-                            <Label htmlFor="dateFin">Date de fin *</Label>
-                            <Input
-                              id="dateFin"
-                              type="date"
+            {scheduleType === 'range' && (
+              <div>
+                <Label htmlFor="dateFin">Date de fin *</Label>
+                <Input
+                  id="dateFin"
+                  type="date"
                   required={scheduleType === 'range'}
                   value={formData.dateFin}
                   onChange={(e) => {
@@ -1260,178 +1603,178 @@ function CreateScheduleModalComponent({
                   }}
                   min={formData.dateDebut}
                 />
-                            {formData.dateDebut && formData.dateFin && (
-                              <p className="text-xs text-text-secondary mt-1">
-                                {(() => {
-                                  try {
-                                    const start = parseISO(formData.dateDebut);
-                                    const end = parseISO(formData.dateFin);
-                                    const days = differenceInDays(end, start) + 1;
-                                    if (days > 0 && days <= 365) {
-                                      return `${days} jour(s) seront créé(s)`;
-                                    } else if (days > 365) {
-                                      return <span className="text-red-600">⚠️ Maximum 365 jours autorisés</span>;
-                                    }
-                                  } catch (e) {
-                                    return null;
-                                  }
-                                })()}
-                              </p>
-                            )}
-                          </div>
-                        )}
+                {formData.dateDebut && formData.dateFin && (
+                  <p className="text-xs text-text-secondary mt-1">
+                    {(() => {
+                      try {
+                        const start = parseISO(formData.dateDebut);
+                        const end = parseISO(formData.dateFin);
+                        const days = differenceInDays(end, start) + 1;
+                        if (days > 0 && days <= 365) {
+                          return `${days} jour(s) seront créé(s)`;
+                        } else if (days > 365) {
+                          return <span className="text-red-600">⚠️ Maximum 365 jours autorisés</span>;
+                        }
+                      } catch (e) {
+                        return null;
+                      }
+                    })()}
+                  </p>
+                )}
+              </div>
+            )}
 
-                        <div>
+            <div>
               <Label htmlFor="teamId">Équipe</Label>
               <select
                 id="teamId"
                 value={formData.teamId}
                 onChange={(e) => setFormData({ ...formData, teamId: e.target.value })}
                 className="w-full border border-border rounded-md px-3 py-2 text-sm"
-                        >
-                          <option value="">Aucune équipe</option>
+              >
+                <option value="">Aucune équipe</option>
                 {teamsData?.data?.map((team: any) => (
-                              <option key={team.id} value={team.id}>
-                                {team.name}
-                              </option>
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
                 ))}
               </select>
-                  </div>
+            </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
                 <Label htmlFor="customStartTime">Heure de début personnalisée</Label>
-                      <Input
+                <Input
                   id="customStartTime"
-                        type="time"
+                  type="time"
                   value={formData.customStartTime}
                   onChange={(e) => {
                     setFormData({ ...formData, customStartTime: e.target.value });
                     setValidationErrors([]); // Réinitialiser les erreurs lors de la modification
                   }}
-                      />
-                      <p className="text-xs text-text-secondary mt-1">
-                        Optionnel. Si non renseigné, les heures du shift seront utilisées.
-                      </p>
-                    </div>
-                    <div>
+                />
+                <p className="text-xs text-text-secondary mt-1">
+                  Optionnel. Si non renseigné, les heures du shift seront utilisées.
+                </p>
+              </div>
+              <div>
                 <Label htmlFor="customEndTime">Heure de fin personnalisée</Label>
-                      <Input
+                <Input
                   id="customEndTime"
-                        type="time"
+                  type="time"
                   value={formData.customEndTime}
                   onChange={(e) => {
                     setFormData({ ...formData, customEndTime: e.target.value });
                     setValidationErrors([]); // Réinitialiser les erreurs lors de la modification
                   }}
-                      />
-                      <p className="text-xs text-text-secondary mt-1">
-                        Optionnel. Doit être supérieure à l'heure de début.
-                      </p>
-                    </div>
-                  </div>
-                  {formData.customStartTime && formData.customEndTime && (
-                    <div className="text-xs text-text-secondary">
-                      {(() => {
-                        const [startH, startM] = formData.customStartTime.split(':').map(Number);
-                        const [endH, endM] = formData.customEndTime.split(':').map(Number);
-                        const startMinutes = startH * 60 + startM;
-                        const endMinutes = endH * 60 + endM;
-                        const duration = endMinutes - startMinutes;
-                        const hours = Math.floor(duration / 60);
-                        const minutes = duration % 60;
-                        return endMinutes > startMinutes ? (
-                          <span className="text-success" style={{ color: '#28A745' }}>
-                            Durée : {hours}h{minutes > 0 ? `${minutes}min` : ''}
-                          </span>
-                        ) : (
-                          <span className="text-red-600">
-                            ⚠️ L'heure de fin doit être supérieure à l'heure de début
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  )}
+                />
+                <p className="text-xs text-text-secondary mt-1">
+                  Optionnel. Doit être supérieure à l'heure de début.
+                </p>
+              </div>
+            </div>
+            {formData.customStartTime && formData.customEndTime && (
+              <div className="text-xs text-text-secondary">
+                {(() => {
+                  const [startH, startM] = formData.customStartTime.split(':').map(Number);
+                  const [endH, endM] = formData.customEndTime.split(':').map(Number);
+                  const startMinutes = startH * 60 + startM;
+                  const endMinutes = endH * 60 + endM;
+                  const duration = endMinutes - startMinutes;
+                  const hours = Math.floor(duration / 60);
+                  const minutes = duration % 60;
+                  return endMinutes > startMinutes ? (
+                    <span className="text-success" style={{ color: '#28A745' }}>
+                      Durée : {hours}h{minutes > 0 ? `${minutes}min` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-red-600">
+                      ⚠️ L'heure de fin doit être supérieure à l'heure de début
+                    </span>
+                  );
+                })()}
+              </div>
+            )}
 
-                  <div>
+            <div>
               <Label htmlFor="notes">Notes</Label>
-                    <Input
+              <Input
                 id="notes"
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 placeholder="Notes optionnelles..."
-                    />
-                  </div>
+              />
+            </div>
 
-                  {/* Prévisualisation */}
-                  {formData.employeeId && formData.shiftId && formData.dateDebut && (
-                    <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Eye className="h-4 w-4 text-primary" />
-                        <Label className="text-sm font-semibold">Prévisualisation</Label>
-                      </div>
-                      <div className="text-sm text-text-secondary space-y-1">
-                        <p>
-                          <span className="font-medium">{previewDates.length}</span> jour(s) seront créé(s)
-                        </p>
-                        {previewDates.length > 0 && previewDates.length <= 10 && (
-                          <div className="mt-2">
-                            <p className="text-xs text-text-secondary mb-1">Dates concernées :</p>
-                            <ul className="list-disc list-inside space-y-0.5 text-xs">
-                              {previewDates.map((date, idx) => (
-                                <li key={idx}>
-                                  {format(date, 'dd/MM/yyyy', { locale: fr })}
-                                  {shiftsData?.data?.find((s: any) => s.id === formData.shiftId) && (
-                                    <span className="ml-2 text-text-secondary">
-                                      - {shiftsData.data.find((s: any) => s.id === formData.shiftId).name}
-                                    </span>
-                                  )}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-                        {previewDates.length > 10 && (
-                          <div className="mt-2">
-                            <p className="text-xs text-text-secondary">
-                              {format(previewDates[0], 'dd/MM/yyyy', { locale: fr })} au{' '}
-                              {format(previewDates[previewDates.length - 1], 'dd/MM/yyyy', { locale: fr })}
-                            </p>
-                          </div>
-                        )}
-                        {formData.customStartTime && formData.customEndTime && (
-                          <p className="mt-2 text-xs">
-                            Heures personnalisées : {formData.customStartTime} - {formData.customEndTime}
-                          </p>
-                        )}
-                      </div>
+            {/* Prévisualisation */}
+            {formData.employeeId && formData.shiftId && formData.dateDebut && (
+              <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2 mb-2">
+                  <Eye className="h-4 w-4 text-primary" />
+                  <Label className="text-sm font-semibold">Prévisualisation</Label>
+                </div>
+                <div className="text-sm text-text-secondary space-y-1">
+                  <p>
+                    <span className="font-medium">{previewDates.length}</span> jour(s) seront créé(s)
+                  </p>
+                  {previewDates.length > 0 && previewDates.length <= 10 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-text-secondary mb-1">Dates concernées :</p>
+                      <ul className="list-disc list-inside space-y-0.5 text-xs">
+                        {previewDates.map((date, idx) => (
+                          <li key={idx}>
+                            {format(date, 'dd/MM/yyyy', { locale: fr })}
+                            {shiftsData?.data?.find((s: any) => s.id === formData.shiftId) && (
+                              <span className="ml-2 text-text-secondary">
+                                - {shiftsData.data.find((s: any) => s.id === formData.shiftId).name}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
-
-                  {/* Affichage des erreurs de validation */}
-                  {validationErrors.length > 0 && (
-                    <Alert variant="danger" className="mt-4">
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription>
-                        <div className="space-y-1">
-                          <p className="font-semibold">Erreurs de validation :</p>
-                          <ul className="list-disc list-inside space-y-0.5 text-sm">
-                            {validationErrors.map((error, idx) => (
-                              <li key={idx}>{error}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </AlertDescription>
-                    </Alert>
+                  {previewDates.length > 10 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-text-secondary">
+                        {format(previewDates[0], 'dd/MM/yyyy', { locale: fr })} au{' '}
+                        {format(previewDates[previewDates.length - 1], 'dd/MM/yyyy', { locale: fr })}
+                      </p>
+                    </div>
                   )}
+                  {formData.customStartTime && formData.customEndTime && (
+                    <p className="mt-2 text-xs">
+                      Heures personnalisées : {formData.customStartTime} - {formData.customEndTime}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Affichage des erreurs de validation */}
+            {validationErrors.length > 0 && (
+              <Alert variant="danger" className="mt-4">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="space-y-1">
+                    <p className="font-semibold">Erreurs de validation :</p>
+                    <ul className="list-disc list-inside space-y-0.5 text-sm">
+                      {validationErrors.map((error, idx) => (
+                        <li key={idx}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="flex justify-end gap-2 pt-4">
               <Button type="button" variant="outline" onClick={onClose}>
-                      Annuler
-                    </Button>
-                    <Button
+                Annuler
+              </Button>
+              <Button
                 type="submit"
-                      variant="primary"
+                variant="primary"
                 disabled={createScheduleMutation.isPending}
               >
                 {createScheduleMutation.isPending ? (
@@ -1445,11 +1788,11 @@ function CreateScheduleModalComponent({
                     Créer
                   </>
                 )}
-                    </Button>
-                  </div>
-          </form>
-                </CardContent>
-              </Card>
+              </Button>
             </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -36,6 +36,7 @@ export function useCreateShift() {
     mutationFn: (data: CreateShiftDto) => shiftsApi.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.refetchQueries({ queryKey: ['shifts'] });
       toast.success('Shift créé avec succès');
     },
     onError: (error: any) => {
@@ -76,6 +77,7 @@ export function useDeleteShift() {
     mutationFn: (id: string) => shiftsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['shifts'] });
+      queryClient.refetchQueries({ queryKey: ['shifts'] });
       toast.success('Shift supprimé avec succès');
     },
     onError: (error: any) => {

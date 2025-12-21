@@ -26,7 +26,7 @@ export function useCreateSite() {
 
   return useMutation({
     mutationFn: (data: {
-      code: string;
+      code?: string;
       name: string;
       address?: string;
       city?: string;

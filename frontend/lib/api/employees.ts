@@ -35,11 +35,15 @@ export interface CreateEmployeeDto {
   phone?: string;
   photo?: string;
   dateOfBirth?: string;
+  civilite?: string;
+  address?: string;
   hireDate: string;
   position?: string;
+  positionId?: string;
   departmentId?: string;
   siteId?: string;
-  shiftId?: string;
+  currentShiftId?: string;
+  shiftId?: string; // Alias pour compatibilité
   teamId?: string;
 }
 

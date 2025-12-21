@@ -25,6 +25,8 @@ import {
   AlertCircle,
   Edit,
   Filter,
+  Plus,
+  UserPlus,
 } from 'lucide-react';
 import {
   useAttendance,
@@ -32,6 +34,7 @@ import {
   useExportAttendance,
   useCorrectAttendance,
   useApproveAttendanceCorrection,
+  useCreateAttendance,
 } from '@/lib/hooks/useAttendance';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEmployees } from '@/lib/hooks/useEmployees';
@@ -42,7 +45,7 @@ import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmplo
 import { ChevronDown, ChevronUp, X, Calendar } from 'lucide-react';
 
 export default function AttendancePage() {
-  const { user } = useAuth();
+  const { user, hasPermission, hasRole } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [startDate, setStartDate] = useState(
     format(new Date(), 'yyyy-MM-dd')
@@ -55,6 +58,17 @@ export default function AttendancePage() {
   const [showCorrectionModal, setShowCorrectionModal] = useState(false);
   const [correctionNote, setCorrectionNote] = useState('');
   const [correctedTimestamp, setCorrectedTimestamp] = useState('');
+  
+  // Modal création pointage manuel
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createEmployeeSearchQuery, setCreateEmployeeSearchQuery] = useState('');
+  const [createFormData, setCreateFormData] = useState({
+    employeeId: '',
+    type: 'IN' as 'IN' | 'OUT' | 'BREAK_START' | 'BREAK_END',
+    timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+    siteId: '',
+    notes: '',
+  });
 
   // Advanced filters
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -69,11 +83,50 @@ export default function AttendancePage() {
 
   const correctMutation = useCorrectAttendance();
   const approveMutation = useApproveAttendanceCorrection();
+  const createMutation = useCreateAttendance();
 
   // Fetch data for filters
-  const { data: employeesData } = useEmployees();
+  // Charger tous les employés actifs pour le modal de création (sans pagination)
+  const { data: employeesData, isLoading: isLoadingEmployees } = useEmployees({ isActive: true });
   const { data: sitesData } = useSites();
   const { data: departmentsData } = useDepartments();
+  
+  // Filtrer les employés selon les permissions (managers voient seulement leurs employés)
+  const availableEmployees = useMemo(() => {
+    if (!employeesData) {
+      return [];
+    }
+    
+    // Gérer les deux formats de réponse : tableau direct ou objet avec data/meta
+    let employees: any[] = [];
+    
+    // Vérifier si c'est un tableau directement
+    if (Array.isArray(employeesData)) {
+      employees = employeesData;
+    } 
+    // Vérifier si c'est un objet avec une propriété data qui est un tableau
+    else if (employeesData && typeof employeesData === 'object' && 'data' in employeesData) {
+      if (Array.isArray(employeesData.data)) {
+        employees = employeesData.data;
+      }
+    }
+    // Si aucune des deux structures, essayer de convertir
+    else {
+      employees = [];
+    }
+    
+    // Filtrer uniquement les employés actifs (double vérification côté client)
+    const activeEmployees = employees.filter((emp: any) => {
+      // Vérifier isActive de différentes façons possibles
+      if (emp.isActive === false || emp.isActive === 'false') return false;
+      if (emp.status === 'INACTIVE' || emp.status === 'TERMINATED') return false;
+      // Par défaut, considérer comme actif si pas d'info explicite
+      return true;
+    });
+    
+    // Retourner les employés actifs (le backend gère déjà le filtrage par périmètre)
+    return activeEmployees;
+  }, [employeesData]);
 
   // Build filters object for API
   const apiFilters = useMemo(() => {
@@ -232,6 +285,37 @@ export default function AttendancePage() {
           setSelectedRecord(null);
           setCorrectionNote('');
           setCorrectedTimestamp('');
+        },
+      }
+    );
+  };
+
+  const handleCreateAttendance = () => {
+    if (!createFormData.employeeId || !createFormData.timestamp) {
+      return;
+    }
+
+    createMutation.mutate(
+      {
+        employeeId: createFormData.employeeId,
+        type: createFormData.type,
+        timestamp: new Date(createFormData.timestamp).toISOString(),
+        method: 'MANUAL',
+        siteId: createFormData.siteId || undefined,
+        rawData: createFormData.notes ? { notes: createFormData.notes } : undefined,
+      },
+      {
+        onSuccess: () => {
+          setShowCreateModal(false);
+          setCreateFormData({
+            employeeId: '',
+            type: 'IN',
+            timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+            siteId: '',
+            notes: '',
+          });
+          setEmployeeSearchQuery('');
+          refetch();
         },
       }
     );
@@ -425,6 +509,16 @@ export default function AttendancePage() {
                 </PermissionGate>
 
                 <div className="flex gap-2 ml-auto">
+                  <PermissionGate permissions={['attendance.create']}>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setShowCreateModal(true)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Créer un pointage
+                    </Button>
+                  </PermissionGate>
                   <PermissionGate permissions={['attendance.export', 'attendance.view_all']}>
                     <Button
                       variant="outline"
@@ -468,7 +562,7 @@ export default function AttendancePage() {
                   </span>
                 </div>
                 <span className="text-text-secondary">
-                  Actualisation automatique toutes les 30s
+                  Actualisation automatique toutes les 60s
                 </span>
               </div>
 
@@ -943,6 +1037,181 @@ export default function AttendancePage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Create Attendance Modal */}
+        <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Créer un pointage manuel</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="create-employee">Employé *</Label>
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
+                      <Input
+                        type="text"
+                        placeholder="Rechercher un employé..."
+                        value={createEmployeeSearchQuery}
+                        onChange={(e) => setCreateEmployeeSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    <Select
+                      value={createFormData.employeeId}
+                      onValueChange={(value) => setCreateFormData({ ...createFormData, employeeId: value })}
+                    >
+                      <SelectTrigger id="create-employee">
+                        <SelectValue placeholder={
+                          availableEmployees.length === 0 
+                            ? "Aucun employé disponible" 
+                            : "Sélectionner un employé"
+                        } />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[300px]">
+                        {isLoadingEmployees ? (
+                          <div className="px-2 py-6 text-center text-sm text-text-secondary">
+                            <RefreshCw className="h-4 w-4 animate-spin mx-auto mb-2" />
+                            Chargement des employés...
+                          </div>
+                        ) : availableEmployees.length === 0 ? (
+                          <div className="px-2 py-6 text-center text-sm text-text-secondary">
+                            <AlertCircle className="h-4 w-4 mx-auto mb-2" />
+                            {employeesData 
+                              ? "Aucun employé actif disponible dans votre périmètre" 
+                              : "Aucune donnée disponible"}
+                          </div>
+                        ) : (
+                          (() => {
+                            const filtered = availableEmployees.filter((emp: any) => {
+                              if (!createEmployeeSearchQuery || !createEmployeeSearchQuery.trim()) return true;
+                              const query = createEmployeeSearchQuery.toLowerCase().trim();
+                              const firstName = (emp.firstName || '').toLowerCase();
+                              const lastName = (emp.lastName || '').toLowerCase();
+                              const matricule = (emp.matricule || '').toLowerCase();
+                              return firstName.includes(query) || lastName.includes(query) || matricule.includes(query);
+                            });
+                            
+                            if (filtered.length === 0 && createEmployeeSearchQuery) {
+                              return (
+                                <div className="px-2 py-4 text-center text-sm text-text-secondary">
+                                  Aucun employé trouvé pour "{createEmployeeSearchQuery}"
+                                </div>
+                              );
+                            }
+                            
+                            return filtered.map((emp: any) => (
+                              <SelectItem key={emp.id} value={emp.id}>
+                                {emp.firstName} {emp.lastName} ({emp.matricule || 'N/A'})
+                              </SelectItem>
+                            ));
+                          })()
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="create-type">Type de pointage *</Label>
+                  <Select
+                    value={createFormData.type}
+                    onValueChange={(value: 'IN' | 'OUT' | 'BREAK_START' | 'BREAK_END') =>
+                      setCreateFormData({ ...createFormData, type: value })
+                    }
+                  >
+                    <SelectTrigger id="create-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IN">Entrée</SelectItem>
+                      <SelectItem value="OUT">Sortie</SelectItem>
+                      <SelectItem value="BREAK_START">Début pause</SelectItem>
+                      <SelectItem value="BREAK_END">Fin pause</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="create-timestamp">Date & Heure *</Label>
+                  <Input
+                    id="create-timestamp"
+                    type="datetime-local"
+                    value={createFormData.timestamp}
+                    onChange={(e) => setCreateFormData({ ...createFormData, timestamp: e.target.value })}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="create-site">Site</Label>
+                  <Select
+                    value={createFormData.siteId}
+                    onValueChange={(value) => setCreateFormData({ ...createFormData, siteId: value })}
+                  >
+                    <SelectTrigger id="create-site">
+                      <SelectValue placeholder="Sélectionner un site (optionnel)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Aucun site</SelectItem>
+                      {(Array.isArray(sitesData) ? sitesData : sitesData?.data || []).map((site: any) => (
+                        <SelectItem key={site.id} value={site.id}>
+                          {site.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="create-notes">Notes (optionnel)</Label>
+                <Textarea
+                  id="create-notes"
+                  value={createFormData.notes}
+                  onChange={(e) => setCreateFormData({ ...createFormData, notes: e.target.value })}
+                  placeholder="Ajouter des notes sur ce pointage..."
+                  className="min-h-[100px]"
+                />
+              </div>
+
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Pointage manuel :</strong> Ce pointage sera créé avec la méthode "MANUAL" et pourra être marqué comme anomalie si nécessaire selon les règles de validation.
+                </AlertDescription>
+              </Alert>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateModal(false);
+                  setCreateFormData({
+                    employeeId: '',
+                    type: 'IN',
+                    timestamp: format(new Date(), "yyyy-MM-dd'T'HH:mm"),
+                    siteId: '',
+                    notes: '',
+                  });
+                  setCreateEmployeeSearchQuery('');
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCreateAttendance}
+                disabled={!createFormData.employeeId || !createFormData.timestamp || createMutation.isPending}
+              >
+                {createMutation.isPending ? 'Création...' : 'Créer le pointage'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Correction Modal */}
         <Dialog open={showCorrectionModal} onOpenChange={setShowCorrectionModal}>

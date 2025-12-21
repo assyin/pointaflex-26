@@ -19,7 +19,7 @@ export interface Site {
 }
 
 export interface CreateSiteDto {
-  code: string;
+  code?: string; // Optionnel: généré automatiquement si non fourni
   name: string;
   address?: string;
   city?: string;

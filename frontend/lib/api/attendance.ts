@@ -34,13 +34,14 @@ export interface Attendance {
 
 export interface CreateAttendanceDto {
   employeeId: string;
-  type: 'ENTRY' | 'EXIT' | 'BREAK_START' | 'BREAK_END';
+  type: 'IN' | 'OUT' | 'BREAK_START' | 'BREAK_END' | 'MISSION_START' | 'MISSION_END';
   timestamp: string;
-  source: 'BIOMETRIC' | 'RFID' | 'FACIAL' | 'QR_CODE' | 'PIN' | 'MOBILE_GPS' | 'MANUAL' | 'IMPORT';
+  method: 'FINGERPRINT' | 'FACE_RECOGNITION' | 'RFID_BADGE' | 'QR_CODE' | 'PIN_CODE' | 'MOBILE_GPS' | 'MANUAL';
+  siteId?: string;
   deviceId?: string;
   latitude?: number;
   longitude?: number;
-  notes?: string;
+  rawData?: any;
 }
 
 export interface AttendanceFilters {

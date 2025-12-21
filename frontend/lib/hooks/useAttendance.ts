@@ -7,8 +7,8 @@ export function useAttendance(filters?: AttendanceFilters) {
   return useQuery({
     queryKey: ['attendance', filters],
     queryFn: () => attendanceApi.getAll(filters),
-    staleTime: 30000, // 30 seconds
-    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    staleTime: 60000, // 60 seconds
+    refetchInterval: 60000, // Auto-refresh every 60 seconds (optimisé pour réduire la charge serveur)
     refetchIntervalInBackground: false, // Don't refresh when tab is not active
   });
 }
@@ -40,8 +40,13 @@ export function useCreateAttendance() {
   return useMutation({
     mutationFn: (data: CreateAttendanceDto) => attendanceApi.create(data),
     onSuccess: () => {
+      // Invalider toutes les requêtes d'attendance
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
       queryClient.invalidateQueries({ queryKey: ['attendance', 'anomalies'] });
+      
+      // Forcer le refetch immédiat de toutes les requêtes d'attendance
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       toast.success('Pointage créé avec succès');
     },
     onError: (error: any) => {
@@ -62,6 +67,10 @@ export function useUpdateAttendance() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
       queryClient.invalidateQueries({ queryKey: ['attendance', variables.id] });
+      
+      // Forcer le refetch immédiat
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       toast.success('Pointage modifié avec succès');
     },
     onError: (error: any) => {
@@ -93,6 +102,10 @@ export function useCorrectAttendance() {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
       queryClient.invalidateQueries({ queryKey: ['attendance', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['attendance', 'anomalies'] });
+      
+      // Forcer le refetch immédiat
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       if (data.needsApproval) {
         toast.info('Correction soumise, approbation requise');
       } else {
@@ -125,6 +138,10 @@ export function useApproveAttendanceCorrection() {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
       queryClient.invalidateQueries({ queryKey: ['attendance', variables.id] });
       queryClient.invalidateQueries({ queryKey: ['attendance', 'anomalies'] });
+      
+      // Forcer le refetch immédiat
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       toast.success(
         variables.approved
           ? 'Correction approuvée avec succès'
@@ -147,6 +164,10 @@ export function useDeleteAttendance() {
     mutationFn: (id: string) => attendanceApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      
+      // Forcer le refetch immédiat
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       toast.success('Pointage supprimé avec succès');
     },
     onError: (error: any) => {
@@ -219,6 +240,10 @@ export function useBulkCorrectAttendance() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['attendance'] });
       queryClient.invalidateQueries({ queryKey: ['attendance', 'anomalies'] });
+      
+      // Forcer le refetch immédiat
+      queryClient.refetchQueries({ queryKey: ['attendance'] });
+      
       toast.success('Corrections groupées effectuées avec succès');
     },
     onError: (error: any) => {

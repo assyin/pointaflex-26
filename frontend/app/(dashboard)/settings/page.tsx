@@ -61,13 +61,15 @@ export default function SettingsPage() {
     lateToleranceEntry: 10,
     earlyToleranceExit: 5,
     overtimeRounding: 15,
-    nightShiftStart: '21:00',
-    nightShiftEnd: '06:00',
     twoLevelWorkflow: true,
     anticipatedLeave: false,
     monthlyPayrollEmail: false,
     sfptExport: false,
     requireBreakPunch: false,
+    recoveryExpiryDays: 90,
+    recoveryConversionRate: 1.0,
+    dailyWorkingHours: 7.33,
+    temporaryMatriculeExpiryDays: 8,
   });
 
   // Modal states
@@ -76,7 +78,6 @@ export default function SettingsPage() {
   const [editingSite, setEditingSite] = useState<any>(null);
   const [editingHoliday, setEditingHoliday] = useState<any>(null);
   const [siteForm, setSiteForm] = useState({
-    code: '',
     name: '',
     address: '',
     city: '',
@@ -105,13 +106,15 @@ export default function SettingsPage() {
         lateToleranceEntry: settings.lateToleranceEntry || 10,
         earlyToleranceExit: settings.earlyToleranceExit || 5,
         overtimeRounding: settings.overtimeRounding || 15,
-        nightShiftStart: settings.nightShiftStart || '21:00',
-        nightShiftEnd: settings.nightShiftEnd || '06:00',
         twoLevelWorkflow: settings.twoLevelWorkflow ?? true,
         anticipatedLeave: settings.anticipatedLeave ?? false,
         monthlyPayrollEmail: settings.monthlyPayrollEmail ?? false,
         sfptExport: settings.sfptExport ?? false,
         requireBreakPunch: settings.requireBreakPunch ?? false,
+        recoveryExpiryDays: settings.recoveryExpiryDays ?? 90,
+        recoveryConversionRate: settings.recoveryConversionRate ?? 1.0,
+        dailyWorkingHours: settings.dailyWorkingHours ?? 7.33,
+        temporaryMatriculeExpiryDays: settings.temporaryMatriculeExpiryDays ?? 8,
       });
     }
   }, [settings]);
@@ -137,14 +140,15 @@ export default function SettingsPage() {
 
   const handleCreateSite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!siteForm.code || !siteForm.name) {
-      toast.error('Le code et le nom sont requis');
+    if (!siteForm.name) {
+      toast.error('Le nom est requis');
       return;
     }
 
+    // Le code sera généré automatiquement par le backend
     await createSite.mutateAsync(siteForm);
     setShowSiteModal(false);
-    setSiteForm({ code: '', name: '', address: '', city: '', phone: '' });
+    setSiteForm({ name: '', address: '', city: '', phone: '' });
   };
 
   const handleUpdateSite = async (e: React.FormEvent) => {
@@ -157,7 +161,7 @@ export default function SettingsPage() {
     });
     setShowSiteModal(false);
     setEditingSite(null);
-    setSiteForm({ code: '', name: '', address: '', city: '', phone: '' });
+    setSiteForm({ name: '', address: '', city: '', phone: '' });
   };
 
   const handleDeleteSite = async (id: string) => {
@@ -168,7 +172,6 @@ export default function SettingsPage() {
   const openEditSite = (site: any) => {
     setEditingSite(site);
     setSiteForm({
-      code: site.code,
       name: site.name,
       address: site.address || '',
       city: site.city || '',
@@ -478,30 +481,76 @@ export default function SettingsPage() {
                     </select>
                   </div>
 
-                  <div className="col-span-2 grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
-                        Début de nuit
-                      </label>
-                      <input
-                        type="time"
-                        value={formData.nightShiftStart}
-                        onChange={(e) => setFormData({ ...formData, nightShiftStart: e.target.value })}
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
-                        Fin de nuit
-                      </label>
-                      <input
-                        type="time"
-                        value={formData.nightShiftEnd}
-                        onChange={(e) => setFormData({ ...formData, nightShiftEnd: e.target.value })}
-                        className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                      Délai d'expiration matricule temporaire (jours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="30"
+                      value={formData.temporaryMatriculeExpiryDays}
+                      onChange={(e) => setFormData({ ...formData, temporaryMatriculeExpiryDays: parseInt(e.target.value) || 8 })}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)
+                    </p>
                   </div>
+
+                  <div>
+                    <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                      Nombre d'heures par jour de travail
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      max="24"
+                      value={formData.dailyWorkingHours}
+                      onChange={(e) => setFormData({ ...formData, dailyWorkingHours: parseFloat(e.target.value) || 7.33 })}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Nombre d'heures équivalent à une journée normale (par défaut: 44h/6j = 7.33h)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                      Taux de conversion heures supp → récupération
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="2"
+                      value={formData.recoveryConversionRate}
+                      onChange={(e) => setFormData({ ...formData, recoveryConversionRate: parseFloat(e.target.value) || 1.0 })}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Taux de conversion (1.0 = 1h supp = 1h récup, 1.5 = 1h supp = 1.5h récup)
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                      Délai d'expiration récupération (jours)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={formData.recoveryExpiryDays}
+                      onChange={(e) => setFormData({ ...formData, recoveryExpiryDays: parseInt(e.target.value) || 90 })}
+                      className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                    />
+                    <p className="text-xs text-gray-500 mt-1.5">
+                      Nombre de jours avant expiration de la récupération
+                    </p>
+                  </div>
+
                 </div>
 
                 {/* Leave Rules */}
@@ -787,18 +836,21 @@ export default function SettingsPage() {
               </h3>
             </div>
             <form onSubmit={editingSite ? handleUpdateSite : handleCreateSite} className="p-6 space-y-4">
-              <div>
-                <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
-                  Code *
-                </label>
-                <input
-                  type="text"
-                  value={siteForm.code}
-                  onChange={(e) => setSiteForm({ ...siteForm, code: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
-                  required
-                />
-              </div>
+              {editingSite && editingSite.code && (
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                    Code
+                  </label>
+                  <input
+                    type="text"
+                    value={editingSite.code}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-[14px] bg-gray-50 text-gray-600"
+                    disabled
+                    readOnly
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">Le code est généré automatiquement et ne peut pas être modifié</p>
+                </div>
+              )}
               <div>
                 <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
                   Nom *

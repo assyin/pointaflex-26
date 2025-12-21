@@ -10,6 +10,9 @@ export interface Schedule {
   updatedAt: string;
   employee?: any;
   shift?: any;
+  isReplaced?: boolean;
+  replacedAt?: string;
+  replacedById?: string;
 }
 
 export interface CreateScheduleDto {
@@ -169,6 +172,23 @@ export const schedulesApi = {
 
   rejectReplacement: async (id: string) => {
     const response = await apiClient.patch(`/schedules/replacements/${id}/reject`);
+    return response.data;
+  },
+
+  getReplacementSuggestions: async (
+    originalEmployeeId: string,
+    date: string,
+    shiftId: string,
+    filters?: { teamId?: string; siteId?: string; departmentId?: string; maxSuggestions?: number }
+  ) => {
+    const response = await apiClient.get('/schedules/replacements/suggestions', {
+      params: {
+        originalEmployeeId,
+        date,
+        shiftId,
+        ...filters,
+      },
+    });
     return response.data;
   },
 

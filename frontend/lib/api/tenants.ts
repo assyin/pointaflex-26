@@ -26,8 +26,6 @@ export interface TenantSettings {
   breakDuration?: number;
   overtimeRounding?: number;
   overtimeRate?: number;
-  nightShiftStart?: string;
-  nightShiftEnd?: string;
   nightShiftRate?: number;
 
   // Alerts
@@ -48,6 +46,10 @@ export interface TenantSettings {
 
   // Attendance Settings
   requireBreakPunch?: boolean; // Activer/désactiver le pointage des repos (pauses)
+  recoveryExpiryDays?: number; // Nombre de jours avant expiration de la récupération
+  recoveryConversionRate?: number; // Taux de conversion heures supplémentaires -> récupération
+  dailyWorkingHours?: number; // Nombre d'heures équivalent à une journée normale
+  temporaryMatriculeExpiryDays?: number; // Nombre de jours avant expiration du matricule temporaire
 
   createdAt: string;
   updatedAt: string;
@@ -72,8 +74,6 @@ export interface UpdateTenantSettingsDto {
   lateToleranceEntry?: number;
   earlyToleranceExit?: number;
   overtimeRounding?: number;
-  nightShiftStart?: string;
-  nightShiftEnd?: string;
 
   // Leave Rules
   twoLevelWorkflow?: boolean;
@@ -85,6 +85,10 @@ export interface UpdateTenantSettingsDto {
 
   // Attendance Settings
   requireBreakPunch?: boolean; // Activer/désactiver le pointage des repos (pauses)
+  recoveryExpiryDays?: number; // Nombre de jours avant expiration de la récupération
+  recoveryConversionRate?: number; // Taux de conversion heures supplémentaires -> récupération
+  dailyWorkingHours?: number; // Nombre d'heures équivalent à une journée normale
+  temporaryMatriculeExpiryDays?: number; // Nombre de jours avant expiration du matricule temporaire
 }
 
 export const TenantsAPI = {

@@ -1,17 +1,19 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Plus, Search, Edit, Trash2, User, Phone, Upload, Download, FileSpreadsheet, XCircle, ChevronLeft, ChevronRight, Building2, X, UserCircle, Briefcase, Calendar, UserPlus, Key, Eye, Copy, Check, Power, PowerOff } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, User, Phone, Upload, Download, FileSpreadsheet, XCircle, ChevronLeft, ChevronRight, Building2, X, UserCircle, Briefcase, Calendar, UserPlus, Key, Eye, Copy, Check, Power, PowerOff, AlertCircle, Clock } from 'lucide-react';
 import { useEmployees, useCreateEmployee, useUpdateEmployee, useDeleteEmployee, useDeleteAllEmployees, useCreateUserAccount, useGetCredentials, useDeleteUserAccount } from '@/lib/hooks/useEmployees';
 import { useSites } from '@/lib/hooks/useSites';
 import { useDepartments } from '@/lib/hooks/useDepartments';
 import { usePositions } from '@/lib/hooks/usePositions';
+import { useShifts } from '@/lib/hooks/useShifts';
 import { ImportExcelModal } from '@/components/employees/ImportExcelModal';
 import { AdvancedFilters } from '@/components/employees/AdvancedFilters';
 import { PermissionGate } from '@/components/auth/PermissionGate';
@@ -20,6 +22,7 @@ import apiClient from '@/lib/api/client';
 import type { EmployeeFilters } from '@/lib/api/employees';
 
 export default function EmployeesPage() {
+  const router = useRouter();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
@@ -37,10 +40,14 @@ export default function EmployeesPage() {
     lastName: '',
     email: '',
     phone: '',
+    dateOfBirth: '',
+    civilite: '',
+    address: '',
     position: '',
     positionId: '',
     siteId: '',
     departmentId: '',
+    currentShiftId: '',
     hireDate: new Date().toISOString().split('T')[0],
     createUserAccount: false,
     userEmail: '',
@@ -82,6 +89,7 @@ export default function EmployeesPage() {
   const { data: sitesData } = useSites();
   const { data: departmentsData } = useDepartments();
   const { data: positionsData } = usePositions();
+  const { data: shiftsData } = useShifts();
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
   const deleteMutation = useDeleteEmployee();
@@ -117,59 +125,128 @@ export default function EmployeesPage() {
     return [];
   }, [positionsData]);
 
+  const shifts = useMemo(() => {
+    if (!shiftsData) return [];
+    if (Array.isArray(shiftsData)) return shiftsData;
+    if (shiftsData?.data && Array.isArray(shiftsData.data)) return shiftsData.data;
+    return [];
+  }, [shiftsData]);
+
   const handleCreateEmployee = async () => {
-    if (!formData.matricule || !formData.firstName || !formData.lastName || !formData.email) {
+    if (!formData.firstName || !formData.lastName || !formData.email) {
       toast.error('Veuillez remplir tous les champs obligatoires');
       return;
     }
 
     // Prepare data for API - only send non-empty values
     const createData: any = {
-      matricule: formData.matricule,
+      // Ne pas envoyer le matricule s'il est vide (le backend le générera automatiquement)
+      ...(formData.matricule && { matricule: formData.matricule }),
       firstName: formData.firstName,
       lastName: formData.lastName,
       email: formData.email,
       phone: formData.phone || undefined,
+      dateOfBirth: formData.dateOfBirth || undefined,
+      civilite: formData.civilite || undefined,
+      address: formData.address || undefined,
       position: formData.position || undefined,
       positionId: formData.positionId || undefined,
       siteId: formData.siteId || undefined,
       departmentId: formData.departmentId || undefined,
+      currentShiftId: formData.currentShiftId || undefined,
       hireDate: formData.hireDate,
     };
 
     await createMutation.mutateAsync(createData);
     setShowCreateModal(false);
+    resetFormData();
+  };
+
+  // Fonction pour réinitialiser le formulaire
+  const resetFormData = () => {
     setFormData({
       matricule: '',
       firstName: '',
       lastName: '',
       email: '',
       phone: '',
+      dateOfBirth: '',
+      civilite: '',
+      address: '',
       position: '',
       positionId: '',
       siteId: '',
       departmentId: '',
+      currentShiftId: '',
       hireDate: new Date().toISOString().split('T')[0],
       createUserAccount: false,
       userEmail: '',
     });
   };
 
-  const handleEdit = (employee: any) => {
-    setEditingEmployee(employee);
-    setFormData({
-      matricule: employee.matricule || '',
-      firstName: employee.firstName || '',
-      lastName: employee.lastName || '',
-      email: employee.email || '',
-      phone: employee.phone || '',
-      position: employee.position || '',
-      positionId: employee.positionId || '',
-      siteId: employee.siteId || '',
-      departmentId: employee.departmentId || '',
-      hireDate: employee.hireDate ? new Date(employee.hireDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-    });
-    setShowEditModal(true);
+  const handleEdit = async (employee: any) => {
+    // Récupérer les détails complets de l'employé pour avoir toutes les relations (y compris currentShift)
+    try {
+      const fullEmployee = await apiClient.get(`/employees/${employee.id}`);
+      const employeeData = fullEmployee.data;
+      
+      setEditingEmployee(employeeData);
+      
+      // Gérer currentShiftId : peut être directement dans employee.currentShiftId ou via la relation currentShift.id
+      const currentShiftId = employeeData.currentShiftId 
+        || employeeData.currentShift?.id 
+        || employeeData.shiftId
+        || (employeeData.currentShift && typeof employeeData.currentShift === 'string' ? employeeData.currentShift : '')
+        || '';
+      
+      setFormData({
+        matricule: employeeData.matricule || '',
+        firstName: employeeData.firstName || '',
+        lastName: employeeData.lastName || '',
+        email: employeeData.email || '',
+        phone: employeeData.phone || '',
+        dateOfBirth: employeeData.dateOfBirth ? new Date(employeeData.dateOfBirth).toISOString().split('T')[0] : '',
+        civilite: employeeData.civilite || '',
+        address: employeeData.address || '',
+        position: employeeData.position || '',
+        positionId: employeeData.positionId || '',
+        siteId: employeeData.siteId || '',
+        departmentId: employeeData.departmentId || '',
+        currentShiftId: currentShiftId,
+        hireDate: employeeData.hireDate ? new Date(employeeData.hireDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        createUserAccount: false,
+        userEmail: '',
+      });
+      setShowEditModal(true);
+    } catch (error) {
+      console.error('Error fetching employee details:', error);
+      toast.error('Erreur lors du chargement des détails de l\'employé');
+      // Fallback: utiliser les données de la liste
+      setEditingEmployee(employee);
+      const currentShiftId = employee.currentShiftId 
+        || employee.currentShift?.id 
+        || employee.shiftId
+        || '';
+      setFormData({
+        matricule: employee.matricule || '',
+        firstName: employee.firstName || '',
+        lastName: employee.lastName || '',
+        email: employee.email || '',
+        phone: employee.phone || '',
+        dateOfBirth: employee.dateOfBirth ? new Date(employee.dateOfBirth).toISOString().split('T')[0] : '',
+        civilite: employee.civilite || '',
+        address: employee.address || '',
+        position: employee.position || '',
+        positionId: employee.positionId || '',
+        siteId: employee.siteId || '',
+        departmentId: employee.departmentId || '',
+        currentShiftId: currentShiftId,
+        hireDate: employee.hireDate ? new Date(employee.hireDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        createUserAccount: false,
+        userEmail: '',
+      });
+      setShowEditModal(true);
+    }
   };
 
   const handleUpdateEmployee = async () => {
@@ -185,31 +262,55 @@ export default function EmployeesPage() {
       lastName: formData.lastName,
       email: formData.email,
       phone: formData.phone || undefined,
+      dateOfBirth: formData.dateOfBirth || undefined,
+      civilite: formData.civilite || undefined,
+      address: formData.address || undefined,
       position: formData.position || undefined,
       positionId: formData.positionId || undefined,
       siteId: formData.siteId || undefined,
       departmentId: formData.departmentId || undefined,
+      currentShiftId: formData.currentShiftId || undefined,
       hireDate: formData.hireDate,
     };
 
     await updateMutation.mutateAsync({ id: editingEmployee.id, data: updateData });
     setShowEditModal(false);
     setEditingEmployee(null);
-    setFormData({
-      matricule: '',
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      position: '',
-      positionId: '',
-      siteId: '',
-      departmentId: '',
-      hireDate: new Date().toISOString().split('T')[0],
-      createUserAccount: false,
-      userEmail: '',
-    });
+    resetFormData();
   };
+
+  // Effet pour pré-remplir le formulaire quand editingEmployee change et que le modal est ouvert
+  useEffect(() => {
+    if (editingEmployee && showEditModal) {
+      // Gérer currentShiftId : peut être directement dans employee.currentShiftId ou via la relation currentShift.id
+      const currentShiftId = editingEmployee.currentShiftId 
+        || editingEmployee.currentShift?.id 
+        || editingEmployee.shiftId
+        || (editingEmployee.currentShift && typeof editingEmployee.currentShift === 'string' ? editingEmployee.currentShift : '')
+        || (editingEmployee.currentShift && editingEmployee.currentShift.id ? editingEmployee.currentShift.id : '')
+        || '';
+      
+      // Mettre à jour le formulaire avec toutes les données de l'employé
+      setFormData({
+        matricule: editingEmployee.matricule || '',
+        firstName: editingEmployee.firstName || '',
+        lastName: editingEmployee.lastName || '',
+        email: editingEmployee.email || '',
+        phone: editingEmployee.phone || '',
+        dateOfBirth: editingEmployee.dateOfBirth ? new Date(editingEmployee.dateOfBirth).toISOString().split('T')[0] : '',
+        civilite: editingEmployee.civilite || '',
+        address: editingEmployee.address || '',
+        position: editingEmployee.position || '',
+        positionId: editingEmployee.positionId || '',
+        siteId: editingEmployee.siteId || '',
+        departmentId: editingEmployee.departmentId || '',
+        currentShiftId: currentShiftId,
+        hireDate: editingEmployee.hireDate ? new Date(editingEmployee.hireDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        createUserAccount: false,
+        userEmail: '',
+      });
+    }
+  }, [editingEmployee, showEditModal, shifts]);
 
   const handleToggleActive = async (employee: any) => {
     const newStatus = !employee.isActive;
@@ -392,9 +493,22 @@ export default function EmployeesPage() {
               </Button>
             </PermissionGate>
             <PermissionGate permission="employee.create">
-              <Button variant="primary" onClick={() => setShowCreateModal(true)}>
+              <Button variant="primary" onClick={() => {
+                resetFormData();
+                setShowCreateModal(true);
+              }}>
                 <Plus className="h-4 w-4 mr-2" />
                 Nouvel Employé
+              </Button>
+            </PermissionGate>
+            <PermissionGate permission="employee.view_all">
+              <Button
+                variant="outline"
+                onClick={() => router.push('/employees/temporary-matricules')}
+                className="border-orange-500 text-orange-600 hover:bg-orange-50"
+              >
+                <AlertCircle className="h-4 w-4 mr-2" />
+                Matricules Temporaires
               </Button>
             </PermissionGate>
           </div>
@@ -467,7 +581,18 @@ export default function EmployeesPage() {
                   <tbody className="divide-y divide-table-border">
                     {paginatedEmployees.map((employee: any) => (
                       <tr key={employee.id} className="hover:bg-table-hover transition-colors">
-                        <td className="p-3 font-mono text-sm font-semibold text-primary">{employee.matricule}</td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold text-primary">
+                              {employee.matricule}
+                            </span>
+                            {employee.matricule?.startsWith('TEMP-') && (
+                              <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
+                                Temporaire
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-3">
                           <div className="font-medium">{employee.firstName} {employee.lastName}</div>
                           {employee.civilite && (
@@ -697,7 +822,10 @@ export default function EmployeesPage() {
         {showCreateModal && (
           <div 
             className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            onClick={() => setShowCreateModal(false)}
+            onClick={() => {
+              setShowCreateModal(false);
+              resetFormData();
+            }}
           >
             <Card 
               className="w-full max-w-4xl max-h-[90vh] overflow-y-auto shadow-xl"
@@ -717,7 +845,10 @@ export default function EmployeesPage() {
                   <Button 
                     variant="outline" 
                     size="sm" 
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      resetFormData();
+                    }}
                     className="h-8 w-8 p-0"
                   >
                     <X className="h-4 w-4" />
@@ -736,14 +867,19 @@ export default function EmployeesPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                          Matricule <span className="text-red-500">*</span>
+                          Matricule <span className="text-xs font-normal text-gray-500">(optionnel - généré automatiquement si vide)</span>
                         </label>
                         <Input
                           value={formData.matricule}
                           onChange={(e) => setFormData({ ...formData, matricule: e.target.value })}
-                          placeholder="EMP001"
+                          placeholder="Laisser vide pour génération automatique (TEMP-001, TEMP-002...)"
                           className="w-full"
                         />
+                        {!formData.matricule && (
+                          <p className="text-xs text-gray-500 mt-1.5">
+                            💡 Un matricule temporaire unique sera généré automatiquement (ex: TEMP-001)
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -894,7 +1030,50 @@ export default function EmployeesPage() {
                     </div>
                   </div>
 
-                  {/* Section 4: Compte d'Accès */}
+                  {/* Section 4: Horaires */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                      <Calendar className="h-5 w-5 text-gray-600" />
+                      <h3 className="text-lg font-semibold text-gray-900">Horaires</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          Shift par défaut (Heures de travail)
+                        </label>
+                        <select
+                          value={formData.currentShiftId}
+                          onChange={(e) => setFormData({ ...formData, currentShiftId: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                        >
+                          <option value="">Sélectionner un shift</option>
+                          {shifts.map((shift: any) => (
+                            <option key={shift.id} value={shift.id}>
+                              {shift.name} ({shift.startTime} - {shift.endTime})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1.5">
+                          Heures de travail par défaut pour cet employé
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          Jours de travail
+                        </label>
+                        <div className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-600">
+                          <p className="text-sm">
+                            Les jours de travail sont configurés au niveau de l'organisation (Paramètres du tenant).
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Par défaut: Lundi à Samedi (configurable dans les paramètres)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section 5: Compte d'Accès */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
                       <UserCircle className="h-5 w-5 text-gray-600" />
@@ -940,7 +1119,10 @@ export default function EmployeesPage() {
                   <div className="flex gap-3 justify-end pt-4 border-t border-gray-200">
                     <Button 
                       variant="outline" 
-                      onClick={() => setShowCreateModal(false)}
+                      onClick={() => {
+                        setShowCreateModal(false);
+                        resetFormData();
+                      }}
                       disabled={createMutation.isPending}
                     >
                       Annuler
@@ -948,7 +1130,7 @@ export default function EmployeesPage() {
                     <Button
                       variant="primary"
                       onClick={handleCreateEmployee}
-                      disabled={createMutation.isPending || !formData.matricule || !formData.firstName || !formData.lastName || !formData.email}
+                      disabled={createMutation.isPending || !formData.firstName || !formData.lastName || !formData.email}
                       className="min-w-[120px]"
                     >
                       {createMutation.isPending ? (
@@ -1126,6 +1308,7 @@ export default function EmployeesPage() {
                     onClick={() => {
                       setShowEditModal(false);
                       setEditingEmployee(null);
+                      resetFormData();
                     }}
                     className="h-8 w-8 p-0"
                   >
@@ -1303,6 +1486,36 @@ export default function EmployeesPage() {
                     </div>
                   </div>
 
+                  {/* Section 4: Shift par défaut */}
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
+                      <Clock className="h-5 w-5 text-gray-600" />
+                      <h3 className="text-lg font-semibold text-gray-900">Shift par défaut</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                          Shift par défaut (Heures de travail)
+                        </label>
+                        <select
+                          value={formData.currentShiftId || ''}
+                          onChange={(e) => setFormData({ ...formData, currentShiftId: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                        >
+                          <option value="">Sélectionner un shift</option>
+                          {shifts.map((shift: any) => (
+                            <option key={shift.id} value={shift.id}>
+                              {shift.name} ({shift.startTime} - {shift.endTime})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1.5">
+                          Heures de travail par défaut pour cet employé
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Actions */}
                   <div className="flex gap-3 justify-end pt-4 border-t border-gray-200">
                     <Button 
@@ -1310,6 +1523,7 @@ export default function EmployeesPage() {
                       onClick={() => {
                         setShowEditModal(false);
                         setEditingEmployee(null);
+                        resetFormData();
                       }}
                       disabled={updateMutation.isPending}
                     >
