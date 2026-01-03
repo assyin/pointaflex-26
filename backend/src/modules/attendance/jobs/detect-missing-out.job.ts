@@ -116,16 +116,18 @@ export class DetectMissingOutJob {
         // Fenêtre basée sur fin de shift, pas date civile
         
         // Récupérer le schedule pour déterminer la fin du shift
+        // IMPORTANT: Chercher TOUS les schedules pour gérer les multiples shifts par jour
         const startOfDay = new Date(inRecord.timestamp);
         startOfDay.setHours(0, 0, 0, 0);
         const endOfDay = new Date(inRecord.timestamp);
         endOfDay.setHours(23, 59, 59, 999);
 
-        const schedule = await this.prisma.schedule.findFirst({
+        const schedules = await this.prisma.schedule.findMany({
           where: {
             tenantId,
             employeeId: inRecord.employeeId,
             date: { gte: startOfDay, lte: endOfDay },
+            status: 'PUBLISHED',
           },
           include: {
             shift: {
@@ -136,7 +138,55 @@ export class DetectMissingOutJob {
               },
             },
           },
+          orderBy: {
+            shift: {
+              startTime: 'asc',
+            },
+          },
         });
+
+        // Si multiples schedules, trouver le plus proche de l'heure du IN
+        let schedule = null;
+        if (schedules.length > 0) {
+          if (schedules.length === 1) {
+            schedule = schedules[0];
+          } else {
+            // Multiple shifts - trouver le plus proche
+            const inHour = inRecord.timestamp.getUTCHours();
+            const inMinutes = inRecord.timestamp.getUTCMinutes();
+            const inTimeInMinutes = inHour * 60 + inMinutes;
+
+            let closestSchedule = schedules[0];
+            let smallestDifference = Infinity;
+
+            // Récupérer le timezone du tenant
+            const tenant = await this.prisma.tenant.findUnique({
+              where: { id: tenantId },
+              select: { timezone: true },
+            });
+
+            // Extraire l'offset (ex: "UTC" = 0, "Africa/Casablanca" = +1)
+            const timezoneOffset = tenant?.timezone === 'UTC' ? 0 : 1; // Simplifié
+
+            for (const sched of schedules) {
+              const startTime = this.parseTimeString(
+                sched.customStartTime || sched.shift.startTime,
+              );
+
+              const shiftStartInMinutesLocal = startTime.hours * 60 + startTime.minutes;
+              const shiftStartInMinutesUTC = shiftStartInMinutesLocal - (timezoneOffset * 60);
+
+              const difference = Math.abs(inTimeInMinutes - shiftStartInMinutesUTC);
+
+              if (difference < smallestDifference) {
+                smallestDifference = difference;
+                closestSchedule = sched;
+              }
+            }
+
+            schedule = closestSchedule;
+          }
+        }
 
         // Fallback vers currentShiftId si pas de schedule
         let shift = schedule?.shift;

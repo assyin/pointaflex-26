@@ -3,13 +3,30 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AttendanceService } from './attendance.service';
 import { AttendanceController } from './attendance.controller';
 import { PrismaModule } from '../../database/prisma.module';
+import { MailModule } from '../mail/mail.module';
 import { DetectAbsencesJob } from './jobs/detect-absences.job';
 import { DetectMissingOutJob } from './jobs/detect-missing-out.job';
+import { MissingOutManagerNotificationJob } from './jobs/missing-out-manager-notification.job';
+import { MissingInManagerNotificationJob } from './jobs/missing-in-manager-notification.job';
+import { LateManagerNotificationJob } from './jobs/late-manager-notification.job';
+import { AbsenceManagerNotificationJob } from './jobs/absence-manager-notification.job';
+import { AbsencePartialManagerNotificationJob } from './jobs/absence-partial-manager-notification.job';
+import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical-manager-notification.job';
 
 @Module({
-  imports: [PrismaModule, ScheduleModule],
+  imports: [PrismaModule, ScheduleModule, MailModule],
   controllers: [AttendanceController],
-  providers: [AttendanceService, DetectAbsencesJob, DetectMissingOutJob],
+  providers: [
+    AttendanceService,
+    DetectAbsencesJob,
+    DetectMissingOutJob,
+    MissingOutManagerNotificationJob,
+    MissingInManagerNotificationJob,
+    LateManagerNotificationJob,
+    AbsenceManagerNotificationJob,
+    AbsencePartialManagerNotificationJob,
+    AbsenceTechnicalManagerNotificationJob,
+  ],
   exports: [AttendanceService],
 })
 export class AttendanceModule {}

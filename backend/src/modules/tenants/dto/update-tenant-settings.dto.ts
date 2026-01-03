@@ -214,4 +214,41 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsBoolean()
   holidayOvertimeAsNormalHours?: boolean;
+
+  // MISSING_IN/OUT Notification Settings
+  @ApiPropertyOptional({
+    description: 'Fenêtre de détection MISSING_IN en minutes après début du shift (défaut: 30 min)',
+    example: 30,
+    default: 30,
+  })
+  @IsOptional()
+  @IsInt()
+  missingInDetectionWindowMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Fréquence du job de notification MISSING_IN en minutes (défaut: 15 min)',
+    example: 15,
+    default: 15,
+  })
+  @IsOptional()
+  @IsInt()
+  missingInNotificationFrequencyMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Fenêtre de détection MISSING_OUT en minutes après fin du shift (défaut: 120 min)',
+    example: 120,
+    default: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  missingOutDetectionWindowMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Fréquence du job de notification MISSING_OUT en minutes (défaut: 15 min)',
+    example: 15,
+    default: 15,
+  })
+  @IsOptional()
+  @IsInt()
+  missingOutNotificationFrequencyMinutes?: number;
 }

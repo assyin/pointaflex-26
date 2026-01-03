@@ -28,6 +28,8 @@ import { RolesModule } from './modules/roles/roles.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { TerminalMatriculeMappingModule } from './modules/terminal-matricule-mapping/terminal-matricule-mapping.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { MailModule } from './modules/mail/mail.module';
+import { EmailAdminModule } from './modules/email-admin/email-admin.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
@@ -45,6 +47,7 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
       max: 100, // 100 éléments max en cache
     }),
     PrismaModule,
+    MailModule, // Module Mail global pour notifications email
     AuthModule,
     TenantsModule,
     UsersModule,
@@ -69,6 +72,7 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     PermissionsModule,
     TerminalMatriculeMappingModule,
     DashboardModule,
+    EmailAdminModule,
   ],
   providers: [
     {

@@ -350,9 +350,9 @@ export class SchedulesService {
     });
 
     // 10. Check for existing schedules (optimized query)
-    // IMPORTANT: Check for same employee and same date, REGARDLESS of shift
-    // Business rule: An employee can only have ONE schedule per day, regardless of the shift
-    // This is consistent with the database constraint: @@unique([employeeId, date])
+    // IMPORTANT: Check for same employee, same date, AND same shift
+    // Business rule: An employee can have MULTIPLE schedules per day for DIFFERENT shifts
+    // This is consistent with the database constraint: @@unique([employeeId, date, shiftId])
     // Use UTC dates for query to avoid timezone issues
     const queryStartDate = new Date(startDate);
     queryStartDate.setUTCHours(0, 0, 0, 0);
@@ -361,12 +361,13 @@ export class SchedulesService {
 
     console.log(`[createSchedule] Vérification des conflits pour ${employee.firstName} ${employee.lastName}`);
     console.log(`[createSchedule] Plage recherchée: ${queryStartDate.toISOString()} à ${queryEndDate.toISOString()}`);
+    console.log(`[createSchedule] Shift: ${dto.shiftId}`);
 
     const existingSchedules = await this.prisma.schedule.findMany({
       where: {
         tenantId,
         employeeId: dto.employeeId,
-        // NOTE: We do NOT filter by shiftId - an employee can only have ONE schedule per day
+        shiftId: dto.shiftId, // IMPORTANT: Filter by shiftId - allow multiple shifts per day
         // IMPORTANT: Only check PUBLISHED schedules as conflicts
         // Suspended/cancelled schedules can be replaced
         status: 'PUBLISHED',
@@ -438,17 +439,17 @@ export class SchedulesService {
           };
         });
 
-      let errorMessage = `Un planning existe déjà pour ${dateRangeStr} pour l'employé ${employee.firstName} ${employee.lastName}. `;
-      errorMessage += `Un employé ne peut avoir qu'un seul planning par jour. `;
-      
+      let errorMessage = `Un planning existe déjà pour le shift "${shift.name}" `;
+      errorMessage += `pour ${dateRangeStr} pour l'employé ${employee.firstName} ${employee.lastName}. `;
+
       if (conflictingDates.length === 1) {
-        errorMessage += `Le planning existant est pour le shift "${conflictingDates[0].shift}" le ${conflictingDates[0].date}. `;
+        errorMessage += `Le planning existant est le ${conflictingDates[0].date}. `;
       } else if (conflictingDates.length > 1) {
         errorMessage += `Plannings existants : `;
-        errorMessage += conflictingDates.map(c => `${c.shift} le ${c.date}`).join(', ') + '. ';
+        errorMessage += conflictingDates.map(c => c.date).join(', ') + '. ';
       }
-      
-      errorMessage += `Veuillez modifier le planning existant ou choisir une autre date.`;
+
+      errorMessage += `Veuillez modifier le planning existant, choisir un autre shift, ou choisir une autre date.`;
       
       throw new ConflictException(errorMessage);
     }
@@ -484,11 +485,11 @@ export class SchedulesService {
       // This should not happen if our conflict check is correct, but it's a safety net
       const startDateStr = this.formatDateToISO(startDate);
       const endDateStr = this.formatDateToISO(endDate);
-      const dateRangeStr = startDateStr === endDateStr 
+      const dateRangeStr = startDateStr === endDateStr
         ? `le ${this.formatDate(startDateStr)}`
         : `la période du ${this.formatDate(startDateStr)} au ${this.formatDate(endDateStr)}`;
       throw new ConflictException(
-        `Impossible de créer le planning pour ${dateRangeStr} pour l'employé ${employee.firstName} ${employee.lastName}. Un planning existe déjà pour cette période. Veuillez modifier le planning existant ou choisir une autre date.`
+        `Impossible de créer le planning pour le shift "${shift.name}" pour ${dateRangeStr} pour l'employé ${employee.firstName} ${employee.lastName}. Un planning existe déjà pour ce shift pour cette période. Veuillez modifier le planning existant, choisir un autre shift, ou choisir une autre date.`
       );
     }
 
@@ -1727,11 +1728,12 @@ export class SchedulesService {
           const endDate = dateFin || dateDebut;
           const { validDates: datesToCreate } = this.generateDateRange(dateDebut, endDate);
 
-          // Check for existing schedules
+          // Check for existing schedules (same employee, date, AND shift)
           const existingSchedules = await this.prisma.schedule.findMany({
             where: {
               tenantId,
               employeeId,
+              shiftId, // IMPORTANT: Check for same shift - allow multiple shifts per day
               // Only check PUBLISHED schedules as conflicts
               status: 'PUBLISHED',
               date: {
@@ -1748,7 +1750,7 @@ export class SchedulesService {
             existingSchedules.map((s) => s.date.toISOString().split('T')[0])
           );
 
-          // Filter out dates that already have schedules
+          // Filter out dates that already have schedules for this specific shift
           const datesToCreateFiltered = datesToCreate.filter((date) => {
             const dateStr = date.toISOString().split('T')[0];
             return !existingDates.has(dateStr);
@@ -1758,7 +1760,7 @@ export class SchedulesService {
             result.errors.push({
               row: rowNumber,
               matricule,
-              error: `Tous les plannings pour cette période existent déjà`,
+              error: `Tous les plannings pour le shift ${shiftCode} pour cette période existent déjà`,
             });
             result.failed++;
             continue;

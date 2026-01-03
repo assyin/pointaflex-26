@@ -242,15 +242,13 @@ export default function ShiftsPlanningPage() {
   // Group schedules by shift
   const groupedSchedules: GroupedSchedule[] = useMemo(() => {
     console.log('Grouping schedules, data:', schedulesData);
-    if (!schedulesData || !Array.isArray(schedulesData) || schedulesData.length === 0) {
-      console.log('No schedules data to group');
-      return [];
-    }
 
     const shiftMap = new Map<string, GroupedSchedule>();
     const employeeMap = new Map<string, GroupedSchedule['employees'][0]>();
 
-    schedulesData.forEach((schedule: any) => {
+    // Process existing schedules
+    if (schedulesData && Array.isArray(schedulesData) && schedulesData.length > 0) {
+      schedulesData.forEach((schedule: any) => {
       // Apply filters
       if (filterShift && schedule.shiftId !== filterShift) return;
       if (filterSite && schedule.employee?.site?.id !== filterSite) return;
@@ -324,6 +322,39 @@ export default function ShiftsPlanningPage() {
         notes: schedule.notes,
       });
     });
+    }
+
+    // Add shifts without any schedules (if not filtered by other criteria)
+    // Extract shifts from shiftsData
+    const availableShifts = shiftsData
+      ? (Array.isArray(shiftsData) ? shiftsData : (shiftsData?.data && Array.isArray(shiftsData.data) ? shiftsData.data : []))
+      : [];
+
+    if (availableShifts.length > 0 && !filterSite && !filterTeam && !searchQuery) {
+      availableShifts.forEach((shift: any) => {
+        // Skip if already in map (has schedules)
+        if (shiftMap.has(shift.id)) return;
+
+        // Skip if shift filter is active and doesn't match
+        if (filterShift && shift.id !== filterShift) return;
+
+        // Add empty shift entry
+        shiftMap.set(shift.id, {
+          shiftId: shift.id,
+          shiftName: shift.name || 'Shift inconnu',
+          shiftCode: shift.code || '',
+          shiftType: shift.type || 'CUSTOM',
+          startTime: shift.startTime || '08:00',
+          endTime: shift.endTime || '16:00',
+          color: shift.color,
+          employeeCount: 0,
+          scheduleCount: 0,
+          sites: [],
+          teams: [],
+          employees: [],
+        });
+      });
+    }
 
     // Apply search filter
     let result = Array.from(shiftMap.values());
@@ -350,7 +381,7 @@ export default function ShiftsPlanningPage() {
     });
 
     return result;
-  }, [schedulesData, filterShift, filterSite, filterTeam, searchQuery]);
+  }, [schedulesData, shiftsData, filterShift, filterSite, filterTeam, searchQuery]);
 
   // Get selected shift details
   const selectedShiftDetails = useMemo(() => {

@@ -67,6 +67,12 @@ export interface TenantSettings {
   holidayOvertimeRate?: number; // Taux de majoration pour les heures travaillées les jours fériés (défaut: 2.0 = double)
   holidayOvertimeAsNormalHours?: boolean; // Calculer les heures travaillées les jours fériés comme heures normales sans majoration
 
+  // MISSING_IN/OUT Notification Settings
+  missingInDetectionWindowMinutes?: number; // Fenêtre de détection MISSING_IN en minutes après début du shift (défaut: 30 min)
+  missingInNotificationFrequencyMinutes?: number; // Fréquence du job de notification MISSING_IN en minutes (défaut: 15 min)
+  missingOutDetectionWindowMinutes?: number; // Fenêtre de détection MISSING_OUT en minutes après fin du shift (défaut: 120 min)
+  missingOutNotificationFrequencyMinutes?: number; // Fréquence du job de notification MISSING_OUT en minutes (défaut: 15 min)
+
   createdAt: string;
   updatedAt: string;
 }
@@ -116,6 +122,17 @@ export interface UpdateTenantSettingsDto {
   enableInsufficientRestDetection?: boolean; // Activer/désactiver la détection de repos insuffisant
   minimumRestHours?: number; // Nombre d'heures légales de repos minimum requis entre deux shifts
   minimumRestHoursNightShift?: number; // Nombre d'heures légales de repos minimum pour shift de nuit
+
+  // Holiday Overtime Settings
+  holidayOvertimeEnabled?: boolean; // Activer la majoration des heures travaillées les jours fériés
+  holidayOvertimeRate?: number; // Taux de majoration pour les heures travaillées les jours fériés (défaut: 2.0 = double)
+  holidayOvertimeAsNormalHours?: boolean; // Calculer les heures travaillées les jours fériés comme heures normales sans majoration
+
+  // MISSING_IN/OUT Notification Settings
+  missingInDetectionWindowMinutes?: number; // Fenêtre de détection MISSING_IN en minutes après début du shift (défaut: 30 min)
+  missingInNotificationFrequencyMinutes?: number; // Fréquence du job de notification MISSING_IN en minutes (défaut: 15 min)
+  missingOutDetectionWindowMinutes?: number; // Fenêtre de détection MISSING_OUT en minutes après fin du shift (défaut: 120 min)
+  missingOutNotificationFrequencyMinutes?: number; // Fréquence du job de notification MISSING_OUT en minutes (défaut: 15 min)
 }
 
 export const TenantsAPI = {

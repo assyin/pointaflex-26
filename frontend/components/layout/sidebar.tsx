@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Building2,
   KeyRound,
+  Mail,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -117,6 +118,12 @@ const menuItems: MenuItem[] = [
     href: '/settings',
     icon: Settings,
     permissions: ['tenant.view_settings', 'tenant.update_settings'],
+  },
+  {
+    label: 'Gestion des Emails',
+    href: '/email-admin',
+    icon: Mail,
+    permission: 'tenant.update_settings',
   },
   {
     label: 'Profil',

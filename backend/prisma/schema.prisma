@@ -9,147 +9,183 @@ datasource db {
 }
 
 model Tenant {
-  id                        String                     @id @default(uuid())
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  companyName               String
-  slug                      String                     @unique
-  logo                      String?
-  email                     String
-  phone                     String?
-  address                   String?
-  country                   String                     @default("MA")
-  timezone                  String                     @default("Africa/Casablanca")
-  city                      String?
-  displayName               String?
-  hrEmail                   String?
-  language                  String                     @default("fr")
-  legalName                 String?
-  attendance                Attendance[]
-  attendanceAttempts        AttendanceAttempt[]
-  devices                   AttendanceDevice[]
-  auditLogs                 AuditLog[]
-  departments               Department[]
-  positions                 Position[]
-  employees                 Employee[]
-  holidays                  Holiday[]
-  leaves                    Leave[]
-  leaveTypes                LeaveType[]
-  notifications             Notification[]
-  overtime                  Overtime[]
-  recovery                  Recovery[]
-  schedules                 Schedule[]
-  shifts                    Shift[]
-  shiftReplacements         ShiftReplacement[]
-  sites                     Site[]
-  teams                     Team[]
-  siteManagers              SiteManager[]
-  settings                  TenantSettings?
-  users                     User[]
-  userTenantRoles           UserTenantRole[]
-  roles                     Role[] // Rôles personnalisés par tenant (optionnel)
-  reportHistory             ReportHistory[]
-  terminalMatriculeMappings TerminalMatriculeMapping[]
-  RecoveryDay               RecoveryDay[]
+  id                         String                      @id @default(uuid())
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+  companyName                String
+  slug                       String                      @unique
+  logo                       String?
+  email                      String
+  phone                      String?
+  address                    String?
+  country                    String                      @default("MA")
+  timezone                   String                      @default("Africa/Casablanca")
+  city                       String?
+  displayName                String?
+  hrEmail                    String?
+  language                   String                      @default("fr")
+  legalName                  String?
+  attendance                 Attendance[]
+  attendanceAttempts         AttendanceAttempt[]
+  devices                    AttendanceDevice[]
+  auditLogs                  AuditLog[]
+  departments                Department[]
+  positions                  Position[]
+  employees                  Employee[]
+  holidays                   Holiday[]
+  leaves                     Leave[]
+  leaveTypes                 LeaveType[]
+  notifications              Notification[]
+  overtime                   Overtime[]
+  recovery                   Recovery[]
+  schedules                  Schedule[]
+  shifts                     Shift[]
+  shiftReplacements          ShiftReplacement[]
+  sites                      Site[]
+  teams                      Team[]
+  siteManagers               SiteManager[]
+  settings                   TenantSettings?
+  users                      User[]
+  userTenantRoles            UserTenantRole[]
+  roles                      Role[] // Rôles personnalisés par tenant (optionnel)
+  reportHistory              ReportHistory[]
+  terminalMatriculeMappings         TerminalMatriculeMapping[]
+  RecoveryDay                       RecoveryDay[]
+  missingOutNotificationLogs        MissingOutNotificationLog[]
+  missingInNotificationLogs         MissingInNotificationLog[]
+  lateNotificationLogs              LateNotificationLog[]
+  absenceNotificationLogs           AbsenceNotificationLog[]
+  absencePartialNotificationLogs    AbsencePartialNotificationLog[]
+  absenceTechnicalNotificationLogs  AbsenceTechnicalNotificationLog[]
+  emailConfig                       EmailConfig?
+  emailTemplates                    EmailTemplate[]
+  emailLogs                         EmailLog[]
 
   @@index([slug])
 }
 
 model TenantSettings {
-  id                           String   @id @default(uuid())
-  tenantId                     String   @unique
-  workDaysPerWeek              Int      @default(6)
-  maxWeeklyHours               Decimal  @default(44)
-  breakDuration                Int      @default(60)
-  alertWeeklyHoursExceeded     Boolean  @default(true)
-  alertInsufficientRest        Boolean  @default(true)
-  alertNightWorkRepetitive     Boolean  @default(true)
-  alertMinimumStaffing         Boolean  @default(true)
-  annualLeaveDays              Int      @default(18)
-  leaveApprovalLevels          Int      @default(2)
-  overtimeRate                 Decimal  @default(1.25)
-  nightShiftRate               Decimal  @default(1.50)
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
-  anticipatedLeave             Boolean  @default(false)
-  earlyToleranceExit           Int      @default(5)
-  firstDayOfWeek               String   @default("monday")
-  lateToleranceEntry           Int      @default(10)
-  monthlyPayrollEmail          Boolean  @default(false)
-  nightShiftEnd                String   @default("06:00")
-  nightShiftStart              String   @default("21:00")
-  overtimeRounding             Int      @default(15)
-  overtimeMinimumThreshold     Int      @default(30) // Seuil minimum en minutes pour créer automatiquement un Overtime (défaut: 30 min)
-  sfptExport                   Boolean  @default(false)
-  twoLevelWorkflow             Boolean  @default(true)
-  workingDays                  Json?
-  recoveryConversionRate       Decimal  @default(1.0) // Taux de conversion heures supp -> récupération (1.0 = 1h supp = 1h récup)
-  recoveryExpiryDays           Int      @default(90) // Nombre de jours avant expiration de la récupération
-  dailyWorkingHours            Decimal  @default(7.33) // Nombre d'heures équivalent à une journée normale (par défaut: 44h/6j = 7.33h)
-  requireBreakPunch            Boolean  @default(false) // Activer/désactiver le pointage des repos (pauses)
-  requireScheduleForAttendance Boolean  @default(true) // Exiger un planning ou shift par défaut pour créer un pointage (défaut: true)
-  absencePartialThreshold      Int      @default(2) // Heures de retard pour considérer absence partielle
-  absenceDetectionTime         String?  @default("01:00") // Heure d'exécution du job de détection d'absences (format HH:mm)
-  temporaryMatriculeExpiryDays Int      @default(8) // Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)
-  enableInsufficientRestDetection Boolean @default(true) // Activer/désactiver la détection de repos insuffisant
-  minimumRestHours             Decimal  @default(11) // Nombre d'heures légales de repos minimum requis entre deux shifts (défaut: 11h)
-  minimumRestHoursNightShift   Decimal? @default(12) // Nombre d'heures légales de repos minimum pour shift de nuit (optionnel, défaut: 12h)
+  id                                     String   @id @default(uuid())
+  tenantId                               String   @unique
+  workDaysPerWeek                        Int      @default(6)
+  maxWeeklyHours                         Decimal  @default(44)
+  breakDuration                          Int      @default(60)
+  alertWeeklyHoursExceeded               Boolean  @default(true)
+  alertInsufficientRest                  Boolean  @default(true)
+  alertNightWorkRepetitive               Boolean  @default(true)
+  alertMinimumStaffing                   Boolean  @default(true)
+  annualLeaveDays                        Int      @default(18)
+  leaveApprovalLevels                    Int      @default(2)
+  overtimeRate                           Decimal  @default(1.25)
+  nightShiftRate                         Decimal  @default(1.50)
+  createdAt                              DateTime @default(now())
+  updatedAt                              DateTime @updatedAt
+  anticipatedLeave                       Boolean  @default(false)
+  earlyToleranceExit                     Int      @default(5)
+  firstDayOfWeek                         String   @default("monday")
+  lateToleranceEntry                     Int      @default(10)
+  monthlyPayrollEmail                    Boolean  @default(false)
+  nightShiftEnd                          String   @default("06:00")
+  nightShiftStart                        String   @default("21:00")
+  overtimeRounding                       Int      @default(15)
+  overtimeMinimumThreshold               Int      @default(30) // Seuil minimum en minutes pour créer automatiquement un Overtime (défaut: 30 min)
+  sfptExport                             Boolean  @default(false)
+  twoLevelWorkflow                       Boolean  @default(true)
+  workingDays                            Json?
+  recoveryConversionRate                 Decimal  @default(1.0) // Taux de conversion heures supp -> récupération (1.0 = 1h supp = 1h récup)
+  recoveryExpiryDays                     Int      @default(90) // Nombre de jours avant expiration de la récupération
+  dailyWorkingHours                      Decimal  @default(7.33) // Nombre d'heures équivalent à une journée normale (par défaut: 44h/6j = 7.33h)
+  requireBreakPunch                      Boolean  @default(false) // Activer/désactiver le pointage des repos (pauses)
+  requireScheduleForAttendance           Boolean  @default(true) // Exiger un planning ou shift par défaut pour créer un pointage (défaut: true)
+  absencePartialThreshold                Int      @default(2) // Heures de retard pour considérer absence partielle
+  absenceDetectionTime                   String?  @default("01:00") // Heure d'exécution du job de détection d'absences (format HH:mm)
+  temporaryMatriculeExpiryDays           Int      @default(8) // Nombre de jours avant expiration du matricule temporaire (délai pour obtenir le matricule officiel)
+  enableInsufficientRestDetection        Boolean  @default(true) // Activer/désactiver la détection de repos insuffisant
+  minimumRestHours                       Decimal  @default(11) // Nombre d'heures légales de repos minimum requis entre deux shifts (défaut: 11h)
+  minimumRestHoursNightShift             Decimal? @default(12) // Nombre d'heures légales de repos minimum pour shift de nuit (optionnel, défaut: 12h)
   // Paramètres pour amélioration DOUBLE_IN
-  doubleInDetectionWindow      Int      @default(24) // Fenêtre de détection DOUBLE_IN en heures (défaut: 24h)
-  orphanInThreshold            Int      @default(12) // Seuil en heures pour considérer un IN comme orphelin (défaut: 12h)
-  doublePunchToleranceMinutes Int      @default(2) // Fenêtre de tolérance en minutes pour erreur de badgeage (défaut: 2 min)
-  enableDoubleInPatternDetection Boolean @default(true) // Activer la détection de patterns suspects DOUBLE_IN
-  doubleInPatternAlertThreshold Int     @default(3) // Seuil d'alerte pour patterns suspects (nombre de DOUBLE_IN sur 30 jours, défaut: 3)
+  doubleInDetectionWindow                Int      @default(24) // Fenêtre de détection DOUBLE_IN en heures (défaut: 24h)
+  orphanInThreshold                      Int      @default(12) // Seuil en heures pour considérer un IN comme orphelin (défaut: 12h)
+  doublePunchToleranceMinutes            Int      @default(2) // Fenêtre de tolérance en minutes pour erreur de badgeage (défaut: 2 min)
+  enableDoubleInPatternDetection         Boolean  @default(true) // Activer la détection de patterns suspects DOUBLE_IN
+  doubleInPatternAlertThreshold          Int      @default(3) // Seuil d'alerte pour patterns suspects (nombre de DOUBLE_IN sur 30 jours, défaut: 3)
   // Paramètres pour amélioration MISSING_IN
-  allowMissingInForRemoteWork  Boolean @default(true) // Autoriser MISSING_IN pour télétravail
-  allowMissingInForMissions     Boolean @default(true) // Autoriser MISSING_IN pour missions
-  missingInReminderEnabled      Boolean @default(true) // Activer les rappels MISSING_IN
-  missingInReminderDelay         Int     @default(15) // Délai en minutes avant le rappel (défaut: 15 min)
-  missingInReminderMaxPerDay     Int     @default(2) // Nombre maximum de rappels par jour (défaut: 2)
+  allowMissingInForRemoteWork            Boolean  @default(true) // Autoriser MISSING_IN pour télétravail
+  allowMissingInForMissions              Boolean  @default(true) // Autoriser MISSING_IN pour missions
+  missingInReminderEnabled               Boolean  @default(true) // Activer les rappels MISSING_IN
+  missingInReminderDelay                 Int      @default(15) // Délai en minutes avant le rappel (défaut: 15 min)
+  missingInReminderMaxPerDay             Int      @default(2) // Nombre maximum de rappels par jour (défaut: 2)
   // Paramètres pour majoration des jours fériés
-  holidayOvertimeEnabled         Boolean @default(true) // Activer la majoration des heures travaillées les jours fériés
-  holidayOvertimeRate            Decimal @default(2.0) // Taux de majoration pour les heures travaillées les jours fériés (défaut: 2.0 = double)
-  holidayOvertimeAsNormalHours   Boolean @default(false) // Calculer les heures travaillées les jours fériés comme heures normales sans majoration (défaut: false)
-  enableMissingInPatternDetection Boolean @default(true) // Activer la détection de patterns d'oubli MISSING_IN
-  missingInPatternAlertThreshold Int     @default(3) // Seuil d'alerte pour patterns d'oubli (nombre de MISSING_IN sur 30 jours, défaut: 3)
+  holidayOvertimeEnabled                 Boolean  @default(true) // Activer la majoration des heures travaillées les jours fériés
+  holidayOvertimeRate                    Decimal  @default(2.0) // Taux de majoration pour les heures travaillées les jours fériés (défaut: 2.0 = double)
+  holidayOvertimeAsNormalHours           Boolean  @default(false) // Calculer les heures travaillées les jours fériés comme heures normales sans majoration (défaut: false)
+  enableMissingInPatternDetection        Boolean  @default(true) // Activer la détection de patterns d'oubli MISSING_IN
+  missingInPatternAlertThreshold         Int      @default(3) // Seuil d'alerte pour patterns d'oubli (nombre de MISSING_IN sur 30 jours, défaut: 3)
   // Paramètres pour amélioration MISSING_OUT
-  missingOutDetectionTime         String?  @default("00:00") // Heure d'exécution du job batch (format HH:mm)
-  missingOutDetectionWindow       Int      @default(12) // Fenêtre de détection en heures pour shifts de nuit (défaut: 12h)
-  allowMissingOutForRemoteWork     Boolean @default(true) // Autoriser MISSING_OUT pour télétravail
-  allowMissingOutForMissions       Boolean @default(true) // Autoriser MISSING_OUT pour missions
-  missingOutReminderEnabled        Boolean @default(true) // Activer les rappels MISSING_OUT
-  missingOutReminderDelay           Int     @default(15) // Délai en minutes avant le rappel (défaut: 15 min)
-  missingOutReminderBeforeClosing  Int     @default(30) // Rappel X minutes avant fermeture (défaut: 30 min)
-  enableMissingOutPatternDetection Boolean @default(true) // Activer la détection de patterns d'oubli MISSING_OUT
-  missingOutPatternAlertThreshold  Int     @default(3) // Seuil d'alerte pour patterns d'oubli (nombre de MISSING_OUT sur 30 jours, défaut: 3)
-  tenant                       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  missingOutDetectionTime                String?  @default("00:00") // Heure d'exécution du job batch (format HH:mm)
+  missingOutDetectionWindow              Int      @default(12) // Fenêtre de détection en heures pour shifts de nuit (défaut: 12h)
+  missingOutDetectionWindowMinutes       Int      @default(120) // Fenêtre raisonnable en minutes après fin shift (défaut: 120 min = 2h)
+  missingOutNotificationFrequencyMinutes Int      @default(15) // Fréquence du job de notification en minutes (défaut: 15 min)
+  allowMissingOutForRemoteWork           Boolean  @default(true) // Autoriser MISSING_OUT pour télétravail
+  allowMissingOutForMissions             Boolean  @default(true) // Autoriser MISSING_OUT pour missions
+  missingOutReminderEnabled              Boolean  @default(true) // Activer les rappels MISSING_OUT
+  missingOutReminderDelay                Int      @default(15) // Délai en minutes avant le rappel (défaut: 15 min)
+  missingOutReminderBeforeClosing        Int      @default(30) // Rappel X minutes avant fermeture (défaut: 30 min)
+  enableMissingOutPatternDetection       Boolean  @default(true) // Activer la détection de patterns d'oubli MISSING_OUT
+  missingOutPatternAlertThreshold        Int      @default(3) // Seuil d'alerte pour patterns d'oubli (nombre de MISSING_OUT sur 30 jours, défaut: 3)
+  // Paramètres pour amélioration MISSING_IN
+  missingInDetectionWindowMinutes        Int      @default(30) // Fenêtre raisonnable en minutes après début shift (défaut: 30 min)
+  missingInNotificationFrequencyMinutes  Int      @default(15) // Fréquence du job de notification en minutes (défaut: 15 min)
+  // Paramètres de fréquence pour les notifications LATE
+  lateNotificationFrequencyMinutes       Int      @default(15) // Fréquence du job de notification LATE en minutes (défaut: 15 min)
+  lateNotificationThresholdMinutes       Int      @default(15) // Seuil minimum de retard pour notifier (défaut: 15 min)
+  // Paramètres de fréquence pour les notifications ABSENCE
+  absenceNotificationFrequencyMinutes    Int      @default(60) // Fréquence du job de notification ABSENCE en minutes (défaut: 60 min)
+  absenceDetectionBufferMinutes          Int      @default(60) // Délai après fin du shift avant détection (défaut: 60 min)
+  // Paramètres de fréquence pour les notifications ABSENCE_PARTIAL
+  absencePartialNotificationFrequencyMinutes Int  @default(30) // Fréquence du job de notification ABSENCE_PARTIAL en minutes (défaut: 30 min)
+  tenant                                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
 
 model User {
-  id                  String           @id @default(uuid())
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  tenantId            String? // Optionnel pour compatibilité, mais on utilisera UserTenantRole
-  email               String           @unique // Email unique globalement
-  password            String
-  firstName           String
-  lastName            String
-  phone               String?
-  avatar              String?
-  isActive            Boolean          @default(true)
-  lastLoginAt         DateTime?
-  forcePasswordChange Boolean          @default(false) // Forcer changement mot de passe à la première connexion
-  role                LegacyRole?      @default(EMPLOYEE) // Optionnel pour compatibilité
-  auditLogs           AuditLog[]
-  employee            Employee?
-  tenant              Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userTenantRoles     UserTenantRole[]
-  preferences         UserPreferences?
-  sessions            UserSession[]
-  credentials         UserCredentials?
-  reportHistory       ReportHistory[]
+  id                                String                      @id @default(uuid())
+  createdAt                         DateTime                    @default(now())
+  updatedAt                         DateTime                    @updatedAt
+  tenantId                          String? // Optionnel pour compatibilité, mais on utilisera UserTenantRole
+  email                             String                      @unique // Email unique globalement
+  password                          String
+  firstName                         String
+  lastName                          String
+  phone                             String?
+  avatar                            String?
+  isActive                          Boolean                     @default(true)
+  lastLoginAt                       DateTime?
+  forcePasswordChange               Boolean                     @default(false) // Forcer changement mot de passe à la première connexion
+  role                              LegacyRole?                 @default(EMPLOYEE) // Optionnel pour compatibilité
+  auditLogs                         AuditLog[]
+  employee                          Employee?
+  tenant                            Tenant?                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userTenantRoles                   UserTenantRole[]
+  preferences                       UserPreferences?
+  sessions                          UserSession[]
+  credentials                       UserCredentials?
+  reportHistory                     ReportHistory[]
+  missingOutNotificationsAsEmployee        MissingOutNotificationLog[]        @relation("EmployeeMissingOutNotifications")
+  missingOutNotificationsAsManager         MissingOutNotificationLog[]        @relation("ManagerMissingOutNotifications")
+  missingInNotificationsAsEmployee         MissingInNotificationLog[]         @relation("EmployeeMissingInNotifications")
+  missingInNotificationsAsManager          MissingInNotificationLog[]         @relation("ManagerMissingInNotifications")
+  lateNotificationsAsEmployee              LateNotificationLog[]              @relation("EmployeeLateNotifications")
+  lateNotificationsAsManager               LateNotificationLog[]              @relation("ManagerLateNotifications")
+  absenceNotificationsAsEmployee           AbsenceNotificationLog[]           @relation("EmployeeAbsenceNotifications")
+  absenceNotificationsAsManager            AbsenceNotificationLog[]           @relation("ManagerAbsenceNotifications")
+  absencePartialNotificationsAsEmployee    AbsencePartialNotificationLog[]    @relation("EmployeeAbsencePartialNotifications")
+  absencePartialNotificationsAsManager     AbsencePartialNotificationLog[]    @relation("ManagerAbsencePartialNotifications")
+  absenceTechnicalNotificationsAsEmployee  AbsenceTechnicalNotificationLog[]  @relation("EmployeeAbsenceTechnicalNotifications")
+  absenceTechnicalNotificationsAsManager   AbsenceTechnicalNotificationLog[]  @relation("ManagerAbsenceTechnicalNotifications")
+  sentEmailsAsEmployee                     EmailLog[]                         @relation("EmployeeEmailLogs")
+  sentEmailsAsManager                      EmailLog[]                         @relation("ManagerEmailLogs")
 
   @@index([tenantId])
   @@index([email])
@@ -401,7 +437,7 @@ model Schedule {
   tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   suspendedByLeave   Leave?         @relation("ScheduleSuspendedByLeave", fields: [suspendedByLeaveId], references: [id], onDelete: SetNull)
 
-  @@unique([employeeId, date])
+  @@unique([employeeId, date, shiftId])
   @@index([tenantId])
   @@index([date])
   @@index([employeeId])
@@ -535,14 +571,14 @@ model LeaveType {
 }
 
 model Leave {
-  id                 String     @id @default(uuid())
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
+  id                 String      @id @default(uuid())
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
   tenantId           String
   employeeId         String
   leaveTypeId        String
-  startDate          DateTime   @db.Date
-  endDate            DateTime   @db.Date
+  startDate          DateTime    @db.Date
+  endDate            DateTime    @db.Date
   days               Decimal
   reason             String?
   document           String? // Chemin ou URL du fichier
@@ -560,10 +596,10 @@ model Leave {
   hrApprovedBy       String?
   hrApprovedAt       DateTime?
   hrComment          String?
-  employee           Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  leaveType          LeaveType  @relation(fields: [leaveTypeId], references: [id])
-  tenant             Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  suspendedSchedules Schedule[] @relation("ScheduleSuspendedByLeave")
+  employee           Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  tenant             Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  suspendedSchedules Schedule[]  @relation("ScheduleSuspendedByLeave")
 
   @@index([tenantId])
   @@index([employeeId])
@@ -877,6 +913,255 @@ model ReportHistory {
   @@index([userId])
   @@index([reportType])
   @@index([createdAt])
+}
+
+// ============================================
+// MISSING OUT/IN Notification Logs
+// ============================================
+
+model MissingOutNotificationLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  employeeId  String
+  managerId   String
+  sessionDate DateTime @db.Date
+  sentAt      DateTime @default(now())
+  inTimestamp DateTime // Heure du IN qui n'a pas été clôturé
+  shiftEnd    String // Heure de fin de shift prévue (format HH:mm)
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeMissingOutNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerMissingOutNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, sessionDate, shiftEnd])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("missing_out_notification_logs")
+}
+
+model MissingInNotificationLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  employeeId  String
+  managerId   String
+  sessionDate DateTime @db.Date
+  sentAt      DateTime @default(now())
+  shiftStart  String // Heure de début de shift prévue (format HH:mm)
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeMissingInNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerMissingInNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, sessionDate, shiftStart])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("missing_in_notification_logs")
+}
+
+model LateNotificationLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  employeeId  String
+  managerId   String
+  sessionDate DateTime @db.Date
+  sentAt      DateTime @default(now())
+  shiftStart  String // Heure de début de shift prévue (format HH:mm)
+  actualIn    DateTime // Heure réelle du IN
+  lateMinutes Int // Nombre de minutes de retard
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeLateNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerLateNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, sessionDate, shiftStart])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("late_notification_logs")
+}
+
+model AbsenceNotificationLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  employeeId  String
+  managerId   String
+  sessionDate DateTime @db.Date
+  sentAt      DateTime @default(now())
+  shiftStart  String // Heure de début de shift prévue (format HH:mm)
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeAbsenceNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerAbsenceNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, sessionDate, shiftStart])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("absence_notification_logs")
+}
+
+model AbsencePartialNotificationLog {
+  id           String   @id @default(uuid())
+  createdAt    DateTime @default(now())
+  tenantId     String
+  employeeId   String
+  managerId    String
+  sessionDate  DateTime @db.Date
+  sentAt       DateTime @default(now())
+  missingType  String // "IN" ou "OUT"
+  outTimestamp DateTime? // Si OUT sans IN, timestamp du OUT
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeAbsencePartialNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerAbsencePartialNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, employeeId, sessionDate, missingType])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("absence_partial_notification_logs")
+}
+
+model AbsenceTechnicalNotificationLog {
+  id          String   @id @default(uuid())
+  createdAt   DateTime @default(now())
+  tenantId    String
+  employeeId  String
+  managerId   String
+  anomalyId   String // ID de l'anomalie AttendanceAnomaly
+  sessionDate DateTime @db.Date
+  sentAt      DateTime @default(now())
+  reason      String // Description du problème technique
+
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  employee User   @relation("EmployeeAbsenceTechnicalNotifications", fields: [employeeId], references: [id], onDelete: Cascade)
+  manager  User   @relation("ManagerAbsenceTechnicalNotifications", fields: [managerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, anomalyId])
+  @@index([tenantId, sentAt])
+  @@index([employeeId])
+  @@index([managerId])
+  @@map("absence_technical_notification_logs")
+}
+
+// ============================================
+// EMAIL ADMIN MODULE
+// ============================================
+
+model EmailConfig {
+  id       String @id @default(uuid())
+  tenantId String @unique
+
+  // Activation globale
+  enabled Boolean @default(false)
+
+  // Activation par type de notification
+  notifyMissingIn         Boolean @default(true)
+  notifyMissingOut        Boolean @default(true)
+  notifyLate              Boolean @default(true)
+  notifyAbsencePartial    Boolean @default(true)
+  notifyAbsenceTechnical  Boolean @default(true)
+  notifyAbsence           Boolean @default(true)
+
+  // Configuration SMTP
+  provider String  @default("gmail") // gmail, smtp, sendgrid, etc.
+  host     String  @default("smtp.gmail.com")
+  port     Int     @default(587)
+  secure   Boolean @default(false)
+
+  // Authentification (encrypted)
+  username String?
+  password String? // WARNING: À chiffrer en production
+
+  // Expéditeur
+  fromName  String  @default("PointaFlex")
+  fromEmail String?
+
+  // Métadonnées
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("email_configs")
+}
+
+model EmailTemplate {
+  id       String @id @default(uuid())
+  tenantId String
+
+  // Identification
+  code        String // "MISSING_OUT", "MISSING_IN", "CUSTOM_1", etc.
+  name        String // Nom affiché dans l'UI
+  description String?
+
+  // Contenu
+  subject     String
+  htmlContent String @db.Text
+
+  // Variables disponibles (JSON array)
+  variables Json // ["managerName", "employeeName", "sessionDate", ...]
+
+  // Type
+  category String @default("notification") // notification, alert, report
+
+  // État
+  active    Boolean @default(true)
+  isDefault Boolean @default(false) // Template système vs personnalisé
+
+  // Métadonnées
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  emailLogs EmailLog[]
+
+  @@unique([tenantId, code])
+  @@map("email_templates")
+}
+
+model EmailLog {
+  id       String @id @default(uuid())
+  tenantId String
+
+  // Destinataire
+  to  String
+  cc  String?
+  bcc String?
+
+  // Contenu
+  subject String
+
+  // Type et contexte
+  type       String // "MISSING_OUT", "MISSING_IN", "CUSTOM", "TEST"
+  templateId String?
+
+  // Métadonnées d'envoi
+  sentAt DateTime @default(now())
+  status String   @default("sent") // sent, failed, queued
+  error  String?  @db.Text
+
+  // Contexte métier
+  employeeId String?
+  managerId  String?
+
+  // Relations
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  employee User?          @relation("EmployeeEmailLogs", fields: [employeeId], references: [id], onDelete: SetNull)
+  manager  User?          @relation("ManagerEmailLogs", fields: [managerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, sentAt])
+  @@index([tenantId, type])
+  @@map("email_logs")
 }
 
 // Enum LegacyRole : gardé pour compatibilité avec l'ancien système
