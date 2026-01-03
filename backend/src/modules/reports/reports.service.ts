@@ -521,7 +521,15 @@ export class ReportsService {
       const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
-      const absent = totalTeamEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
+
+      // Calcul correct des absences basé sur les schedules
+      const attendanceEmployeeIds = new Set(dayAttendance.map(a => a.employeeId));
+      const absent = await this.calculateAbsencesForDay(
+        empTenantId,
+        teamEmployeeIds,
+        date,
+        attendanceEmployeeIds,
+      );
 
       last7Days.push({
         day: dayNames[date.getDay()],
@@ -735,7 +743,15 @@ export class ReportsService {
       });
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
-      const absent = totalDepartmentEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
+
+      // Calcul correct des absences basé sur les schedules
+      const attendanceEmployeeIds = new Set(dayAttendance.map(a => a.employeeId));
+      const absent = await this.calculateAbsencesForDay(
+        tenantId,
+        departmentEmployeeIds,
+        date,
+        attendanceEmployeeIds,
+      );
 
       last7Days.push({
         day: dayNames[date.getDay()],
@@ -1235,6 +1251,13 @@ export class ReportsService {
       where: { tenantId, isActive: true },
     });
 
+    // Récupérer les IDs des employés actifs pour le calcul des absences
+    const allActiveEmployees = await this.prisma.employee.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true },
+    });
+    const allActiveEmployeeIds = allActiveEmployees.map(e => e.id);
+
     // Active employees today (with attendance)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1375,7 +1398,15 @@ export class ReportsService {
       const dayAttendance = attendanceByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
-      const absent = totalEmployees - new Set(dayAttendance.map(a => a.employeeId)).size;
+
+      // Calcul correct des absences basé sur les schedules
+      const attendanceEmployeeIds = new Set(dayAttendance.map(a => a.employeeId));
+      const absent = await this.calculateAbsencesForDay(
+        tenantId,
+        allActiveEmployeeIds,
+        date,
+        attendanceEmployeeIds,
+      );
 
       last7Days.push({
         day: dayNames[date.getDay()],
@@ -2622,5 +2653,132 @@ export class ReportsService {
       filters: item.filters,
       user: item.user,
     }));
+  }
+
+  /**
+   * Calcule le nombre d'absences pour un jour donné en tenant compte des schedules
+   *
+   * Logique:
+   * 1. Récupère les employés avec schedules PUBLISHED pour le jour
+   * 2. Vérifie si le shift est terminé (fin du shift + buffer)
+   * 3. Exclut les employés en congé approuvé
+   * 4. Compte ceux qui n'ont pas de pointage IN
+   *
+   * @param tenantId - ID du tenant
+   * @param employeeIds - Liste des IDs des employés à vérifier
+   * @param date - Date du jour à vérifier
+   * @param attendanceEmployeeIds - Set des IDs des employés ayant pointé IN
+   * @returns Nombre d'absences
+   */
+  private async calculateAbsencesForDay(
+    tenantId: string,
+    employeeIds: string[],
+    date: Date,
+    attendanceEmployeeIds: Set<string>,
+  ): Promise<number> {
+    const now = new Date();
+    const bufferMinutes = 60; // Buffer par défaut après fin du shift
+
+
+    // Début et fin de la journée
+    const startOfDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const endOfDay = new Date(startOfDay);
+    endOfDay.setUTCDate(endOfDay.getUTCDate() + 1);
+    endOfDay.setUTCMilliseconds(-1);
+
+    // 1. Récupérer les schedules PUBLISHED pour ce jour et ces employés
+    const schedules = await this.prisma.schedule.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: employeeIds },
+        date: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+        status: 'PUBLISHED',
+        suspendedByLeaveId: null, // Exclure schedules suspendus par congé
+      },
+      include: {
+        shift: true,
+        employee: {
+          select: { id: true, userId: true },
+        },
+      },
+    });
+
+    if (schedules.length === 0) {
+      return 0; // Pas de schedules = pas d'absences à détecter
+    }
+
+    // 2. Récupérer les congés approuvés pour ce jour
+    const approvedLeaves = await this.prisma.leave.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: employeeIds },
+        status: LeaveStatus.APPROVED,
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+      select: { employeeId: true },
+    });
+    const employeesOnLeave = new Set(approvedLeaves.map(l => l.employeeId));
+
+    // 3. Récupérer les récupérations approuvées pour ce jour
+    const approvedRecoveries = await this.prisma.recoveryDay.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: employeeIds },
+        status: RecoveryDayStatus.APPROVED,
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+      select: { employeeId: true },
+    });
+    const employeesOnRecovery = new Set(approvedRecoveries.map(r => r.employeeId));
+
+    let absenceCount = 0;
+
+    for (const schedule of schedules) {
+      const employeeId = schedule.employeeId;
+
+      // Exclure si en congé ou récupération
+      if (employeesOnLeave.has(employeeId) || employeesOnRecovery.has(employeeId)) {
+        continue;
+      }
+
+      // Vérifier si le shift est terminé (seulement pour les jours passés ou si shift terminé)
+      const shiftEndTime = schedule.customEndTime || schedule.shift?.endTime || '18:00';
+      const [endHour, endMinute] = shiftEndTime.split(':').map(Number);
+
+      // Créer la date de fin du shift
+      const shiftEndDate = new Date(date);
+      shiftEndDate.setHours(endHour, endMinute, 0, 0);
+
+      // Ajouter le buffer
+      const detectionTime = new Date(shiftEndDate.getTime() + bufferMinutes * 60 * 1000);
+
+      // Gérer les shifts de nuit
+      const shiftStartTime = schedule.customStartTime || schedule.shift?.startTime || '08:00';
+      const [startHour] = shiftStartTime.split(':').map(Number);
+      const isNightShift = endHour < startHour;
+
+      // Pour les jours passés, on considère le shift comme terminé
+      // IMPORTANT: Utiliser les dates locales pour la comparaison (pas UTC)
+      const dateLocal = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const nowLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const isDateInPast = dateLocal.getTime() < nowLocal.getTime();
+
+      // Si c'est aujourd'hui et le shift n'est pas terminé, ne pas compter comme absent
+      if (!isDateInPast && now < detectionTime && !isNightShift) {
+        continue;
+      }
+
+      // Vérifier si l'employé a pointé IN
+      if (!attendanceEmployeeIds.has(employeeId)) {
+        absenceCount++;
+      }
+    }
+
+    return absenceCount;
   }
 }

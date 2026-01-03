@@ -325,10 +325,12 @@ async function detectAnomalyForRecord(
 
           const dayType = isWorkingDay ? 'jour ouvrable' : 'weekend';
 
+          // UNPLANNED_PUNCH : Pointage effectué sans planning existant
+          // (différent de ABSENCE qui signifie "pas de pointage alors qu'un planning existe")
           return {
             hasAnomaly: true,
-            type: 'ABSENCE',
-            note: `Absence détectée pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (${dayType}) : ` +
+            type: 'UNPLANNED_PUNCH',
+            note: `Pointage non planifié pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (${dayType}) : ` +
                    `aucun planning publié, aucun shift par défaut assigné, et aucun congé/récupération approuvé. ` +
                    `Veuillez créer un planning ou assigner un shift par défaut.`,
           };
@@ -404,10 +406,12 @@ async function detectAnomalyForRecord(
 
           const dayType = isWorkingDay ? 'jour ouvrable' : 'weekend';
 
+          // UNPLANNED_PUNCH : Pointage effectué sans planning existant
+          // (différent de ABSENCE qui signifie "pas de pointage alors qu'un planning existe")
           return {
             hasAnomaly: true,
-            type: 'ABSENCE',
-            note: `Absence détectée pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (${dayType}) : ` +
+            type: 'UNPLANNED_PUNCH',
+            note: `Pointage non planifié pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (${dayType}) : ` +
                    `aucun planning publié, aucun shift par défaut assigné, et aucun congé/récupération approuvé. ` +
                    `Veuillez créer un planning ou assigner un shift par défaut.`,
           };

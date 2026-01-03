@@ -279,6 +279,7 @@ export default function AttendancePage() {
       ABSENCE: { label: 'Absence', color: 'bg-red-100 text-red-800' },
       ABSENCE_PARTIAL: { label: 'Absence partielle', color: 'bg-orange-100 text-orange-800' },
       ABSENCE_TECHNICAL: { label: 'Absence technique', color: 'bg-blue-100 text-blue-800' },
+      UNPLANNED_PUNCH: { label: 'Pointage non planifié', color: 'bg-slate-100 text-slate-800' },
       INSUFFICIENT_REST: { label: 'Repos insuffisant', color: 'bg-amber-100 text-amber-800' },
       JOUR_FERIE_TRAVAILLE: { label: 'Jour férié travaillé', color: 'bg-blue-100 text-blue-800' },
       WEEKEND_WORK_UNAUTHORIZED: { label: 'Travail weekend non autorisé', color: 'bg-red-100 text-red-800' },
@@ -369,10 +370,10 @@ export default function AttendancePage() {
         record.employee?.departmentId === selectedDepartment;
 
       // Filtre par type d'anomalie (côté client)
+      // Si un type spécifique est sélectionné, ne montrer QUE les records avec ce type d'anomalie
       const matchesAnomalyType =
         selectedAnomalyType === 'all' ||
-        !record.hasAnomaly ||
-        record.anomalyType === selectedAnomalyType;
+        (record.hasAnomaly && record.anomalyType === selectedAnomalyType);
 
       // Filtre par source (côté client)
       const matchesSource =
@@ -689,6 +690,7 @@ export default function AttendancePage() {
                           <SelectItem value="ABSENCE">Absence</SelectItem>
                           <SelectItem value="ABSENCE_PARTIAL">Absence partielle</SelectItem>
                           <SelectItem value="ABSENCE_TECHNICAL">Absence technique</SelectItem>
+                          <SelectItem value="UNPLANNED_PUNCH">Pointage non planifié</SelectItem>
                           <SelectItem value="INSUFFICIENT_REST">Repos insuffisant</SelectItem>
                         </SelectContent>
                       </Select>

@@ -799,8 +799,15 @@ export class AttendanceService {
       return true;
     }
 
-    // 2. Anomalie de type ABSENCE ou INSUFFICIENT_REST
-    if (attendance.anomalyType === 'ABSENCE' || attendance.anomalyType === 'INSUFFICIENT_REST') {
+    // 2. Anomalie de type ABSENCE, UNPLANNED_PUNCH ou INSUFFICIENT_REST
+    // - ABSENCE : pas de pointage alors qu'un planning existe
+    // - UNPLANNED_PUNCH : pointage effectué sans planning existant
+    // - INSUFFICIENT_REST : repos insuffisant entre shifts
+    if (
+      attendance.anomalyType === 'ABSENCE' ||
+      attendance.anomalyType === 'UNPLANNED_PUNCH' ||
+      attendance.anomalyType === 'INSUFFICIENT_REST'
+    ) {
       return true;
     }
 
@@ -1161,13 +1168,42 @@ export class AttendanceService {
 
     // Calculer les heures travaillées si c'est une sortie
     if (type === AttendanceType.OUT) {
-      const inRecord = todayRecords.find(r => r.type === AttendanceType.IN);
+      // IMPORTANT: Trouver le IN correspondant (pas forcément le premier!)
+      // Utiliser le même algorithme que dans calculateMetrics avancé
+      const sortedRecords = [...todayRecords].sort((a, b) =>
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      let inRecord: typeof todayRecords[0] | undefined;
+      let outCount = 0;
+
+      for (let i = sortedRecords.length - 1; i >= 0; i--) {
+        const record = sortedRecords[i];
+
+        if (record.timestamp.getTime() > timestamp.getTime()) continue;
+        if (record.type === AttendanceType.BREAK_START || record.type === AttendanceType.BREAK_END) continue;
+
+        if (record.type === AttendanceType.OUT) {
+          outCount++;
+        }
+
+        if (record.type === AttendanceType.IN) {
+          if (outCount === 0) {
+            inRecord = record;
+            break;
+          } else {
+            outCount--;
+          }
+        }
+      }
+
       if (inRecord) {
         // Calculer les heures brutes
         let hoursWorked = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60 * 60);
 
         // Déduire la pause du shift si applicable
-        const schedule = await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
+        // IMPORTANT: Utiliser le timestamp du IN pour trouver le bon shift!
+        const schedule = await this.getScheduleWithFallback(tenantId, employeeId, inRecord.timestamp);
         if (schedule?.shift?.breakDuration) {
           const breakHours = schedule.shift.breakDuration / 60;
           hoursWorked = Math.max(0, hoursWorked - breakHours);
@@ -1228,8 +1264,37 @@ export class AttendanceService {
 
     // Calculer le départ anticipé si c'est une sortie (SAUF si l'employé est en congé approuvé)
     if (type === AttendanceType.OUT && !isOnApprovedLeave) {
-      // Utiliser la fonction helper avec fallback vers currentShiftId
-      const schedule = await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
+      // IMPORTANT: Trouver d'abord le IN correspondant pour utiliser le bon shift
+      const sortedRecordsForEarly = [...todayRecords].sort((a, b) =>
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      let inRecordForEarly: typeof todayRecords[0] | undefined;
+      let outCountForEarly = 0;
+
+      for (let i = sortedRecordsForEarly.length - 1; i >= 0; i--) {
+        const record = sortedRecordsForEarly[i];
+        if (record.timestamp.getTime() > timestamp.getTime()) continue;
+        if (record.type === AttendanceType.BREAK_START || record.type === AttendanceType.BREAK_END) continue;
+
+        if (record.type === AttendanceType.OUT) {
+          outCountForEarly++;
+        }
+
+        if (record.type === AttendanceType.IN) {
+          if (outCountForEarly === 0) {
+            inRecordForEarly = record;
+            break;
+          } else {
+            outCountForEarly--;
+          }
+        }
+      }
+
+      // Utiliser le timestamp du IN correspondant pour trouver le bon shift!
+      const schedule = inRecordForEarly
+        ? await this.getScheduleWithFallback(tenantId, employeeId, inRecordForEarly.timestamp)
+        : await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
 
       if (schedule?.shift) {
         const expectedEndTime = this.parseTimeString(
@@ -1295,7 +1360,74 @@ export class AttendanceService {
 
     // Calculer les heures supplémentaires si c'est une sortie
     if (type === AttendanceType.OUT) {
-      const inRecord = todayRecords.find(r => r.type === AttendanceType.IN);
+      console.log(`\n🔍 ===== DEBUG CALCUL HEURES POUR OUT =====`);
+      console.log(`📍 OUT timestamp: ${timestamp.toISOString()}`);
+      console.log(`📋 todayRecords (${todayRecords.length} records):`);
+      todayRecords.forEach((r, i) => {
+        console.log(`  ${i}: ${r.type} à ${r.timestamp.toISOString()}`);
+      });
+
+      // IMPORTANT: Trouver le IN correspondant à ce OUT spécifique
+      // Règle métier: Un OUT ferme UNE session (la dernière session ouverte)
+      // Si un employé a plusieurs shifts le même jour, il y aura plusieurs paires IN/OUT
+
+      // Trier les pointages par timestamp (plus anciens d'abord)
+      const sortedRecords = [...todayRecords].sort((a, b) =>
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      console.log(`🔍 Recherche du IN correspondant:`);
+      // Trouver le IN qui correspond à ce OUT
+      // Parcourir en arrière depuis le OUT actuel
+      let inRecord: typeof todayRecords[0] | undefined;
+      let outCount = 0;
+
+      for (let i = sortedRecords.length - 1; i >= 0; i--) {
+        const record = sortedRecords[i];
+
+        console.log(`  i=${i}: ${record.type} à ${record.timestamp.toISOString()}, outCount=${outCount}`);
+
+        // Arrêter si on dépasse l'heure du OUT actuel
+        if (record.timestamp.getTime() > timestamp.getTime()) {
+          console.log(`    ⏩ Skip (après OUT)`);
+          continue;
+        }
+
+        // Ignorer les BREAK (BREAK ≠ OUT)
+        if (record.type === AttendanceType.BREAK_START || record.type === AttendanceType.BREAK_END) {
+          console.log(`    ⏩ Skip (BREAK)`);
+          continue;
+        }
+
+        // Si on trouve un OUT, augmenter le compteur
+        if (record.type === AttendanceType.OUT) {
+          outCount++;
+          console.log(`    📤 OUT → outCount = ${outCount}`);
+        }
+
+        // Si on trouve un IN
+        if (record.type === AttendanceType.IN) {
+          if (outCount === 0) {
+            // C'est le IN qu'on cherche!
+            inRecord = record;
+            console.log(`    ✅ IN TROUVÉ!`);
+            break;
+          } else {
+            // Ce IN correspond à un autre OUT, décrémenter
+            outCount--;
+            console.log(`    ⏩ IN autre session → outCount = ${outCount}`);
+          }
+        }
+      }
+
+      if (inRecord) {
+        console.log(`\n✅ IN correspondant: ${inRecord.timestamp.toISOString()}`);
+        const durationMin = (timestamp.getTime() - inRecord.timestamp.getTime()) / (1000 * 60);
+        console.log(`⏱️  Durée brute: ${durationMin.toFixed(2)} min = ${(durationMin / 60).toFixed(2)} h`);
+      } else {
+        console.log(`\n❌ AUCUN IN trouvé!`);
+      }
+
       if (inRecord) {
         // Récupérer la configuration du tenant (CRITIQUE pour le calcul de la pause et majoration jours fériés)
         const settings = await this.prisma.tenantSettings.findUnique({
@@ -1311,7 +1443,8 @@ export class AttendanceService {
         });
 
         // Utiliser la fonction helper avec fallback vers currentShiftId
-        const schedule = await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
+        // IMPORTANT: Pour un OUT, utiliser le timestamp du IN correspondant pour trouver le bon shift
+        const schedule = await this.getScheduleWithFallback(tenantId, employeeId, inRecord.timestamp);
 
         if (schedule?.shift) {
           // 1. Calculer les heures travaillées brutes
@@ -1538,8 +1671,9 @@ export class AttendanceService {
 
     console.log(`[getScheduleWithFallback] Recherche de planning pour la date exacte: ${dateOnly.toISOString()}`);
 
-    // 1. Chercher d'abord un schedule existant (PUBLISHED uniquement, pas SUSPENDED_BY_LEAVE)
-    const schedule = await this.prisma.schedule.findFirst({
+    // 1. Chercher TOUS les schedules existants pour cette date (PUBLISHED uniquement)
+    // IMPORTANT: Un employé peut avoir plusieurs shifts le même jour!
+    const schedules = await this.prisma.schedule.findMany({
       where: {
         tenantId,
         employeeId,
@@ -1556,12 +1690,59 @@ export class AttendanceService {
           },
         },
       },
+      orderBy: {
+        shift: {
+          startTime: 'asc', // Trier par heure de début
+        },
+      },
     });
 
-    // 2. Si un schedule existe, le retourner
-    if (schedule) {
-      console.log(`[getScheduleWithFallback] ✅ Planning physique trouvé: ${schedule.shift.startTime} - ${schedule.shift.endTime}`);
-      return schedule as any;
+    // 2. Si des schedules existent, trouver le plus proche de l'heure du pointage
+    if (schedules.length > 0) {
+      if (schedules.length === 1) {
+        console.log(`[getScheduleWithFallback] ✅ Un seul planning physique trouvé: ${schedules[0].shift.startTime} - ${schedules[0].shift.endTime}`);
+        return schedules[0] as any;
+      }
+
+      // Multiple shifts le même jour - trouver le plus proche
+      console.log(`[getScheduleWithFallback] ⚠️ ${schedules.length} plannings trouvés pour cette date - sélection du plus proche de l'heure du pointage`);
+
+      const attendanceHour = date.getUTCHours();
+      const attendanceMinutes = date.getUTCMinutes();
+      const attendanceTimeInMinutes = attendanceHour * 60 + attendanceMinutes;
+
+      let closestSchedule = schedules[0];
+      let smallestDifference = Infinity;
+
+      // Récupérer le timezone du tenant pour calculer correctement
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { timezone: true },
+      });
+      const timezoneOffset = this.getTimezoneOffset(tenant?.timezone || 'UTC');
+
+      for (const schedule of schedules) {
+        const startTime = this.parseTimeString(
+          schedule.customStartTime || schedule.shift.startTime,
+        );
+
+        // Convertir l'heure de début du shift en minutes UTC
+        const shiftStartInMinutesLocal = startTime.hours * 60 + startTime.minutes;
+        const shiftStartInMinutesUTC = shiftStartInMinutesLocal - (timezoneOffset * 60);
+
+        // Calculer la différence absolue
+        const difference = Math.abs(attendanceTimeInMinutes - shiftStartInMinutesUTC);
+
+        console.log(`  - Shift ${schedule.shift.startTime}: différence = ${difference} minutes`);
+
+        if (difference < smallestDifference) {
+          smallestDifference = difference;
+          closestSchedule = schedule;
+        }
+      }
+
+      console.log(`[getScheduleWithFallback] ✅ Planning le plus proche sélectionné: ${closestSchedule.shift.startTime} - ${closestSchedule.shift.endTime} (différence: ${smallestDifference} min)`);
+      return closestSchedule as any;
     }
 
     console.log(`[getScheduleWithFallback] ❌ Aucun planning physique trouvé pour cette date`);
@@ -2044,16 +2225,16 @@ export class AttendanceService {
     }
 
     // 1.2 Gestion des Shifts Multiples - Vérifier si plusieurs shifts sont prévus
-    // Note: Actuellement, le schéma ne permet qu'un seul schedule par jour (contrainte unique)
-    // Mais on peut vérifier si le système évolue pour permettre plusieurs shifts
+    // Note: Le système supporte maintenant plusieurs schedules par jour (contrainte: employeeId + date + shiftId)
+    // Un employé peut avoir plusieurs shifts le même jour (ex: MI JOUR 08:00-12:00, MI SOIR 14:00-18:00)
     const schedule = await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
-    
-    // Pour l'instant, on vérifie simplement s'il y a déjà un IN aujourd'hui
+
+    // Vérifier s'il y a déjà un IN aujourd'hui
     if (todayInRecords.length > 0) {
-      // Vérifier si le IN précédent correspond à un shift différent
-      // (Cette logique sera étendue quand le système permettra plusieurs shifts par jour)
-      
-      // Pour l'instant, on considère comme DOUBLE_IN si pas de OUT entre les deux IN
+      // Règle métier: Un IN est valide s'il y a un OUT entre le dernier IN et le nouveau IN
+      // Cela permet de supporter les multiples shifts par jour (IN1, OUT1, IN2, OUT2)
+
+      // Considérer comme DOUBLE_IN seulement si pas de OUT entre les deux IN
       const lastIn = todayInRecords[todayInRecords.length - 1];
       const hasOutBetween = todayRecords.some(
         r => r.type === AttendanceType.OUT && 
@@ -3334,10 +3515,12 @@ export class AttendanceService {
               };
             }
 
+            // UNPLANNED_PUNCH : Pointage effectué sans planning existant
+            // (différent de ABSENCE qui signifie "pas de pointage alors qu'un planning existe")
             return {
               hasAnomaly: true,
-              type: 'ABSENCE',
-              note: `Absence détectée pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (jour ouvrable - ${dayName}) : ` +
+              type: 'UNPLANNED_PUNCH',
+              note: `Pointage non planifié pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (jour ouvrable - ${dayName}) : ` +
                      `aucun planning publié, aucun shift par défaut assigné, et aucun congé/récupération approuvé. ` +
                      `Veuillez créer un planning ou assigner un shift par défaut.`,
             };
@@ -3348,8 +3531,49 @@ export class AttendanceService {
 
     // Vérifier départ anticipé
     if (type === AttendanceType.OUT) {
-      // Utiliser la fonction helper avec fallback vers currentShiftId
-      const schedule = await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
+      // IMPORTANT: Trouver le IN correspondant pour utiliser le bon shift
+      const todayRecordsForDetect = await this.prisma.attendance.findMany({
+        where: {
+          tenantId,
+          employeeId,
+          timestamp: {
+            gte: new Date(Date.UTC(timestamp.getUTCFullYear(), timestamp.getUTCMonth(), timestamp.getUTCDate(), 0, 0, 0)),
+            lte: new Date(Date.UTC(timestamp.getUTCFullYear(), timestamp.getUTCMonth(), timestamp.getUTCDate(), 23, 59, 59)),
+          },
+        },
+        orderBy: { timestamp: 'asc' },
+      });
+
+      const sortedRecordsDetect = [...todayRecordsForDetect].sort((a, b) =>
+        a.timestamp.getTime() - b.timestamp.getTime()
+      );
+
+      let inRecordDetect: typeof todayRecordsForDetect[0] | undefined;
+      let outCountDetect = 0;
+
+      for (let i = sortedRecordsDetect.length - 1; i >= 0; i--) {
+        const record = sortedRecordsDetect[i];
+        if (record.timestamp.getTime() > timestamp.getTime()) continue;
+        if (record.type === AttendanceType.BREAK_START || record.type === AttendanceType.BREAK_END) continue;
+
+        if (record.type === AttendanceType.OUT) {
+          outCountDetect++;
+        }
+
+        if (record.type === AttendanceType.IN) {
+          if (outCountDetect === 0) {
+            inRecordDetect = record;
+            break;
+          } else {
+            outCountDetect--;
+          }
+        }
+      }
+
+      // Utiliser le timestamp du IN correspondant pour trouver le bon shift!
+      const schedule = inRecordDetect
+        ? await this.getScheduleWithFallback(tenantId, employeeId, inRecordDetect.timestamp)
+        : await this.getScheduleWithFallback(tenantId, employeeId, timestamp);
 
       // Utiliser le schedule (physique ou virtuel) pour la détection
       if (schedule?.shift && (schedule.id === 'virtual' || schedule.status === 'PUBLISHED')) {
@@ -3486,10 +3710,12 @@ export class AttendanceService {
               };
             }
 
+            // UNPLANNED_PUNCH : Pointage effectué sans planning existant
+            // (différent de ABSENCE qui signifie "pas de pointage alors qu'un planning existe")
             return {
               hasAnomaly: true,
-              type: 'ABSENCE',
-              note: `Absence détectée pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (jour ouvrable - ${dayName}) : ` +
+              type: 'UNPLANNED_PUNCH',
+              note: `Pointage non planifié pour ${employeeName} le ${timestamp.toLocaleDateString('fr-FR')} (jour ouvrable - ${dayName}) : ` +
                      `aucun planning publié, aucun shift par défaut assigné, et aucun congé/récupération approuvé. ` +
                      `Veuillez créer un planning ou assigner un shift par défaut.`,
             };
