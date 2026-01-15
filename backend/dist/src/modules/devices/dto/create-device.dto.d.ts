@@ -7,4 +7,5 @@ export declare class CreateDeviceDto {
     apiKey?: string;
     siteId?: string;
     isActive?: boolean;
+    generateApiKey?: boolean;
 }

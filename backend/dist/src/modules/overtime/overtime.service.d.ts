@@ -222,4 +222,52 @@ export declare class OvertimeService {
         convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
         rejectionReason: string | null;
     }>;
+    getDashboardStats(tenantId: string, filters: {
+        startDate?: string;
+        endDate?: string;
+        siteId?: string;
+        departmentId?: string;
+    }, userId: string, userPermissions: string[]): Promise<{
+        summary: {
+            totalHours: number;
+            totalApprovedHours: number;
+            totalRecords: number;
+            pendingCount: number;
+            approvedCount: number;
+            rejectedCount: number;
+            paidCount: number;
+            recoveredCount: number;
+        };
+        byType: {
+            count: number;
+            hours: number;
+            type: string;
+        }[];
+        byStatus: {
+            count: number;
+            hours: number;
+            status: string;
+        }[];
+        topEmployees: {
+            hours: number;
+            name: string;
+            count: number;
+            id: string;
+        }[];
+        byDepartment: {
+            hours: number;
+            name: string;
+            count: number;
+            id: string;
+        }[];
+        trend: {
+            hours: number;
+            date: string;
+            count: number;
+        }[];
+    }>;
+    isEmployeeOnLeaveOrRecovery(tenantId: string, employeeId: string, date: Date): Promise<{
+        isOnLeave: boolean;
+        reason?: string;
+    }>;
 }

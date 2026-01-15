@@ -38,6 +38,9 @@ let ShiftsController = class ShiftsController {
     findOne(user, id) {
         return this.shiftsService.findOne(user.tenantId, id);
     }
+    getUsage(user, id) {
+        return this.shiftsService.getShiftUsage(user.tenantId, id);
+    }
     update(user, id, dto) {
         return this.shiftsService.update(user.tenantId, id, dto);
     }
@@ -77,6 +80,15 @@ __decorate([
     __metadata("design:paramtypes", [Object, String]),
     __metadata("design:returntype", void 0)
 ], ShiftsController.prototype, "findOne", null);
+__decorate([
+    (0, common_1.Get)(':id/usage'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get shift usage statistics' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], ShiftsController.prototype, "getUsage", null);
 __decorate([
     (0, common_1.Patch)(':id'),
     (0, roles_decorator_1.Roles)(client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),

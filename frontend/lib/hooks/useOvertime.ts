@@ -126,3 +126,16 @@ export function useDeleteOvertime() {
     },
   });
 }
+
+export function useOvertimeDashboardStats(filters?: {
+  startDate?: string;
+  endDate?: string;
+  siteId?: string;
+  departmentId?: string;
+}) {
+  return useQuery({
+    queryKey: ['overtime', 'dashboard', filters],
+    queryFn: () => overtimeApi.getDashboardStats(filters),
+    staleTime: 60000, // 1 minute
+  });
+}

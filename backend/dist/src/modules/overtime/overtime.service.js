@@ -164,6 +164,11 @@ let OvertimeService = class OvertimeService {
         if (employee.isEligibleForOvertime === false) {
             throw new common_1.BadRequestException('Cet employé n\'est pas éligible aux heures supplémentaires');
         }
+        const overtimeDate = new Date(dto.date);
+        const leaveCheck = await this.isEmployeeOnLeaveOrRecovery(tenantId, dto.employeeId, overtimeDate);
+        if (leaveCheck.isOnLeave) {
+            throw new common_1.BadRequestException(`Impossible de créer des heures supplémentaires : l'employé est ${leaveCheck.reason} pour cette date`);
+        }
         const settings = await this.prisma.tenantSettings.findUnique({
             where: { tenantId },
         });
@@ -705,6 +710,213 @@ let OvertimeService = class OvertimeService {
         return this.prisma.overtime.delete({
             where: { id },
         });
+    }
+    async getDashboardStats(tenantId, filters, userId, userPermissions) {
+        const where = { tenantId };
+        if (filters.startDate) {
+            where.date = { ...where.date, gte: new Date(filters.startDate) };
+        }
+        if (filters.endDate) {
+            where.date = { ...where.date, lte: new Date(filters.endDate) };
+        }
+        if (filters.siteId || filters.departmentId) {
+            where.employee = {};
+            if (filters.siteId) {
+                where.employee.siteId = filters.siteId;
+            }
+            if (filters.departmentId) {
+                where.employee.departmentId = filters.departmentId;
+            }
+        }
+        const hasViewAll = userPermissions.includes('overtime.view_all');
+        const hasViewDepartment = userPermissions.includes('overtime.view_department');
+        if (!hasViewAll) {
+            const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
+            const managedEmployeeIds = await (0, manager_level_util_1.getManagedEmployeeIds)(this.prisma, managerLevel, tenantId);
+            if (hasViewDepartment && managedEmployeeIds.length > 0) {
+                where.employeeId = { in: managedEmployeeIds };
+            }
+            else {
+                const employee = await this.prisma.employee.findFirst({
+                    where: { userId, tenantId },
+                    select: { id: true },
+                });
+                where.employeeId = employee?.id || 'none';
+            }
+        }
+        const overtimes = await this.prisma.overtime.findMany({
+            where,
+            include: {
+                employee: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        matricule: true,
+                        department: { select: { id: true, name: true } },
+                    },
+                },
+            },
+            orderBy: { date: 'asc' },
+        });
+        const summary = {
+            totalRecords: overtimes.length,
+            totalHours: 0,
+            totalApprovedHours: 0,
+            pendingCount: 0,
+            approvedCount: 0,
+            rejectedCount: 0,
+            paidCount: 0,
+            recoveredCount: 0,
+        };
+        const byType = {
+            STANDARD: { count: 0, hours: 0 },
+            NIGHT: { count: 0, hours: 0 },
+            HOLIDAY: { count: 0, hours: 0 },
+            EMERGENCY: { count: 0, hours: 0 },
+        };
+        const byStatus = {
+            PENDING: { count: 0, hours: 0 },
+            APPROVED: { count: 0, hours: 0 },
+            REJECTED: { count: 0, hours: 0 },
+            PAID: { count: 0, hours: 0 },
+            RECOVERED: { count: 0, hours: 0 },
+        };
+        const byEmployee = {};
+        const byDepartment = {};
+        const byDay = {};
+        for (const ot of overtimes) {
+            const hours = Number(ot.hours) || 0;
+            const approvedHours = Number(ot.approvedHours || ot.hours) || 0;
+            summary.totalHours += hours;
+            if (ot.status === 'APPROVED' || ot.status === 'PAID' || ot.status === 'RECOVERED') {
+                summary.totalApprovedHours += approvedHours;
+            }
+            switch (ot.status) {
+                case 'PENDING':
+                    summary.pendingCount++;
+                    break;
+                case 'APPROVED':
+                    summary.approvedCount++;
+                    break;
+                case 'REJECTED':
+                    summary.rejectedCount++;
+                    break;
+                case 'PAID':
+                    summary.paidCount++;
+                    break;
+                case 'RECOVERED':
+                    summary.recoveredCount++;
+                    break;
+            }
+            if (byType[ot.type]) {
+                byType[ot.type].count++;
+                byType[ot.type].hours += hours;
+            }
+            if (byStatus[ot.status]) {
+                byStatus[ot.status].count++;
+                byStatus[ot.status].hours += hours;
+            }
+            const empKey = ot.employeeId;
+            if (!byEmployee[empKey]) {
+                byEmployee[empKey] = {
+                    name: `${ot.employee.firstName} ${ot.employee.lastName}`,
+                    hours: 0,
+                    count: 0,
+                };
+            }
+            byEmployee[empKey].hours += hours;
+            byEmployee[empKey].count++;
+            const deptKey = ot.employee.department?.id || 'unknown';
+            const deptName = ot.employee.department?.name || 'Sans département';
+            if (!byDepartment[deptKey]) {
+                byDepartment[deptKey] = { name: deptName, hours: 0, count: 0 };
+            }
+            byDepartment[deptKey].hours += hours;
+            byDepartment[deptKey].count++;
+            const dateKey = ot.date.toISOString().split('T')[0];
+            if (!byDay[dateKey]) {
+                byDay[dateKey] = { date: dateKey, hours: 0, count: 0 };
+            }
+            byDay[dateKey].hours += hours;
+            byDay[dateKey].count++;
+        }
+        const typeData = Object.entries(byType)
+            .map(([type, data]) => ({ type, ...data }))
+            .filter(d => d.count > 0);
+        const statusData = Object.entries(byStatus)
+            .map(([status, data]) => ({ status, ...data }))
+            .filter(d => d.count > 0);
+        const employeeData = Object.entries(byEmployee)
+            .map(([id, data]) => ({ id, ...data }))
+            .sort((a, b) => b.hours - a.hours)
+            .slice(0, 10);
+        const departmentData = Object.entries(byDepartment)
+            .map(([id, data]) => ({ id, ...data }))
+            .sort((a, b) => b.hours - a.hours);
+        const trendData = Object.values(byDay).sort((a, b) => a.date.localeCompare(b.date));
+        return {
+            summary: {
+                ...summary,
+                totalHours: Math.round(summary.totalHours * 100) / 100,
+                totalApprovedHours: Math.round(summary.totalApprovedHours * 100) / 100,
+            },
+            byType: typeData,
+            byStatus: statusData,
+            topEmployees: employeeData.map(e => ({
+                ...e,
+                hours: Math.round(e.hours * 100) / 100,
+            })),
+            byDepartment: departmentData.map(d => ({
+                ...d,
+                hours: Math.round(d.hours * 100) / 100,
+            })),
+            trend: trendData.map(t => ({
+                ...t,
+                hours: Math.round(t.hours * 100) / 100,
+            })),
+        };
+    }
+    async isEmployeeOnLeaveOrRecovery(tenantId, employeeId, date) {
+        const approvedLeaveStatuses = [
+            client_1.LeaveStatus.APPROVED,
+            client_1.LeaveStatus.MANAGER_APPROVED,
+            client_1.LeaveStatus.HR_APPROVED,
+        ];
+        const leave = await this.prisma.leave.findFirst({
+            where: {
+                tenantId,
+                employeeId,
+                status: { in: approvedLeaveStatuses },
+                startDate: { lte: date },
+                endDate: { gte: date },
+            },
+            include: {
+                leaveType: { select: { name: true } },
+            },
+        });
+        if (leave) {
+            return {
+                isOnLeave: true,
+                reason: `en congé (${leave.leaveType.name})`,
+            };
+        }
+        const recoveryDay = await this.prisma.recoveryDay.findFirst({
+            where: {
+                tenantId,
+                employeeId,
+                status: { in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.USED] },
+                startDate: { lte: date },
+                endDate: { gte: date },
+            },
+        });
+        if (recoveryDay) {
+            return {
+                isOnLeave: true,
+                reason: 'en jour de récupération',
+            };
+        }
+        return { isOnLeave: false };
     }
 };
 exports.OvertimeService = OvertimeService;

@@ -28,6 +28,163 @@ let AttendanceService = class AttendanceService {
         const roundedMinutes = Math.round(totalMinutes / roundingMinutes) * roundingMinutes;
         return roundedMinutes / 60;
     }
+    getOvertimeRate(settings, overtimeType) {
+        const majorationEnabled = settings?.overtimeMajorationEnabled !== false;
+        if (!majorationEnabled)
+            return 1.0;
+        switch (overtimeType) {
+            case 'NIGHT':
+                return Number(settings?.overtimeRateNight ?? settings?.nightShiftRate ?? 1.50);
+            case 'HOLIDAY':
+                return Number(settings?.overtimeRateHoliday ?? settings?.holidayOvertimeRate ?? 2.00);
+            case 'EMERGENCY':
+                return Number(settings?.overtimeRateEmergency ?? 1.30);
+            case 'STANDARD':
+            default:
+                return Number(settings?.overtimeRateStandard ?? settings?.overtimeRate ?? 1.25);
+        }
+    }
+    isNightShiftTime(timestamp, settings) {
+        const nightStart = settings?.nightShiftStart || '21:00';
+        const nightEnd = settings?.nightShiftEnd || '06:00';
+        const [startHour, startMin] = nightStart.split(':').map(Number);
+        const [endHour, endMin] = nightEnd.split(':').map(Number);
+        const hour = timestamp.getHours();
+        const minute = timestamp.getMinutes();
+        const currentMinutes = hour * 60 + minute;
+        const startMinutes = startHour * 60 + startMin;
+        const endMinutes = endHour * 60 + endMin;
+        if (startMinutes > endMinutes) {
+            return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
+        }
+        return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+    }
+    async createAutoOvertime(tenantId, attendance, overtimeMinutes) {
+        try {
+            const settings = await this.prisma.tenantSettings.findUnique({
+                where: { tenantId },
+                select: {
+                    overtimeMinimumThreshold: true,
+                    overtimeAutoDetectType: true,
+                    nightShiftStart: true,
+                    nightShiftEnd: true,
+                    overtimeMajorationEnabled: true,
+                    overtimeRateStandard: true,
+                    overtimeRateNight: true,
+                    overtimeRateHoliday: true,
+                    overtimeRateEmergency: true,
+                    overtimeAutoApprove: true,
+                    overtimeAutoApproveMaxHours: true,
+                    overtimeRate: true,
+                    nightShiftRate: true,
+                },
+            });
+            const minimumThreshold = settings?.overtimeMinimumThreshold || 30;
+            if (overtimeMinutes <= minimumThreshold) {
+                console.log(`[AutoOvertime] ${overtimeMinutes}min <= seuil ${minimumThreshold}min, pas de création`);
+                return;
+            }
+            const employee = await this.prisma.employee.findUnique({
+                where: { id: attendance.employeeId },
+                select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    matricule: true,
+                    isEligibleForOvertime: true,
+                    maxOvertimeHoursPerMonth: true,
+                    maxOvertimeHoursPerWeek: true,
+                },
+            });
+            if (!employee || employee.isEligibleForOvertime === false) {
+                console.log(`[AutoOvertime] Employé non éligible: ${employee?.firstName} ${employee?.lastName}`);
+                return;
+            }
+            const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+            const approvedLeaveStatuses = [client_1.LeaveStatus.APPROVED, client_1.LeaveStatus.MANAGER_APPROVED, client_1.LeaveStatus.HR_APPROVED];
+            const leave = await this.prisma.leave.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    status: { in: approvedLeaveStatuses },
+                    startDate: { lte: attendanceDate },
+                    endDate: { gte: attendanceDate },
+                },
+            });
+            if (leave) {
+                console.log(`[AutoOvertime] Employé en congé, pas de création`);
+                return;
+            }
+            const recoveryDay = await this.prisma.recoveryDay.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    status: { in: ['APPROVED', 'USED'] },
+                    startDate: { lte: attendanceDate },
+                    endDate: { gte: attendanceDate },
+                },
+            });
+            if (recoveryDay) {
+                console.log(`[AutoOvertime] Employé en jour de récupération, pas de création`);
+                return;
+            }
+            const existingOvertime = await this.prisma.overtime.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    date: attendanceDate,
+                },
+            });
+            if (existingOvertime) {
+                console.log(`[AutoOvertime] Overtime existe déjà pour ${employee.firstName} ${employee.lastName} le ${attendanceDate.toISOString().split('T')[0]}`);
+                return;
+            }
+            const overtimeHours = overtimeMinutes / 60;
+            const autoDetectType = settings?.overtimeAutoDetectType !== false;
+            let overtimeType = 'STANDARD';
+            const dateStr = attendanceDate.toISOString().split('T')[0];
+            if (autoDetectType) {
+                const holiday = await this.prisma.holiday.findFirst({
+                    where: {
+                        tenantId,
+                        date: attendanceDate,
+                    },
+                });
+                if (holiday) {
+                    overtimeType = 'HOLIDAY';
+                }
+                else if (this.isNightShiftTime(attendance.timestamp, settings)) {
+                    overtimeType = 'NIGHT';
+                }
+            }
+            const rate = this.getOvertimeRate(settings, overtimeType);
+            const autoApprove = settings?.overtimeAutoApprove === true;
+            const autoApproveMaxHours = Number(settings?.overtimeAutoApproveMaxHours) || 4.0;
+            const shouldAutoApprove = autoApprove && overtimeHours <= autoApproveMaxHours;
+            const status = shouldAutoApprove ? client_1.OvertimeStatus.APPROVED : client_1.OvertimeStatus.PENDING;
+            const overtime = await this.prisma.overtime.create({
+                data: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    date: attendanceDate,
+                    hours: overtimeHours,
+                    approvedHours: shouldAutoApprove ? overtimeHours : null,
+                    type: overtimeType,
+                    rate,
+                    isNightShift: overtimeType === 'NIGHT',
+                    status,
+                    approvedAt: shouldAutoApprove ? new Date() : null,
+                    notes: `Créé automatiquement depuis pointage du ${attendance.timestamp.toLocaleDateString('fr-FR')}${overtimeType !== 'STANDARD' ? ` (${overtimeType})` : ''}${shouldAutoApprove ? ' - Auto-approuvé' : ''}`,
+                },
+            });
+            const statusEmoji = shouldAutoApprove ? '✅' : '⏳';
+            const statusText = shouldAutoApprove ? 'auto-approuvé' : 'en attente';
+            console.log(`[AutoOvertime] ${statusEmoji} Overtime ${statusText} créé pour ${employee.firstName} ${employee.lastName} (${employee.matricule}): ${overtimeHours.toFixed(2)}h de type ${overtimeType}`);
+        }
+        catch (error) {
+            console.error(`[AutoOvertime] Erreur lors de la création automatique:`, error);
+        }
+    }
     async create(tenantId, createAttendanceDto) {
         let attemptId = null;
         try {
@@ -70,6 +227,79 @@ let AttendanceService = class AttendanceService {
             }
             await this.validateBreakPunch(tenantId, createAttendanceDto.type);
             await this.validateScheduleOrShift(tenantId, createAttendanceDto.employeeId, new Date(createAttendanceDto.timestamp), createAttendanceDto.type);
+            const debounceSettings = await this.prisma.tenantSettings.findUnique({
+                where: { tenantId },
+                select: { doublePunchToleranceMinutes: true },
+            });
+            const DEBOUNCE_MINUTES = debounceSettings?.doublePunchToleranceMinutes ?? 4;
+            const punchTimestamp = new Date(createAttendanceDto.timestamp);
+            console.log(`🔍 [DEBOUNCE-DEBUG] tenantId: ${tenantId}`);
+            console.log(`🔍 [DEBOUNCE-DEBUG] employeeId: ${createAttendanceDto.employeeId}`);
+            console.log(`🔍 [DEBOUNCE-DEBUG] punchTimestamp: ${punchTimestamp.toISOString()}`);
+            console.log(`🔍 [DEBOUNCE-DEBUG] DEBOUNCE_MINUTES: ${DEBOUNCE_MINUTES}`);
+            const existingCount = await this.prisma.attendance.count({
+                where: { tenantId, employeeId: createAttendanceDto.employeeId },
+            });
+            console.log(`🔍 [DEBOUNCE-DEBUG] existingPunchCount: ${existingCount}`);
+            const lastPunch = await this.prisma.attendance.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: createAttendanceDto.employeeId,
+                    OR: [
+                        { anomalyType: null },
+                        { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+                    ],
+                },
+                orderBy: { timestamp: 'desc' },
+            });
+            console.log(`🔍 [DEBOUNCE-DEBUG] lastPunch: ${lastPunch ? lastPunch.timestamp.toISOString() : 'NULL'}`);
+            if (lastPunch) {
+                const diffMinutes = (punchTimestamp.getTime() - lastPunch.timestamp.getTime()) / (1000 * 60);
+                console.log(`🔍 [DEBOUNCE-DEBUG] diffMinutes: ${diffMinutes.toFixed(2)} (condition: >= 0 && < ${DEBOUNCE_MINUTES})`);
+                if (diffMinutes >= 0 && diffMinutes < DEBOUNCE_MINUTES) {
+                    console.log(`⚠️ [DEBOUNCE-MANUAL] Badge ignoré pour ${employee.matricule}: ${diffMinutes.toFixed(1)} min depuis le dernier (< ${DEBOUNCE_MINUTES} min)`);
+                    const debounceRecord = await this.prisma.attendance.create({
+                        data: {
+                            tenantId,
+                            employeeId: createAttendanceDto.employeeId,
+                            siteId: createAttendanceDto.siteId || null,
+                            deviceId: createAttendanceDto.deviceId || null,
+                            timestamp: punchTimestamp,
+                            type: createAttendanceDto.type,
+                            method: createAttendanceDto.method,
+                            hasAnomaly: true,
+                            anomalyType: 'DEBOUNCE_BLOCKED',
+                            anomalyNote: `Badge ignoré (anti-rebond manuel): ${diffMinutes.toFixed(1)} min depuis le dernier pointage (seuil: ${DEBOUNCE_MINUTES} min)`,
+                            rawData: {
+                                source: 'DEBOUNCE_LOG_MANUAL',
+                                blockedReason: 'DEBOUNCE',
+                                previousPunchId: lastPunch.id,
+                                threshold: DEBOUNCE_MINUTES,
+                                actualDiff: diffMinutes,
+                            },
+                        },
+                        include: {
+                            employee: {
+                                select: { id: true, matricule: true, firstName: true, lastName: true, photo: true },
+                            },
+                            site: true,
+                            device: true,
+                        },
+                    });
+                    console.log(`📋 [DEBOUNCE-MANUAL] Enregistrement informatif créé: ${debounceRecord.id}`);
+                    return {
+                        ...debounceRecord,
+                        _debounced: true,
+                        _debounceInfo: {
+                            reason: 'DEBOUNCE',
+                            message: `Pointage enregistré comme informatif: trop proche du précédent (${diffMinutes.toFixed(1)} min < ${DEBOUNCE_MINUTES} min)`,
+                            previousPunchId: lastPunch.id,
+                            previousPunchTime: lastPunch.timestamp,
+                            configuredTolerance: DEBOUNCE_MINUTES,
+                        },
+                    };
+                }
+            }
             const anomaly = await this.detectAnomalies(tenantId, createAttendanceDto.employeeId, new Date(createAttendanceDto.timestamp), createAttendanceDto.type);
             if (anomaly.isInformativeDoublePunch) {
                 console.log(`ℹ️ [INFORMATIF] ${anomaly.informativeNote} - Employé: ${createAttendanceDto.employeeId}`);
@@ -122,6 +352,36 @@ let AttendanceService = class AttendanceService {
             if (anomaly.hasAnomaly) {
                 await this.notifyManagersOfAnomaly(tenantId, attendance);
             }
+            if (createAttendanceDto.type === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
+                await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
+            }
+            if (createAttendanceDto.type === client_2.AttendanceType.OUT) {
+                const timestamp = new Date(createAttendanceDto.timestamp);
+                const startOfDay = new Date(timestamp);
+                startOfDay.setHours(0, 0, 0, 0);
+                const inWithMissingOut = await this.prisma.attendance.findFirst({
+                    where: {
+                        tenantId,
+                        employeeId: createAttendanceDto.employeeId,
+                        type: client_2.AttendanceType.IN,
+                        timestamp: { gte: startOfDay, lt: timestamp },
+                        hasAnomaly: true,
+                        anomalyType: 'MISSING_OUT',
+                    },
+                    orderBy: { timestamp: 'desc' },
+                });
+                if (inWithMissingOut) {
+                    await this.prisma.attendance.update({
+                        where: { id: inWithMissingOut.id },
+                        data: {
+                            hasAnomaly: false,
+                            anomalyType: null,
+                            anomalyNote: null,
+                        },
+                    });
+                    console.log(`✅ [Create] Anomalie MISSING_OUT effacée sur IN ${inWithMissingOut.id}`);
+                }
+            }
             return attendance;
         }
         catch (error) {
@@ -142,6 +402,299 @@ let AttendanceService = class AttendanceService {
             }
             throw error;
         }
+    }
+    async getPunchCountForDay(tenantId, employeeId, date, deviceId, apiKey, punchTime) {
+        if (deviceId) {
+            const device = await this.prisma.attendanceDevice.findFirst({
+                where: { deviceId, tenantId },
+                select: { id: true, apiKey: true },
+            });
+            if (!device) {
+                throw new Error(`Device ${deviceId} not found for tenant ${tenantId}`);
+            }
+            if (apiKey && device.apiKey && device.apiKey !== apiKey) {
+                throw new Error('Invalid API key');
+            }
+        }
+        const employee = await (0, matricule_util_1.findEmployeeByMatriculeFlexible)(this.prisma, tenantId, employeeId);
+        if (!employee) {
+            return { count: 0, forceType: null };
+        }
+        const nightShiftSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: {
+                nightShiftEnd: true,
+                nightShiftStart: true,
+            },
+        });
+        const nightShiftEndStr = nightShiftSettings?.nightShiftEnd || '06:00';
+        const [nightEndHour] = nightShiftEndStr.split(':').map(Number);
+        const NIGHT_SHIFT_MORNING_THRESHOLD = nightEndHour + 4;
+        const punchDateTime = punchTime ? new Date(punchTime) : null;
+        const punchHour = punchDateTime ? punchDateTime.getUTCHours() : null;
+        if (punchHour !== null && punchHour < NIGHT_SHIFT_MORNING_THRESHOLD) {
+            const yesterday = new Date(date);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            const startOfYesterday = new Date(`${yesterdayStr}T00:00:00.000Z`);
+            const endOfYesterday = new Date(`${yesterdayStr}T23:59:59.999Z`);
+            const lastInYesterday = await this.prisma.attendance.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    type: 'IN',
+                    timestamp: {
+                        gte: startOfYesterday,
+                        lte: endOfYesterday,
+                    },
+                },
+                orderBy: { timestamp: 'desc' },
+                include: {
+                    employee: {
+                        select: {
+                            currentShift: {
+                                select: { isNightShift: true, endTime: true },
+                            },
+                        },
+                    },
+                },
+            });
+            if (lastInYesterday) {
+                const matchingOut = await this.prisma.attendance.findFirst({
+                    where: {
+                        tenantId,
+                        employeeId: employee.id,
+                        type: 'OUT',
+                        timestamp: {
+                            gt: lastInYesterday.timestamp,
+                        },
+                    },
+                });
+                if (!matchingOut) {
+                    const isNightShiftEmployee = lastInYesterday.employee?.currentShift?.isNightShift === true;
+                    const inHour = lastInYesterday.timestamp.getUTCHours();
+                    const nightStartHour = parseInt((nightShiftSettings?.nightShiftStart || '21:00').split(':')[0]);
+                    const isLateInTime = inHour >= nightStartHour || inHour < nightEndHour;
+                    if (isNightShiftEmployee || isLateInTime) {
+                        console.log(`🌙 [NIGHT SHIFT] Session ouverte depuis ${lastInYesterday.timestamp.toISOString()} - Forçage OUT pour ${employee.matricule} [isNightShift: ${isNightShiftEmployee}, inHour: ${inHour}, nightEnd: ${nightShiftEndStr}]`);
+                        return {
+                            count: 1,
+                            forceType: 'OUT',
+                            reason: 'NIGHT_SHIFT_DETECTION',
+                            openSessionFrom: lastInYesterday.timestamp,
+                            nightShiftConfig: {
+                                nightShiftEnd: nightShiftEndStr,
+                                isNightShiftEmployee,
+                                inHour,
+                            },
+                        };
+                    }
+                }
+            }
+        }
+        const startOfDay = new Date(`${date}T00:00:00.000Z`);
+        const endOfDay = new Date(`${date}T23:59:59.999Z`);
+        const count = await this.prisma.attendance.count({
+            where: {
+                tenantId,
+                employeeId: employee.id,
+                timestamp: {
+                    gte: startOfDay,
+                    lte: endOfDay,
+                },
+            },
+        });
+        return { count, forceType: null };
+    }
+    async handleWebhookFast(tenantId, deviceId, webhookData, apiKey) {
+        const device = await this.prisma.attendanceDevice.findFirst({
+            where: { deviceId, tenantId },
+            select: { id: true, apiKey: true, siteId: true },
+        });
+        if (!device) {
+            throw new common_1.NotFoundException('Device not found');
+        }
+        if (device.apiKey && device.apiKey !== apiKey) {
+            throw new common_1.ForbiddenException('Invalid API Key');
+        }
+        let employee = await (0, matricule_util_1.findEmployeeByMatriculeFlexible)(this.prisma, tenantId, webhookData.employeeId);
+        if (!employee) {
+            throw new common_1.NotFoundException(`Employee ${webhookData.employeeId} not found`);
+        }
+        const punchTime = new Date(webhookData.timestamp);
+        const existingPunch = await this.prisma.attendance.findFirst({
+            where: {
+                tenantId,
+                employeeId: employee.id,
+                timestamp: punchTime,
+            },
+        });
+        if (existingPunch) {
+            return {
+                status: 'duplicate',
+                reason: 'EXACT_DUPLICATE',
+                message: `Pointage ignoré: un pointage identique existe déjà à ${punchTime.toISOString()}`,
+                existingAttendanceId: existingPunch.id,
+            };
+        }
+        const settings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: { doublePunchToleranceMinutes: true },
+        });
+        const DEBOUNCE_MINUTES = settings?.doublePunchToleranceMinutes ?? 2;
+        const lastPunch = await this.prisma.attendance.findFirst({
+            where: {
+                tenantId,
+                employeeId: employee.id,
+                NOT: { anomalyType: 'DEBOUNCE_BLOCKED' },
+            },
+            orderBy: { timestamp: 'desc' },
+            select: { timestamp: true, type: true },
+        });
+        if (lastPunch) {
+            const diffMinutes = (punchTime.getTime() - lastPunch.timestamp.getTime()) / 60000;
+            if (diffMinutes >= 0 && diffMinutes < DEBOUNCE_MINUTES) {
+                console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${diffMinutes.toFixed(1)} min depuis le dernier (< ${DEBOUNCE_MINUTES} min) [Config: ${DEBOUNCE_MINUTES} min]`);
+                const debounceRecord = await this.prisma.attendance.create({
+                    data: {
+                        tenantId,
+                        employeeId: employee.id,
+                        deviceId: device.id,
+                        siteId: device.siteId,
+                        timestamp: punchTime,
+                        type: webhookData.type,
+                        method: webhookData.method,
+                        hasAnomaly: true,
+                        anomalyType: 'DEBOUNCE_BLOCKED',
+                        anomalyNote: `Badge ignoré (anti-rebond): ${diffMinutes.toFixed(1)} min depuis le dernier pointage (seuil: ${DEBOUNCE_MINUTES} min)`,
+                        needsApproval: false,
+                        rawData: {
+                            source: 'DEBOUNCE_LOG',
+                            blockedReason: 'DEBOUNCE',
+                            timeSinceLastPunch: diffMinutes,
+                            threshold: DEBOUNCE_MINUTES,
+                            lastPunchTime: lastPunch.timestamp,
+                            lastPunchType: lastPunch.type,
+                        },
+                    },
+                });
+                console.log(`📋 [DEBOUNCE] Enregistrement informatif créé: ${debounceRecord.id}`);
+                return {
+                    status: 'logged_info',
+                    reason: 'DEBOUNCE',
+                    message: `Pointage enregistré comme informatif: trop proche du précédent (${diffMinutes.toFixed(1)} min < ${DEBOUNCE_MINUTES} min)`,
+                    attendanceId: debounceRecord.id,
+                    lastPunchTime: lastPunch.timestamp,
+                    lastPunchType: lastPunch.type,
+                    configuredTolerance: DEBOUNCE_MINUTES,
+                };
+            }
+        }
+        const getSourceFromMethod = (method) => {
+            switch (method) {
+                case client_2.DeviceType.FINGERPRINT:
+                case client_2.DeviceType.FACE_RECOGNITION:
+                case client_2.DeviceType.RFID_BADGE:
+                    return 'TERMINAL_ZKTECO';
+                case client_2.DeviceType.MOBILE_GPS:
+                    return 'MOBILE_APP';
+                case client_2.DeviceType.MANUAL:
+                    return 'MANUAL';
+                case client_2.DeviceType.QR_CODE:
+                case client_2.DeviceType.PIN_CODE:
+                    return 'TERMINAL_OTHER';
+                default:
+                    return 'UNKNOWN';
+            }
+        };
+        const standardizedRawData = {
+            source: getSourceFromMethod(webhookData.method),
+            originalData: webhookData.rawData || null,
+            inOutDetection: {
+                method: 'ALTERNATION',
+                receivedType: webhookData.type,
+                processedAt: new Date().toISOString(),
+            },
+            receivedAt: new Date().toISOString(),
+            deviceId: device.id,
+        };
+        const attendance = await this.prisma.attendance.create({
+            data: {
+                tenantId,
+                employeeId: employee.id,
+                deviceId: device.id,
+                siteId: device.siteId,
+                timestamp: new Date(webhookData.timestamp),
+                type: webhookData.type,
+                method: webhookData.method,
+                rawData: standardizedRawData,
+            },
+        });
+        this.prisma.attendanceDevice.update({
+            where: { id: device.id },
+            data: { lastSync: new Date() },
+        }).catch(() => { });
+        setImmediate(async () => {
+            try {
+                const metrics = await this.calculateMetrics(tenantId, employee.id, new Date(webhookData.timestamp), webhookData.type);
+                const anomaly = await this.detectAnomalies(tenantId, employee.id, new Date(webhookData.timestamp), webhookData.type);
+                const hasAnomalyFlag = anomaly?.hasAnomaly === true;
+                const anomalyTypeValue = hasAnomalyFlag ? anomaly.type : null;
+                await this.prisma.attendance.update({
+                    where: { id: attendance.id },
+                    data: {
+                        hoursWorked: metrics.hoursWorked,
+                        lateMinutes: metrics.lateMinutes,
+                        earlyLeaveMinutes: metrics.earlyLeaveMinutes,
+                        overtimeMinutes: metrics.overtimeMinutes,
+                        hasAnomaly: hasAnomalyFlag,
+                        anomalyType: anomalyTypeValue,
+                    },
+                });
+                if (webhookData.type === client_2.AttendanceType.OUT) {
+                    const timestamp = new Date(webhookData.timestamp);
+                    const startOfDay = new Date(timestamp);
+                    startOfDay.setHours(0, 0, 0, 0);
+                    const inWithMissingOut = await this.prisma.attendance.findFirst({
+                        where: {
+                            tenantId,
+                            employeeId: employee.id,
+                            type: client_2.AttendanceType.IN,
+                            timestamp: { gte: startOfDay, lt: timestamp },
+                            hasAnomaly: true,
+                            anomalyType: 'MISSING_OUT',
+                        },
+                        orderBy: { timestamp: 'desc' },
+                    });
+                    if (inWithMissingOut) {
+                        await this.prisma.attendance.update({
+                            where: { id: inWithMissingOut.id },
+                            data: {
+                                hasAnomaly: false,
+                                anomalyType: null,
+                                anomalyNote: null,
+                            },
+                        });
+                        console.log(`✅ [WebhookFast] Anomalie MISSING_OUT effacée sur IN ${inWithMissingOut.id} pour ${employee.matricule}`);
+                    }
+                }
+                console.log(`✅ [WebhookFast] Métriques calculées pour ${employee.matricule}`);
+            }
+            catch (error) {
+                console.error(`❌ [WebhookFast] Erreur calcul métriques:`, error.message);
+            }
+        });
+        return {
+            success: true,
+            attendanceId: attendance.id,
+            employee: {
+                id: employee.id,
+                matricule: employee.matricule,
+                name: `${employee.firstName} ${employee.lastName}`,
+            },
+            timestamp: webhookData.timestamp,
+            type: webhookData.type,
+        };
     }
     async handleWebhook(tenantId, deviceId, webhookData, apiKey) {
         const device = await this.prisma.attendanceDevice.findFirst({
@@ -196,6 +749,75 @@ let AttendanceService = class AttendanceService {
         if (!employee) {
             throw new common_1.NotFoundException(`Employee ${webhookData.employeeId} not found`);
         }
+        const punchTime = new Date(webhookData.timestamp);
+        const existingPunch = await this.prisma.attendance.findFirst({
+            where: {
+                tenantId,
+                employeeId: employee.id,
+                timestamp: punchTime,
+            },
+        });
+        if (existingPunch) {
+            return {
+                status: 'duplicate',
+                reason: 'EXACT_DUPLICATE',
+                message: `Pointage ignoré: un pointage identique existe déjà à ${punchTime.toISOString()}`,
+                existingAttendanceId: existingPunch.id,
+            };
+        }
+        const debounceSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: { doublePunchToleranceMinutes: true },
+        });
+        const DEBOUNCE_MINUTES = debounceSettings?.doublePunchToleranceMinutes ?? 2;
+        const lastPunch = await this.prisma.attendance.findFirst({
+            where: {
+                tenantId,
+                employeeId: employee.id,
+                NOT: { anomalyType: 'DEBOUNCE_BLOCKED' },
+            },
+            orderBy: { timestamp: 'desc' },
+            select: { timestamp: true, type: true },
+        });
+        if (lastPunch) {
+            const diffMinutes = (punchTime.getTime() - lastPunch.timestamp.getTime()) / 60000;
+            if (diffMinutes >= 0 && diffMinutes < DEBOUNCE_MINUTES) {
+                console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${diffMinutes.toFixed(1)} min depuis le dernier (< ${DEBOUNCE_MINUTES} min) [Config: ${DEBOUNCE_MINUTES} min]`);
+                const debounceRecord = await this.prisma.attendance.create({
+                    data: {
+                        tenantId,
+                        employeeId: employee.id,
+                        deviceId: device.id,
+                        siteId: device.siteId,
+                        timestamp: punchTime,
+                        type: webhookData.type,
+                        method: webhookData.method,
+                        hasAnomaly: true,
+                        anomalyType: 'DEBOUNCE_BLOCKED',
+                        anomalyNote: `Badge ignoré (anti-rebond): ${diffMinutes.toFixed(1)} min depuis le dernier pointage (seuil: ${DEBOUNCE_MINUTES} min)`,
+                        needsApproval: false,
+                        rawData: {
+                            source: 'DEBOUNCE_LOG',
+                            blockedReason: 'DEBOUNCE',
+                            timeSinceLastPunch: diffMinutes,
+                            threshold: DEBOUNCE_MINUTES,
+                            lastPunchTime: lastPunch.timestamp,
+                            lastPunchType: lastPunch.type,
+                        },
+                    },
+                });
+                console.log(`📋 [DEBOUNCE] Enregistrement informatif créé: ${debounceRecord.id}`);
+                return {
+                    status: 'logged_info',
+                    reason: 'DEBOUNCE',
+                    message: `Pointage enregistré comme informatif: trop proche du précédent (${diffMinutes.toFixed(1)} min < ${DEBOUNCE_MINUTES} min)`,
+                    attendanceId: debounceRecord.id,
+                    lastPunchTime: lastPunch.timestamp,
+                    lastPunchType: lastPunch.type,
+                    configuredTolerance: DEBOUNCE_MINUTES,
+                };
+            }
+        }
         await this.validateBreakPunch(tenantId, webhookData.type);
         const anomaly = await this.detectAnomalies(tenantId, employee.id, new Date(webhookData.timestamp), webhookData.type);
         if (anomaly.isInformativeDoublePunch) {
@@ -206,6 +828,34 @@ let AttendanceService = class AttendanceService {
             where: { id: device.id },
             data: { lastSync: new Date() },
         });
+        const getSourceFromMethodWebhook = (method) => {
+            switch (method) {
+                case client_2.DeviceType.FINGERPRINT:
+                case client_2.DeviceType.FACE_RECOGNITION:
+                case client_2.DeviceType.RFID_BADGE:
+                    return 'TERMINAL_ZKTECO';
+                case client_2.DeviceType.MOBILE_GPS:
+                    return 'MOBILE_APP';
+                case client_2.DeviceType.MANUAL:
+                    return 'MANUAL';
+                case client_2.DeviceType.QR_CODE:
+                case client_2.DeviceType.PIN_CODE:
+                    return 'TERMINAL_OTHER';
+                default:
+                    return 'UNKNOWN';
+            }
+        };
+        const standardizedRawDataWebhook = {
+            source: getSourceFromMethodWebhook(webhookData.method),
+            originalData: webhookData.rawData || null,
+            inOutDetection: {
+                method: 'ALTERNATION',
+                receivedType: webhookData.type,
+                processedAt: new Date().toISOString(),
+            },
+            receivedAt: new Date().toISOString(),
+            deviceId: device.id,
+        };
         const attendance = await this.prisma.attendance.create({
             data: {
                 tenantId,
@@ -215,7 +865,7 @@ let AttendanceService = class AttendanceService {
                 timestamp: new Date(webhookData.timestamp),
                 type: webhookData.type,
                 method: webhookData.method,
-                rawData: webhookData.rawData,
+                rawData: standardizedRawDataWebhook,
                 hasAnomaly: anomaly.hasAnomaly,
                 anomalyType: anomaly.type,
                 anomalyNote: anomaly.note,
@@ -255,15 +905,51 @@ let AttendanceService = class AttendanceService {
         if (anomaly.hasAnomaly) {
             await this.notifyManagersOfAnomaly(tenantId, attendance);
         }
+        if (webhookData.type === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
+            await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
+        }
+        if (webhookData.type === client_2.AttendanceType.OUT) {
+            const timestamp = new Date(webhookData.timestamp);
+            const startOfDay = new Date(timestamp);
+            startOfDay.setHours(0, 0, 0, 0);
+            const inWithMissingOut = await this.prisma.attendance.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: employee.id,
+                    type: client_2.AttendanceType.IN,
+                    timestamp: { gte: startOfDay, lt: timestamp },
+                    hasAnomaly: true,
+                    anomalyType: 'MISSING_OUT',
+                },
+                orderBy: { timestamp: 'desc' },
+            });
+            if (inWithMissingOut) {
+                await this.prisma.attendance.update({
+                    where: { id: inWithMissingOut.id },
+                    data: {
+                        hasAnomaly: false,
+                        anomalyType: null,
+                        anomalyNote: null,
+                    },
+                });
+                console.log(`✅ [Webhook] Anomalie MISSING_OUT effacée sur IN ${inWithMissingOut.id} pour ${employee.matricule}`);
+            }
+        }
         return attendance;
     }
     async findAll(tenantId, filters, userId, userPermissions) {
+        console.log('🔍 [findAll] =====================================');
+        console.log('🔍 [findAll] tenantId:', tenantId);
+        console.log('🔍 [findAll] filters:', JSON.stringify(filters));
+        console.log('🔍 [findAll] userId:', userId);
+        console.log('🔍 [findAll] userPermissions:', userPermissions);
         const where = { tenantId };
         const hasViewAll = userPermissions?.includes('attendance.view_all');
         const hasViewOwn = userPermissions?.includes('attendance.view_own');
         const hasViewTeam = userPermissions?.includes('attendance.view_team');
         const hasViewDepartment = userPermissions?.includes('attendance.view_department');
         const hasViewSite = userPermissions?.includes('attendance.view_site');
+        console.log('🔍 [findAll] Permissions - hasViewAll:', hasViewAll, 'hasViewOwn:', hasViewOwn);
         if (userId && !hasViewAll) {
             const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
             if (managerLevel.type === 'DEPARTMENT') {
@@ -319,22 +1005,30 @@ let AttendanceService = class AttendanceService {
             where.hasAnomaly = filters.hasAnomaly;
         if (filters?.type)
             where.type = filters.type;
+        where.OR = [
+            { anomalyType: null },
+            { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ];
         if (filters?.startDate || filters?.endDate) {
             where.timestamp = {};
             if (filters.startDate) {
-                where.timestamp.gte = new Date(filters.startDate);
+                where.timestamp.gte = new Date(filters.startDate + 'T00:00:00.000Z');
             }
             if (filters.endDate) {
-                const endDate = new Date(filters.endDate);
-                endDate.setHours(23, 59, 59, 999);
-                where.timestamp.lte = endDate;
+                where.timestamp.lte = new Date(filters.endDate + 'T23:59:59.999Z');
             }
         }
         const page = filters?.page || 1;
-        const limit = filters?.limit || 50;
+        const limit = filters?.limit || 500;
         const skip = (page - 1) * limit;
         const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
         const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+        console.log('🔍 [findAll] WHERE clause:', JSON.stringify(where, (key, value) => {
+            if (value instanceof Date)
+                return value.toISOString();
+            return value;
+        }, 2));
+        console.log('🔍 [findAll] Pagination - page:', page, 'limit:', maxLimit, 'skip:', skip);
         const [data, total] = await Promise.all([
             this.prisma.attendance.findMany({
                 where,
@@ -409,6 +1103,10 @@ let AttendanceService = class AttendanceService {
             }),
             this.prisma.attendance.count({ where }),
         ]);
+        console.log('🔍 [findAll] RESULTS - data.length:', data.length, 'total:', total);
+        if (data.length === 0 && total === 0) {
+            console.log('🔍 [findAll] ⚠️ AUCUN RÉSULTAT - Vérifiez la clause WHERE');
+        }
         const transformedData = data.map(record => ({
             ...record,
             hoursWorked: record.hoursWorked ? Number(record.hoursWorked) : null,
@@ -475,6 +1173,31 @@ let AttendanceService = class AttendanceService {
                 else {
                     throw new common_1.ForbiddenException('Vous n\'avez pas la permission de supprimer ce pointage');
                 }
+            }
+        }
+        if (attendance.type === client_2.AttendanceType.OUT && attendance.overtimeMinutes && attendance.overtimeMinutes > 0) {
+            const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+            const approvedOvertime = await this.prisma.overtime.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    date: attendanceDate,
+                    status: client_1.OvertimeStatus.APPROVED,
+                },
+            });
+            if (approvedOvertime) {
+                throw new common_1.BadRequestException(`Impossible de supprimer ce pointage : les heures supplémentaires associées (${approvedOvertime.hours.toFixed(2)}h) ont déjà été approuvées. Veuillez d'abord annuler l'approbation de l'overtime.`);
+            }
+            const deletedOvertime = await this.prisma.overtime.deleteMany({
+                where: {
+                    tenantId,
+                    employeeId: attendance.employeeId,
+                    date: attendanceDate,
+                    status: client_1.OvertimeStatus.PENDING,
+                },
+            });
+            if (deletedOvertime.count > 0) {
+                console.log(`[AutoOvertime] 🗑️ Overtime PENDING supprimé suite à la suppression du pointage OUT pour ${attendance.employee.firstName} ${attendance.employee.lastName}`);
             }
         }
         try {
@@ -566,9 +1289,17 @@ let AttendanceService = class AttendanceService {
         const newTimestamp = correctionDto.correctedTimestamp
             ? new Date(correctionDto.correctedTimestamp)
             : attendance.timestamp;
-        const anomaly = await this.detectAnomalies(tenantId, attendance.employeeId, newTimestamp, attendance.type);
-        if (anomaly.isInformativeDoublePunch) {
-            console.log(`ℹ️ [INFORMATIF] ${anomaly.informativeNote} - Employé: ${attendance.employeeId}`);
+        const timestampChanged = correctionDto.correctedTimestamp &&
+            new Date(correctionDto.correctedTimestamp).getTime() !== attendance.timestamp.getTime();
+        let finalHasAnomaly = attendance.hasAnomaly;
+        let finalAnomalyType = attendance.anomalyType;
+        if (timestampChanged) {
+            const anomaly = await this.detectAnomalies(tenantId, attendance.employeeId, newTimestamp, attendance.type);
+            if (anomaly.isInformativeDoublePunch) {
+                console.log(`ℹ️ [INFORMATIF] ${anomaly.informativeNote} - Employé: ${attendance.employeeId}`);
+            }
+            finalHasAnomaly = anomaly.hasAnomaly;
+            finalAnomalyType = anomaly.type;
         }
         const metrics = await this.calculateMetrics(tenantId, attendance.employeeId, newTimestamp, attendance.type);
         const isManagerCorrection = await this.isManagerCorrectingOthersAttendance(userId, attendance.employeeId, tenantId, userPermissions || []);
@@ -585,8 +1316,8 @@ let AttendanceService = class AttendanceService {
                 correctedAt: new Date(),
                 correctionNote: fullCorrectionNote,
                 timestamp: newTimestamp,
-                hasAnomaly: anomaly.hasAnomaly,
-                anomalyType: anomaly.type,
+                hasAnomaly: finalHasAnomaly,
+                anomalyType: finalAnomalyType,
                 hoursWorked: metrics.hoursWorked ? new library_1.Decimal(metrics.hoursWorked) : null,
                 lateMinutes: metrics.lateMinutes,
                 earlyLeaveMinutes: metrics.earlyLeaveMinutes,
@@ -610,6 +1341,9 @@ let AttendanceService = class AttendanceService {
         });
         if (isManagerCorrection && updatedAttendance.employee.userId) {
             await this.notifyEmployeeOfManagerCorrection(tenantId, updatedAttendance, correctorId, correctionDto.reasonCode, correctionDto.correctionNote);
+        }
+        if (attendance.type === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
+            await this.createAutoOvertime(tenantId, updatedAttendance, metrics.overtimeMinutes);
         }
         return updatedAttendance;
     }
@@ -869,6 +1603,108 @@ let AttendanceService = class AttendanceService {
             }
             return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
         });
+    }
+    async getAnomaliesPaginated(tenantId, filters, userId, userPermissions) {
+        const page = filters.page || 1;
+        const limit = Math.min(filters.limit || 20, 100);
+        const skip = (page - 1) * limit;
+        const where = {
+            tenantId,
+            OR: [
+                { hasAnomaly: true },
+                { isCorrected: true },
+            ],
+        };
+        if (filters.isCorrected !== undefined) {
+            if (filters.isCorrected) {
+                delete where.OR;
+                where.isCorrected = true;
+            }
+            else {
+                delete where.OR;
+                where.hasAnomaly = true;
+                where.isCorrected = false;
+            }
+        }
+        if (filters.startDate || filters.endDate) {
+            where.timestamp = {};
+            if (filters.startDate) {
+                where.timestamp.gte = new Date(filters.startDate + 'T00:00:00.000Z');
+            }
+            if (filters.endDate) {
+                where.timestamp.lte = new Date(filters.endDate + 'T23:59:59.999Z');
+            }
+        }
+        if (filters.employeeId) {
+            where.employeeId = filters.employeeId;
+        }
+        if (filters.anomalyType) {
+            where.anomalyType = filters.anomalyType;
+        }
+        if (filters.departmentId) {
+            where.employee = {
+                departmentId: filters.departmentId,
+            };
+        }
+        if (filters.siteId) {
+            where.siteId = filters.siteId;
+        }
+        const hasViewAll = userPermissions?.includes('attendance.view_all');
+        if (userId && !hasViewAll) {
+            const managerLevel = await (0, manager_level_util_1.getManagerLevel)(this.prisma, userId, tenantId);
+            if (managerLevel.type !== null) {
+                const managedEmployeeIds = await (0, manager_level_util_1.getManagedEmployeeIds)(this.prisma, managerLevel, tenantId);
+                if (managedEmployeeIds.length === 0) {
+                    return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+                }
+                where.employeeId = { in: managedEmployeeIds };
+            }
+            else if (userPermissions?.includes('attendance.view_own')) {
+                const employee = await this.prisma.employee.findFirst({
+                    where: { userId, tenantId },
+                    select: { id: true },
+                });
+                if (employee) {
+                    where.employeeId = employee.id;
+                }
+                else {
+                    return { data: [], meta: { total: 0, page, limit, totalPages: 0 } };
+                }
+            }
+        }
+        const [total, anomalies] = await Promise.all([
+            this.prisma.attendance.count({ where }),
+            this.prisma.attendance.findMany({
+                where,
+                include: {
+                    employee: {
+                        select: {
+                            id: true,
+                            matricule: true,
+                            firstName: true,
+                            lastName: true,
+                            photo: true,
+                            site: { select: { id: true, name: true } },
+                            department: { select: { id: true, name: true } },
+                        },
+                    },
+                    site: true,
+                },
+                orderBy: { timestamp: 'desc' },
+                skip,
+                take: limit,
+            }),
+        ]);
+        const totalPages = Math.ceil(total / limit);
+        return {
+            data: anomalies,
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages,
+            },
+        };
     }
     async getDailyReport(tenantId, date) {
         const startOfDay = new Date(date);
@@ -1256,6 +2092,7 @@ let AttendanceService = class AttendanceService {
                         startTime: true,
                         endTime: true,
                         breakDuration: true,
+                        breakStartTime: true,
                     },
                 },
             },
@@ -1314,6 +2151,7 @@ let AttendanceService = class AttendanceService {
                             startTime: true,
                             endTime: true,
                             breakDuration: true,
+                            breakStartTime: true,
                         },
                     },
                 },
@@ -1343,6 +2181,7 @@ let AttendanceService = class AttendanceService {
                         startTime: true,
                         endTime: true,
                         breakDuration: true,
+                        breakStartTime: true,
                     },
                 },
             },
@@ -1972,6 +2811,8 @@ let AttendanceService = class AttendanceService {
         };
     }
     async detectMissingOutImproved(tenantId, employeeId, timestamp, todayRecords) {
+        console.log(`[detectMissingOutImproved] Détection temps réel désactivée - le job batch s'en charge`);
+        return { hasAnomaly: false };
         const settings = await this.prisma.tenantSettings.findUnique({
             where: { tenantId },
             select: {
@@ -2030,6 +2871,7 @@ let AttendanceService = class AttendanceService {
         if (openSessions.length === 0) {
             return { hasAnomaly: false };
         }
+        let anySessionPastShiftEnd = false;
         for (const session of openSessions) {
             const inSchedule = await this.getScheduleWithFallback(tenantId, employeeId, session.inRecord.timestamp);
             if (inSchedule?.shift) {
@@ -2041,7 +2883,9 @@ let AttendanceService = class AttendanceService {
                     expectedEnd.setDate(expectedEnd.getDate() + 1);
                 }
                 const hoursAfterShiftEnd = (new Date().getTime() - expectedEnd.getTime()) / (1000 * 60 * 60);
+                console.log(`[detectMissingOut] Session ${session.inRecord.id}: hoursAfterShiftEnd=${hoursAfterShiftEnd.toFixed(2)}, expectedEnd=${expectedEnd.toISOString()}`);
                 if (hoursAfterShiftEnd > 2) {
+                    anySessionPastShiftEnd = true;
                     return {
                         hasAnomaly: true,
                         type: 'MISSING_OUT',
@@ -2056,6 +2900,17 @@ let AttendanceService = class AttendanceService {
                         },
                     };
                 }
+                else {
+                    console.log(`[detectMissingOut] Session ${session.inRecord.id}: Shift pas encore terminé + 2h → pas d'anomalie`);
+                }
+            }
+        }
+        if (!anySessionPastShiftEnd && openSessions.length > 0) {
+            const lastSession = openSessions[openSessions.length - 1];
+            const lastSchedule = await this.getScheduleWithFallback(tenantId, employeeId, lastSession.inRecord.timestamp);
+            if (lastSchedule?.shift) {
+                console.log(`[detectMissingOut] Toutes les sessions sont dans la période normale → pas d'anomalie MISSING_OUT`);
+                return { hasAnomaly: false };
             }
         }
         const employee = await this.prisma.employee.findUnique({
@@ -2430,12 +3285,44 @@ let AttendanceService = class AttendanceService {
                     select: {
                         lateToleranceEntry: true,
                         absencePartialThreshold: true,
+                        allowImplicitBreaks: true,
+                        minImplicitBreakMinutes: true,
+                        maxImplicitBreakMinutes: true,
                     },
                 });
                 const toleranceMinutes = settings?.lateToleranceEntry || 10;
                 const absenceThreshold = settings?.absencePartialThreshold || 2;
                 const lateHours = (timestamp.getTime() - expectedStart.getTime()) / (1000 * 60 * 60);
                 const lateMinutes = (timestamp.getTime() - expectedStart.getTime()) / (1000 * 60);
+                const allowImplicitBreaks = settings?.allowImplicitBreaks ?? true;
+                const minBreakMinutes = settings?.minImplicitBreakMinutes ?? 15;
+                const maxBreakMinutes = settings?.maxImplicitBreakMinutes ?? 180;
+                if (allowImplicitBreaks && lateMinutes > toleranceMinutes) {
+                    const recentOut = await this.prisma.attendance.findFirst({
+                        where: {
+                            tenantId,
+                            employeeId,
+                            type: client_2.AttendanceType.OUT,
+                            timestamp: {
+                                gte: new Date(timestamp.getTime() - maxBreakMinutes * 60 * 1000),
+                                lte: new Date(timestamp.getTime() - minBreakMinutes * 60 * 1000),
+                            },
+                        },
+                        orderBy: { timestamp: 'desc' },
+                    });
+                    if (recentOut) {
+                        const breakDurationMinutes = (timestamp.getTime() - recentOut.timestamp.getTime()) / 60000;
+                        console.log(`✅ [detectAnomalies] Pause implicite détectée pour employé ${employeeId}: OUT à ${recentOut.timestamp.toLocaleTimeString('fr-FR')} → IN à ${timestamp.toLocaleTimeString('fr-FR')} (${breakDurationMinutes.toFixed(0)} min)`);
+                        if (recentOut.hasAnomaly && recentOut.anomalyType === 'EARLY_LEAVE') {
+                            console.log(`🧹 [detectAnomalies] Nettoyage anomalie EARLY_LEAVE sur OUT ${recentOut.id} (c'était une pause)`);
+                            await this.prisma.attendance.update({
+                                where: { id: recentOut.id },
+                                data: { hasAnomaly: false, anomalyType: null, anomalyNote: null },
+                            });
+                        }
+                        return { hasAnomaly: false };
+                    }
+                }
                 if (lateHours >= absenceThreshold) {
                     return {
                         hasAnomaly: true,
@@ -2562,16 +3449,70 @@ let AttendanceService = class AttendanceService {
                 }
                 const settings = await this.prisma.tenantSettings.findUnique({
                     where: { tenantId },
-                    select: { earlyToleranceExit: true },
+                    select: {
+                        earlyToleranceExit: true,
+                        requireBreakPunch: true,
+                        allowImplicitBreaks: true,
+                    },
                 });
                 const toleranceMinutes = settings?.earlyToleranceExit || 5;
                 const earlyLeaveMinutes = (expectedEnd.getTime() - timestamp.getTime()) / (1000 * 60);
                 if (earlyLeaveMinutes > toleranceMinutes) {
-                    return {
-                        hasAnomaly: true,
-                        type: 'EARLY_LEAVE',
-                        note: `Départ anticipé de ${Math.round(earlyLeaveMinutes)} minutes détecté`,
-                    };
+                    const requireBreakPunch = settings?.requireBreakPunch ?? false;
+                    const allowImplicitBreaks = settings?.allowImplicitBreaks ?? true;
+                    if (!requireBreakPunch && allowImplicitBreaks) {
+                        const breakDuration = schedule.shift.breakDuration || 60;
+                        const breakStartTimeStr = schedule.shift.breakStartTime;
+                        let breakWindowStart;
+                        let breakWindowEnd;
+                        if (breakStartTimeStr) {
+                            const breakStartParsed = this.parseTimeString(breakStartTimeStr);
+                            breakWindowStart = breakStartParsed.hours * 60 + breakStartParsed.minutes;
+                            breakWindowEnd = breakWindowStart + breakDuration;
+                            breakWindowStart -= 30;
+                            breakWindowEnd += 30;
+                        }
+                        else {
+                            const shiftStartTime = this.parseTimeString(schedule.customStartTime || schedule.shift.startTime);
+                            let shiftStartMinutes = shiftStartTime.hours * 60 + shiftStartTime.minutes;
+                            let shiftEndMinutes = expectedEndTime.hours * 60 + expectedEndTime.minutes;
+                            if (shiftEndMinutes < shiftStartMinutes) {
+                                shiftEndMinutes += 24 * 60;
+                            }
+                            const shiftMiddle = shiftStartMinutes + Math.floor((shiftEndMinutes - shiftStartMinutes) / 2);
+                            breakWindowStart = shiftMiddle - Math.floor(breakDuration / 2) - 30;
+                            breakWindowEnd = shiftMiddle + Math.floor(breakDuration / 2) + 30;
+                        }
+                        breakWindowStart = ((breakWindowStart % (24 * 60)) + (24 * 60)) % (24 * 60);
+                        breakWindowEnd = ((breakWindowEnd % (24 * 60)) + (24 * 60)) % (24 * 60);
+                        const outTimeInMinutes = timestamp.getHours() * 60 + timestamp.getMinutes();
+                        let isInBreakWindow = false;
+                        if (breakWindowStart <= breakWindowEnd) {
+                            isInBreakWindow = outTimeInMinutes >= breakWindowStart && outTimeInMinutes <= breakWindowEnd;
+                        }
+                        else {
+                            isInBreakWindow = outTimeInMinutes >= breakWindowStart || outTimeInMinutes <= breakWindowEnd;
+                        }
+                        if (isInBreakWindow) {
+                            const breakStartFormatted = `${Math.floor(breakWindowStart / 60).toString().padStart(2, '0')}:${(breakWindowStart % 60).toString().padStart(2, '0')}`;
+                            const breakEndFormatted = `${Math.floor(breakWindowEnd / 60).toString().padStart(2, '0')}:${(breakWindowEnd % 60).toString().padStart(2, '0')}`;
+                            console.log(`⏸️ [detectAnomalies] OUT à ${timestamp.toLocaleTimeString('fr-FR')} dans fenêtre pause shift (${breakStartFormatted}-${breakEndFormatted}) - EARLY_LEAVE non détecté`);
+                        }
+                        else {
+                            return {
+                                hasAnomaly: true,
+                                type: 'EARLY_LEAVE',
+                                note: `Départ anticipé de ${Math.round(earlyLeaveMinutes)} minutes détecté`,
+                            };
+                        }
+                    }
+                    else {
+                        return {
+                            hasAnomaly: true,
+                            type: 'EARLY_LEAVE',
+                            note: `Départ anticipé de ${Math.round(earlyLeaveMinutes)} minutes détecté`,
+                        };
+                    }
                 }
             }
             else if (!schedule) {
@@ -3095,12 +4036,10 @@ let AttendanceService = class AttendanceService {
         if (filters.startDate || filters.endDate) {
             where.timestamp = {};
             if (filters.startDate) {
-                where.timestamp.gte = new Date(filters.startDate);
+                where.timestamp.gte = new Date(filters.startDate + 'T00:00:00.000Z');
             }
             if (filters.endDate) {
-                const endDate = new Date(filters.endDate);
-                endDate.setHours(23, 59, 59, 999);
-                where.timestamp.lte = endDate;
+                where.timestamp.lte = new Date(filters.endDate + 'T23:59:59.999Z');
             }
         }
         const anomalies = await this.prisma.attendance.findMany({
@@ -3400,9 +4339,8 @@ let AttendanceService = class AttendanceService {
         });
     }
     async getAnomaliesAnalytics(tenantId, startDate, endDate, filters) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
-        end.setHours(23, 59, 59, 999);
+        const start = new Date(startDate + 'T00:00:00.000Z');
+        const end = new Date(endDate + 'T23:59:59.999Z');
         const where = {
             tenantId,
             hasAnomaly: true,

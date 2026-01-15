@@ -22,12 +22,14 @@ __decorate([
     __metadata("design:type", String)
 ], BulkCorrectionItemDto.prototype, "attendanceId", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Nouveau timestamp corrigé (optionnel)' }),
+    (0, swagger_1.ApiProperty)({ description: 'Nouveau timestamp corrigé (optionnel)', required: false }),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], BulkCorrectionItemDto.prototype, "correctedTimestamp", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'Note de correction spécifique pour ce pointage' }),
+    (0, swagger_1.ApiProperty)({ description: 'Note de correction spécifique pour ce pointage', required: false }),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], BulkCorrectionItemDto.prototype, "correctionNote", void 0);
@@ -47,12 +49,15 @@ __decorate([
     __metadata("design:type", String)
 ], BulkCorrectAttendanceDto.prototype, "generalNote", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ description: 'ID de l\'utilisateur qui corrige' }),
+    (0, swagger_1.ApiProperty)({ description: 'ID de l\'utilisateur qui corrige (ajouté automatiquement par le controller)', required: false }),
+    (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], BulkCorrectAttendanceDto.prototype, "correctedBy", void 0);
 __decorate([
     (0, swagger_1.ApiProperty)({ description: 'Forcer la correction sans approbation (admin seulement)', required: false }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], BulkCorrectAttendanceDto.prototype, "forceApproval", void 0);
 //# sourceMappingURL=bulk-correct.dto.js.map

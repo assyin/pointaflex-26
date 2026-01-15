@@ -58,43 +58,75 @@ export class EmployeesService {
    * Génère un matricule temporaire unique
    */
   private async generateTemporaryMatricule(tenantId: string): Promise<string> {
-    // Trouver le dernier matricule temporaire
-    const lastTemp = await this.prisma.employee.findFirst({
-      where: {
-        tenantId,
-        matricule: {
-          startsWith: 'TEMP-',
+    // Trouver le dernier matricule temporaire dans Employee ET TerminalMatriculeMapping
+    const [lastTempEmployee, lastTempMapping] = await Promise.all([
+      this.prisma.employee.findFirst({
+        where: {
+          tenantId,
+          matricule: {
+            startsWith: 'TEMP-',
+          },
         },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+        orderBy: {
+          matricule: 'desc',
+        },
+      }),
+      this.prisma.terminalMatriculeMapping.findFirst({
+        where: {
+          tenantId,
+          terminalMatricule: {
+            startsWith: 'TEMP-',
+          },
+        },
+        orderBy: {
+          terminalMatricule: 'desc',
+        },
+      }),
+    ]);
 
     let nextNumber = 1;
-    if (lastTemp) {
-      // Extraire le numéro du dernier matricule temporaire
-      const match = lastTemp.matricule.match(/TEMP-(\d+)/);
+
+    // Extraire le numéro max des deux tables
+    if (lastTempEmployee) {
+      const match = lastTempEmployee.matricule.match(/TEMP-(\d+)/);
       if (match) {
-        nextNumber = parseInt(match[1], 10) + 1;
+        nextNumber = Math.max(nextNumber, parseInt(match[1], 10) + 1);
+      }
+    }
+    if (lastTempMapping) {
+      const match = lastTempMapping.terminalMatricule.match(/TEMP-(\d+)/);
+      if (match) {
+        nextNumber = Math.max(nextNumber, parseInt(match[1], 10) + 1);
       }
     }
 
     // Générer le nouveau matricule temporaire
     let tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
 
-    // Vérifier l'unicité
+    // Vérifier l'unicité dans les deux tables
     let counter = 0;
-    while (
-      await this.prisma.employee.findUnique({
-        where: {
-          tenantId_matricule: {
-            tenantId,
-            matricule: tempMatricule,
+    while (true) {
+      const [existsInEmployee, existsInMapping] = await Promise.all([
+        this.prisma.employee.findUnique({
+          where: {
+            tenantId_matricule: {
+              tenantId,
+              matricule: tempMatricule,
+            },
           },
-        },
-      })
-    ) {
+        }),
+        this.prisma.terminalMatriculeMapping.findFirst({
+          where: {
+            tenantId,
+            terminalMatricule: tempMatricule,
+          },
+        }),
+      ]);
+
+      if (!existsInEmployee && !existsInMapping) {
+        break; // Matricule unique trouvé
+      }
+
       nextNumber++;
       tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
       counter++;
@@ -699,12 +731,12 @@ export class EmployeesService {
 
     // Pagination par défaut pour améliorer les performances
     const page = filters?.page || 1;
-    const limit = filters?.limit || 50; // Limite par défaut de 50 éléments
+    const limit = filters?.limit || 500; // Limite par défaut de 500 éléments (augmenté pour imports)
     const skip = (page - 1) * limit;
 
-    // Si pas de pagination demandée explicitement, limiter quand même à 1000 pour éviter les problèmes de performance
+    // Si pas de pagination demandée explicitement, limiter quand même à 2000 pour éviter les problèmes de performance
     const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
-    const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+    const maxLimit = shouldPaginate ? limit : Math.min(limit, 2000);
 
     const [data, total] = await Promise.all([
       this.prisma.employee.findMany({
@@ -1079,6 +1111,8 @@ export class EmployeesService {
       failed: 0,
       errors: [],
       imported: [],
+      logs: [], // Nouveau: logs des actions effectuées
+      totalToProcess: 0, // Nouveau: total à traiter
     };
 
     try {
@@ -1091,8 +1125,10 @@ export class EmployeesService {
       const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
       // Skip header row
-      const dataRows = rows.slice(1);
+      const dataRows = rows.slice(1).filter((row: any) => row && row.length > 0 && row[0]);
 
+      result.totalToProcess = dataRows.length;
+      result.logs.push({ type: 'info', message: `📊 Début de l'import: ${dataRows.length} employés à traiter`, timestamp: new Date().toISOString() });
       console.log(`📊 Import started: ${dataRows.length} employees to process`);
 
       // Process each row
@@ -1101,10 +1137,6 @@ export class EmployeesService {
         const rowNumber = i + 2; // +2 because of header and 0-index
 
         try {
-          // Skip empty rows
-          if (!row || row.length === 0 || !row[0]) {
-            continue;
-          }
 
           // Parse row data (based on Excel structure)
           const matricule = String(row[0] || '').trim();
@@ -1128,6 +1160,15 @@ export class EmployeesService {
           const category = String(row[17] || '').trim();
           const position = String(row[18] || '').trim();
           const phone = String(row[19] || '').trim();
+
+          // ========== NOUVELLES COLONNES (20-25) ==========
+          const emailFromFile = row[20] ? String(row[20]).trim() : undefined;
+          const shiftName = row[21] ? String(row[21]).trim() : undefined;
+          const teamName = row[22] ? String(row[22]).trim() : undefined;
+          const isEligibleOvertimeStr = row[23] ? String(row[23]).toUpperCase().trim() : '';
+          const isEligibleForOvertime = isEligibleOvertimeStr === 'NON' ? false : true; // Default: true
+          const maxOvertimeHoursPerMonth = row[24] ? parseFloat(String(row[24])) : undefined;
+          const rfidBadge = row[25] ? String(row[25]).trim() : undefined;
 
           // Validate required fields
           if (!matricule || !firstName || !lastName) {
@@ -1162,6 +1203,7 @@ export class EmployeesService {
                   name: region,
                 },
               });
+              result.logs.push({ type: 'site', message: `📍 Nouveau site créé: ${region}`, timestamp: new Date().toISOString() });
               console.log(`📍 Created site from region: ${region}`);
             }
 
@@ -1186,6 +1228,7 @@ export class EmployeesService {
                   name: department,
                 },
               });
+              result.logs.push({ type: 'department', message: `📁 Nouveau département créé: ${department}`, timestamp: new Date().toISOString() });
               console.log(`📁 Created department: ${department}`);
             }
 
@@ -1211,10 +1254,64 @@ export class EmployeesService {
                   category: category || undefined,
                 },
               });
+              result.logs.push({ type: 'position', message: `💼 Nouvelle fonction créée: ${position}`, timestamp: new Date().toISOString() });
               console.log(`💼 Created position: ${position}`);
             }
 
             positionId = pos.id;
+          }
+
+          // ========== Handle Shift (nouvelles colonnes) ==========
+          let currentShiftId: string | undefined;
+          if (shiftName) {
+            // Chercher par nom OU par code (insensible à la casse)
+            const shift = await this.prisma.shift.findFirst({
+              where: {
+                tenantId,
+                OR: [
+                  { name: { equals: shiftName, mode: 'insensitive' } },
+                  { code: { equals: shiftName, mode: 'insensitive' } },
+                ],
+              },
+            });
+
+            if (shift) {
+              currentShiftId = shift.id;
+              result.logs.push({ type: 'info', message: `🕐 Shift assigné: ${shift.name} (${shift.code})`, timestamp: new Date().toISOString() });
+            } else {
+              result.logs.push({ type: 'warning', message: `⚠️ Shift non trouvé: ${shiftName} (ignoré)`, timestamp: new Date().toISOString() });
+              console.log(`⚠️ Shift non trouvé: ${shiftName} (ignoré)`);
+            }
+          }
+
+          // ========== Handle Team (nouvelles colonnes) ==========
+          let teamId: string | undefined;
+          if (teamName) {
+            let team = await this.prisma.team.findFirst({
+              where: {
+                tenantId,
+                name: teamName,
+              },
+            });
+
+            if (!team) {
+              // Create team automatically with generated code
+              const teamCode = teamName
+                .toUpperCase()
+                .replace(/[^A-Z0-9]/g, '')
+                .substring(0, 10);
+              team = await this.prisma.team.create({
+                data: {
+                  tenantId,
+                  name: teamName,
+                  code: teamCode || `TEAM${Date.now()}`,
+                },
+              });
+              result.logs.push({ type: 'team', message: `👥 Nouvelle équipe créée: ${teamName}`, timestamp: new Date().toISOString() });
+              console.log(`👥 Created team: ${teamName} (code: ${team.code})`);
+            }
+
+            teamId = team.id;
           }
 
           // Check if employee already exists
@@ -1234,7 +1331,7 @@ export class EmployeesService {
               data: {
                 firstName,
                 lastName,
-                email,
+                email: emailFromFile || email, // Priorité à l'email du fichier
                 phone: phone || undefined,
                 position: position || undefined, // Keep for compatibility
                 positionId: positionId || undefined, // New: relation to Position
@@ -1255,6 +1352,12 @@ export class EmployeesService {
                 region: region || undefined, // Keep as text field for compatibility
                 categorie: category || undefined,
                 isActive: true,
+                // ========== NOUVELLES COLONNES (20-25) ==========
+                currentShiftId: currentShiftId || existing.currentShiftId, // Ne pas écraser si non fourni
+                teamId: teamId || existing.teamId, // Ne pas écraser si non fourni
+                isEligibleForOvertime: isEligibleForOvertime,
+                maxOvertimeHoursPerMonth: maxOvertimeHoursPerMonth !== undefined ? maxOvertimeHoursPerMonth : existing.maxOvertimeHoursPerMonth,
+                rfidBadge: rfidBadge || existing.rfidBadge, // Ne pas écraser si non fourni
               },
             });
 
@@ -1268,7 +1371,7 @@ export class EmployeesService {
                 matricule,
                 firstName,
                 lastName,
-                email,
+                email: emailFromFile || email, // Priorité à l'email du fichier
                 phone: phone || undefined,
                 position: position || undefined, // Keep for compatibility
                 positionId: positionId || undefined, // New: relation to Position
@@ -1289,6 +1392,12 @@ export class EmployeesService {
                 region: region || undefined, // Keep as text field for compatibility
                 categorie: category || undefined,
                 isActive: true,
+                // ========== NOUVELLES COLONNES (20-25) ==========
+                currentShiftId: currentShiftId || undefined,
+                teamId: teamId || undefined,
+                isEligibleForOvertime: isEligibleForOvertime,
+                maxOvertimeHoursPerMonth: maxOvertimeHoursPerMonth || undefined,
+                rfidBadge: rfidBadge || undefined,
               },
             });
 
@@ -1305,6 +1414,7 @@ export class EmployeesService {
         }
       }
 
+      result.logs.push({ type: 'success', message: `✅ Import terminé: ${result.success} succès, ${result.failed} échec(s)`, timestamp: new Date().toISOString() });
       console.log(`✅ Import completed: ${result.success} success, ${result.failed} failed`);
 
       return result;

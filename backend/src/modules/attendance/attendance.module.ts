@@ -6,6 +6,7 @@ import { PrismaModule } from '../../database/prisma.module';
 import { MailModule } from '../mail/mail.module';
 import { DetectAbsencesJob } from './jobs/detect-absences.job';
 import { DetectMissingOutJob } from './jobs/detect-missing-out.job';
+import { AutoCloseSessionsJob } from './jobs/auto-close-sessions.job';
 import { MissingOutManagerNotificationJob } from './jobs/missing-out-manager-notification.job';
 import { MissingInManagerNotificationJob } from './jobs/missing-in-manager-notification.job';
 import { LateManagerNotificationJob } from './jobs/late-manager-notification.job';
@@ -20,6 +21,7 @@ import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical
     AttendanceService,
     DetectAbsencesJob,
     DetectMissingOutJob,
+    AutoCloseSessionsJob,
     MissingOutManagerNotificationJob,
     MissingInManagerNotificationJob,
     LateManagerNotificationJob,

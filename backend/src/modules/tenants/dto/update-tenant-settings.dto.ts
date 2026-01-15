@@ -202,6 +202,23 @@ export class UpdateTenantSettingsDto {
   overtimePendingNotificationTime?: string;
 
   @ApiPropertyOptional({
+    description: 'Activer l\'auto-approbation des heures supplémentaires',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  overtimeAutoApprove?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Seuil maximum d\'heures pour l\'auto-approbation (au-delà, approbation manuelle requise)',
+    example: 4.0,
+    default: 4.0,
+  })
+  @IsOptional()
+  @IsNumber()
+  overtimeAutoApproveMaxHours?: number;
+
+  @ApiPropertyOptional({
     description: 'Heure de début du shift de nuit (format HH:mm)',
     example: '21:00',
     default: '21:00',
@@ -524,6 +541,68 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsInt()
   doublePunchToleranceMinutes?: number;
+
+  // Pauses implicites
+  @ApiPropertyOptional({
+    description: 'Activer la tolérance des pauses implicites (OUT suivi de IN dans délai raisonnable)',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  allowImplicitBreaks?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Durée minimum en minutes pour considérer une pause implicite (défaut: 30 min)',
+    example: 30,
+    default: 30,
+  })
+  @IsOptional()
+  @IsInt()
+  minImplicitBreakMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Durée maximum en minutes pour considérer une pause implicite (défaut: 120 min)',
+    example: 120,
+    default: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  maxImplicitBreakMinutes?: number;
+
+  // Clôture automatique des sessions orphelines
+  @ApiPropertyOptional({
+    description: 'Activer la clôture automatique des sessions IN sans OUT (badge oublié)',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoCloseOrphanSessions?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Heure de clôture par défaut si pas de shift défini (format HH:mm)',
+    example: '23:59',
+    default: '23:59',
+  })
+  @IsOptional()
+  @IsString()
+  autoCloseDefaultTime?: string;
+
+  @ApiPropertyOptional({
+    description: 'Buffer en minutes à ajouter après fin de shift pour heures sup (0 = désactivé)',
+    example: 120,
+    default: 0,
+  })
+  @IsOptional()
+  @IsInt()
+  autoCloseOvertimeBuffer?: number;
+
+  @ApiPropertyOptional({
+    description: 'Vérifier si overtime approuvé existe avant clôture (ajuste l\'heure de sortie)',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  autoCloseCheckApprovedOvertime?: boolean;
 
   @ApiPropertyOptional({
     description: 'Activer la détection de patterns suspects DOUBLE_IN',

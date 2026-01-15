@@ -25,6 +25,8 @@ export declare class UpdateTenantSettingsDto {
     overtimeRateEmergency?: number;
     overtimeAutoDetectType?: boolean;
     overtimePendingNotificationTime?: string;
+    overtimeAutoApprove?: boolean;
+    overtimeAutoApproveMaxHours?: number;
     nightShiftStart?: string;
     nightShiftEnd?: string;
     alertWeeklyHoursExceeded?: boolean;
@@ -63,6 +65,13 @@ export declare class UpdateTenantSettingsDto {
     doubleInDetectionWindow?: number;
     orphanInThreshold?: number;
     doublePunchToleranceMinutes?: number;
+    allowImplicitBreaks?: boolean;
+    minImplicitBreakMinutes?: number;
+    maxImplicitBreakMinutes?: number;
+    autoCloseOrphanSessions?: boolean;
+    autoCloseDefaultTime?: string;
+    autoCloseOvertimeBuffer?: number;
+    autoCloseCheckApprovedOvertime?: boolean;
     enableDoubleInPatternDetection?: boolean;
     doubleInPatternAlertThreshold?: number;
     allowMissingInForRemoteWork?: boolean;

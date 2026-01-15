@@ -28,6 +28,7 @@ model Tenant {
   attendance                       Attendance[]
   attendanceAttempts               AttendanceAttempt[]
   devices                          AttendanceDevice[]
+  deviceAuditLogs                  DeviceAuditLog[]
   auditLogs                        AuditLog[]
   departments                      Department[]
   employees                        Employee[]
@@ -108,6 +109,24 @@ model TenantSettings {
   doubleInDetectionWindow                    Int      @default(24)
   orphanInThreshold                          Int      @default(12)
   doublePunchToleranceMinutes                Int      @default(2)
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DÉTECTION AUTOMATIQUE IN/OUT - Configuration
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Pauses implicites (OUT suivi de IN dans un délai raisonnable)
+  allowImplicitBreaks                        Boolean  @default(true)
+  minImplicitBreakMinutes                    Int      @default(30)
+  maxImplicitBreakMinutes                    Int      @default(120)
+
+  // Clôture automatique des sessions orphelines
+  autoCloseOrphanSessions                    Boolean  @default(true)
+  autoCloseDefaultTime                       String   @default("23:59")
+  autoCloseOvertimeBuffer                    Int      @default(0)      // Minutes à ajouter après fin shift (0 = désactivé, ex: 120 = 2h buffer pour heures sup)
+  autoCloseCheckApprovedOvertime             Boolean  @default(true)   // Vérifier si overtime approuvé existe avant clôture
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+
   enableDoubleInPatternDetection             Boolean  @default(true)
   doubleInPatternAlertThreshold              Int      @default(3)
   allowMissingInForRemoteWork                Boolean  @default(true)
@@ -145,6 +164,8 @@ model TenantSettings {
   overtimeRateNight                          Decimal  @default(1.50)
   overtimeRateStandard                       Decimal  @default(1.25)
   overtimePendingNotificationTime            String   @default("09:00")
+  overtimeAutoApprove                        Boolean  @default(false)
+  overtimeAutoApproveMaxHours                Decimal? @default(4.0)
   tenant                                     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
@@ -377,21 +398,22 @@ model Position {
 }
 
 model Shift {
-  id            String             @id @default(uuid())
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  tenantId      String
-  name          String
-  code          String
-  startTime     String
-  endTime       String
-  breakDuration Int                @default(60)
-  isNightShift  Boolean            @default(false)
-  color         String?
-  employees     Employee[]
-  schedules     Schedule[]
-  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  replacements  ShiftReplacement[]
+  id             String             @id @default(uuid())
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  tenantId       String
+  name           String
+  code           String
+  startTime      String
+  endTime        String
+  breakStartTime String?            // Heure de début de pause (ex: "12:00")
+  breakDuration  Int                @default(60)
+  isNightShift   Boolean            @default(false)
+  color          String?
+  employees      Employee[]
+  schedules      Schedule[]
+  tenant         Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  replacements   ShiftReplacement[]
 
   @@index([tenantId])
 }
@@ -479,16 +501,77 @@ model AttendanceDevice {
   deviceId             String                 @unique
   deviceType           DeviceType
   ipAddress            String?
-  apiKey               String?
+
+  // Securite API Key (Phase 1 - Conformite RGPD)
+  apiKey               String?                // Deprecie - migration vers apiKeyHash
+  apiKeyHash           String?                // Hash bcrypt de l'API Key
+  apiKeyLastRotation   DateTime?              // Date derniere rotation
+  apiKeyExpiresAt      DateTime?              // Date expiration (90 jours par defaut)
+
+  // Liste blanche IP (Phase 1 - ISO 27001)
+  allowedIPs           String[]               @default([])
+  enforceIPWhitelist   Boolean                @default(false)
+
+  // Monitoring avance
   isActive             Boolean                @default(true)
   lastSync             DateTime?
+  lastHeartbeat        DateTime?              // Dernier heartbeat recu
+  heartbeatInterval    Int                    @default(300)  // Intervalle en secondes (5 min)
+
+  // Metriques de performance
+  totalSyncs           Int                    @default(0)
+  failedSyncs          Int                    @default(0)
+  avgResponseTime      Int?                   // Temps reponse moyen (ms)
+
+  // Relations
   attendance           Attendance[]
   attendanceAttempts   AttendanceAttempt[]
   site                 Site?                  @relation(fields: [siteId], references: [id])
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  attendanceAnomalies AttendanceAnomaly[]
+  attendanceAnomalies  AttendanceAnomaly[]
+  auditLogs            DeviceAuditLog[]
 
   @@index([tenantId])
+}
+
+// Audit des operations sur les terminaux (Conformite RGPD/ISO 27001)
+model DeviceAuditLog {
+  id              String       @id @default(uuid())
+  createdAt       DateTime     @default(now())
+  tenantId        String
+  deviceId        String
+  action          DeviceAction
+  performedBy     String?      // User ID
+  performedByName String?      // Nom utilisateur
+  ipAddress       String?      // IP requete
+  userAgent       String?      // User agent
+  details         Json?        // Details supplementaires
+  previousValue   Json?        // Valeur avant
+  newValue        Json?        // Valeur apres
+
+  device          AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([deviceId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+enum DeviceAction {
+  CREATED
+  UPDATED
+  DELETED
+  ACTIVATED
+  DEACTIVATED
+  SYNCED
+  HEARTBEAT
+  API_KEY_GENERATED
+  API_KEY_ROTATED
+  API_KEY_REVOKED
+  IP_WHITELIST_UPDATED
+  CONNECTION_FAILED
+  CONNECTION_RESTORED
 }
 
 model Attendance {

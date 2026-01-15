@@ -73,6 +73,24 @@ export class OvertimeController {
     );
   }
 
+  @Get('dashboard/stats')
+  @RequirePermissions('overtime.view_all', 'overtime.view_department')
+  @ApiOperation({ summary: 'Get overtime dashboard statistics' })
+  getDashboardStats(
+    @CurrentUser() user: any,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('siteId') siteId?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    return this.overtimeService.getDashboardStats(
+      user.tenantId,
+      { startDate, endDate, siteId, departmentId },
+      user.userId,
+      user.permissions || [],
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get overtime record by ID' })
   findOne(@CurrentUser() user: any, @Param('id') id: string) {

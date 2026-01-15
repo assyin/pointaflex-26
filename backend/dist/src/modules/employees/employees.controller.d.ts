@@ -27,6 +27,7 @@ export declare class EmployeesController {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -217,6 +218,7 @@ export declare class EmployeesController {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -319,6 +321,7 @@ export declare class EmployeesController {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -869,6 +872,7 @@ export declare class EmployeesController {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -981,6 +985,7 @@ export declare class EmployeesController {
                 name: string;
                 startTime: string;
                 endTime: string;
+                breakStartTime: string | null;
                 breakDuration: number;
                 isNightShift: boolean;
                 color: string | null;

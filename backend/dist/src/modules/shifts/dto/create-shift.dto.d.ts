@@ -3,6 +3,7 @@ export declare class CreateShiftDto {
     code: string;
     startTime: string;
     endTime: string;
+    breakStartTime?: string;
     breakDuration?: number;
     isNightShift?: boolean;
     color?: string;

@@ -13,12 +13,18 @@ export declare class ShiftsController {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
     }>;
     findAll(user: any, page?: string, limit?: string, search?: string, isNightShift?: string): Promise<{
         data: {
+            _usage: {
+                employeeCount: number;
+                scheduleCount: number;
+                canDelete: boolean;
+            };
             id: string;
             createdAt: Date;
             updatedAt: Date;
@@ -27,6 +33,7 @@ export declare class ShiftsController {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -47,9 +54,15 @@ export declare class ShiftsController {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
+    }>;
+    getUsage(user: any, id: string): Promise<{
+        employeeCount: number;
+        scheduleCount: number;
+        canDelete: boolean;
     }>;
     update(user: any, id: string, dto: UpdateShiftDto): Promise<{
         id: string;
@@ -60,6 +73,7 @@ export declare class ShiftsController {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
@@ -73,6 +87,7 @@ export declare class ShiftsController {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;

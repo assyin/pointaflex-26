@@ -42,7 +42,16 @@ __decorate([
     __metadata("design:type", String)
 ], CreateShiftDto.prototype, "endTime", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)({ example: 60, default: 60 }),
+    (0, swagger_1.ApiPropertyOptional)({ example: '12:00', description: 'Heure de début de pause (Format HH:mm)' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.Matches)(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+        message: 'breakStartTime must be in HH:mm format',
+    }),
+    __metadata("design:type", String)
+], CreateShiftDto.prototype, "breakStartTime", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ example: 60, default: 60, description: 'Durée de pause en minutes' }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(0),

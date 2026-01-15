@@ -1,6 +1,6 @@
 'use client';
 
-import { Clock, Moon, Calculator, Zap, Bell } from 'lucide-react';
+import { Clock, Moon, Calculator, Zap, Bell, Fingerprint, Coffee, Power } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 
@@ -27,6 +27,18 @@ interface HorairesTabProps {
     overtimeRateEmergency: number;
     overtimeAutoDetectType: boolean;
     overtimePendingNotificationTime: string;
+    // Auto-approbation
+    overtimeAutoApprove: boolean;
+    overtimeAutoApproveMaxHours: number;
+    // Détection IN/OUT automatique
+    doublePunchToleranceMinutes: number;
+    allowImplicitBreaks: boolean;
+    minImplicitBreakMinutes: number;
+    maxImplicitBreakMinutes: number;
+    autoCloseOrphanSessions: boolean;
+    autoCloseDefaultTime: string;
+    autoCloseOvertimeBuffer: number;
+    autoCloseCheckApprovedOvertime: boolean;
   };
   setFormData: (data: any) => void;
 }
@@ -255,6 +267,195 @@ export function HorairesTab({ formData, setFormData }: HorairesTabProps) {
         </div>
       </div>
 
+      {/* Détection IN/OUT automatique */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-[18px] font-semibold text-[#212529] flex items-center gap-2">
+            <Fingerprint className="w-5 h-5 text-purple-500" />
+            Detection IN/OUT Automatique
+          </h2>
+          <p className="text-[13px] text-[#6C757D] mt-1">
+            Configuration de la detection automatique des entrees/sorties depuis les terminaux
+          </p>
+        </div>
+        <div className="p-6 space-y-6">
+          {/* Anti-rebond */}
+          <div>
+            <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+              <span className="inline-flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-500" />
+                Tolerance anti-rebond (minutes)
+              </span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              max="10"
+              value={formData.doublePunchToleranceMinutes}
+              onChange={(e) => setFormData({ ...formData, doublePunchToleranceMinutes: parseInt(e.target.value) || 2 })}
+              className="w-full max-w-xs px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Tout pointage survenant moins de X minutes apres le precedent est ignore (evite les doubles badges)
+            </p>
+          </div>
+
+          {/* Pauses implicites */}
+          <div className="border-t pt-6">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg mb-4">
+              <div>
+                <Label htmlFor="allowImplicitBreaks" className="text-[14px] font-medium text-[#212529]">
+                  <span className="inline-flex items-center gap-2">
+                    <Coffee className="w-4 h-4 text-amber-500" />
+                    Activer les pauses implicites
+                  </span>
+                </Label>
+                <p className="text-[12px] text-[#6C757D] mt-0.5">
+                  Un OUT suivi d'un IN dans un delai raisonnable est considere comme pause (pas d'anomalie)
+                </p>
+              </div>
+              <Switch
+                id="allowImplicitBreaks"
+                checked={formData.allowImplicitBreaks}
+                onCheckedChange={(checked) => setFormData({ ...formData, allowImplicitBreaks: checked })}
+              />
+            </div>
+
+            <div className={`grid grid-cols-2 gap-6 ${!formData.allowImplicitBreaks ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div>
+                <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                  Duree minimum de pause (minutes)
+                </label>
+                <input
+                  type="number"
+                  min="5"
+                  max="60"
+                  value={formData.minImplicitBreakMinutes}
+                  onChange={(e) => setFormData({ ...formData, minImplicitBreakMinutes: parseInt(e.target.value) || 30 })}
+                  className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                />
+                <p className="text-xs text-gray-500 mt-1">En dessous, c'est un double badge</p>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                  Duree maximum de pause (minutes)
+                </label>
+                <input
+                  type="number"
+                  min="30"
+                  max="240"
+                  value={formData.maxImplicitBreakMinutes}
+                  onChange={(e) => setFormData({ ...formData, maxImplicitBreakMinutes: parseInt(e.target.value) || 120 })}
+                  className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                />
+                <p className="text-xs text-gray-500 mt-1">Au dela, c'est une absence partielle</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Clôture automatique */}
+          <div className="border-t pt-6">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg mb-4">
+              <div>
+                <Label htmlFor="autoCloseOrphanSessions" className="text-[14px] font-medium text-[#212529]">
+                  <span className="inline-flex items-center gap-2">
+                    <Power className="w-4 h-4 text-red-500" />
+                    Cloture automatique des sessions orphelines
+                  </span>
+                </Label>
+                <p className="text-[12px] text-[#6C757D] mt-0.5">
+                  Ferme automatiquement les sessions IN sans OUT a la fin de la journee (badge oublie)
+                </p>
+              </div>
+              <Switch
+                id="autoCloseOrphanSessions"
+                checked={formData.autoCloseOrphanSessions}
+                onCheckedChange={(checked) => setFormData({ ...formData, autoCloseOrphanSessions: checked })}
+              />
+            </div>
+
+            <div className={`space-y-6 ${!formData.autoCloseOrphanSessions ? 'opacity-50 pointer-events-none' : ''}`}>
+              <div>
+                <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                  Heure de cloture par defaut (si pas de shift)
+                </label>
+                <input
+                  type="time"
+                  value={formData.autoCloseDefaultTime}
+                  onChange={(e) => setFormData({ ...formData, autoCloseDefaultTime: e.target.value })}
+                  className="w-full max-w-xs px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Utilise si l'employe n'a pas de shift defini (par defaut: 23:59)
+                </p>
+              </div>
+
+              {/* Protection heures supplémentaires */}
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <h4 className="text-[14px] font-semibold text-amber-800 mb-3">
+                  Protection des Heures Supplementaires
+                </h4>
+                <p className="text-[12px] text-amber-700 mb-4">
+                  Ces options evitent de perdre des heures supplementaires lors de la cloture automatique.
+                </p>
+
+                <div className="flex items-center justify-between p-3 bg-white rounded-lg mb-4">
+                  <div>
+                    <Label htmlFor="autoCloseCheckApprovedOvertime" className="text-[13px] font-medium text-[#212529]">
+                      Verifier les heures sup approuvees
+                    </Label>
+                    <p className="text-[11px] text-[#6C757D] mt-0.5">
+                      Si overtime APPROVED existe, utilise l'heure de fin + heures sup
+                    </p>
+                  </div>
+                  <Switch
+                    id="autoCloseCheckApprovedOvertime"
+                    checked={formData.autoCloseCheckApprovedOvertime}
+                    onCheckedChange={(checked) => setFormData({ ...formData, autoCloseCheckApprovedOvertime: checked })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                    Buffer heures sup (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="480"
+                    step="15"
+                    value={formData.autoCloseOvertimeBuffer}
+                    onChange={(e) => setFormData({ ...formData, autoCloseOvertimeBuffer: parseInt(e.target.value) || 0 })}
+                    className="w-full max-w-xs px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Minutes a ajouter apres fin de shift (0 = desactive). Ex: 120 min = 2h de marge pour heures sup.
+                  </p>
+                </div>
+              </div>
+
+              {/* Message d'info sur AUTO_CLOSED_CHECK_OVERTIME */}
+              {formData.autoCloseCheckApprovedOvertime && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-[12px] text-blue-700">
+                    <strong>Info:</strong> Si des heures sup sont en attente (PENDING), le systeme marquera la session comme{' '}
+                    <span className="font-mono bg-blue-100 px-1 rounded">AUTO_CLOSED_CHECK_OVERTIME</span> pour verification RH.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Info */}
+          <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+            <p className="text-[13px] text-purple-700">
+              <strong>Note:</strong> Ces parametres s'appliquent a tous les terminaux de pointage (ZKTeco, etc.).
+              La detection IN/OUT utilise l'alternance des pointages et les regles configurees ici.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Configuration des taux de majoration */}
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="p-6 border-b border-gray-200">
@@ -382,6 +583,62 @@ export function HorairesTab({ formData, setFormData }: HorairesTabProps) {
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-[13px] text-amber-700">
                 <strong>Majorations desactivees:</strong> Toutes les heures supplementaires seront comptees avec un taux de 1.0 (1h supp = 1h comptee).
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Auto-approbation Heures Supplémentaires */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-[18px] font-semibold text-[#212529] flex items-center gap-2">
+            <Zap className="w-5 h-5 text-green-500" />
+            Auto-approbation Heures Supplementaires
+          </h2>
+          <p className="text-[13px] text-[#6C757D] mt-1">
+            Approuver automatiquement les heures supplementaires sous un certain seuil
+          </p>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div>
+              <Label htmlFor="overtimeAutoApprove" className="text-[14px] font-medium text-[#212529]">
+                Activer l'auto-approbation
+              </Label>
+              <p className="text-[12px] text-[#6C757D] mt-0.5">
+                Les heures sup detectees automatiquement seront approuvees sans intervention manuelle
+              </p>
+            </div>
+            <Switch
+              id="overtimeAutoApprove"
+              checked={formData.overtimeAutoApprove}
+              onCheckedChange={(checked) => setFormData({ ...formData, overtimeAutoApprove: checked })}
+            />
+          </div>
+
+          <div className={`${!formData.overtimeAutoApprove ? 'opacity-50 pointer-events-none' : ''}`}>
+            <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+              Seuil maximum d'heures (auto-approbation)
+            </label>
+            <input
+              type="number"
+              step="0.5"
+              min="0.5"
+              max="12"
+              value={formData.overtimeAutoApproveMaxHours}
+              onChange={(e) => setFormData({ ...formData, overtimeAutoApproveMaxHours: parseFloat(e.target.value) || 4 })}
+              className="w-full max-w-xs px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Les heures sup depassant ce seuil resteront en attente d'approbation manuelle (defaut: 4h)
+            </p>
+          </div>
+
+          {formData.overtimeAutoApprove && (
+            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-[13px] text-green-700">
+                <strong>Auto-approbation active:</strong> Les heures supplementaires de {formData.overtimeAutoApproveMaxHours || 4}h ou moins seront automatiquement approuvees lors de la detection quotidienne.
               </p>
             </div>
           )}

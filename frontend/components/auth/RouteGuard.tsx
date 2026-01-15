@@ -31,7 +31,6 @@ export function RouteGuard({ children }: RouteGuardProps) {
 
     // Si utilisateur connecté essaie d'accéder à /login, rediriger vers dashboard
     if (user && pathname === '/login') {
-      console.log('RouteGuard: User already logged in, redirecting to dashboard');
       router.push('/dashboard');
       setIsAuthorized(false);
       return;
@@ -51,7 +50,6 @@ export function RouteGuard({ children }: RouteGuardProps) {
 
     // Si pas d'utilisateur et pas sur une route publique, rediriger vers login
     if (!user && !isPublicRoute) {
-      console.log('RouteGuard: No user found, redirecting to login');
       router.push(`/login?redirect=${pathname}`);
       setIsAuthorized(false);
       return;

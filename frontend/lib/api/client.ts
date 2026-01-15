@@ -11,24 +11,18 @@ const getApiUrl = () => {
   // Sinon, détecter automatiquement selon l'environnement
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    
-    console.log('[API Client] Détection automatique - hostname:', hostname);
-    
+
     // Si on accède via IP WSL (172.17.x.x), utiliser cette IP pour l'API
     if (hostname.startsWith('172.17.')) {
-      const apiUrl = `http://${hostname}:3000/api/v1`;
-      console.log('[API Client] Utilisation de l\'IP WSL:', apiUrl);
-      return apiUrl;
+      return `http://${hostname}:3000/api/v1`;
     }
-    
+
     // Si on accède via localhost, utiliser localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      console.log('[API Client] Utilisation de localhost');
       return 'http://localhost:3000/api/v1';
     }
-    
+
     // Par défaut, utiliser l'IP WSL la plus courante
-    console.log('[API Client] Utilisation de l\'IP WSL par défaut');
     return 'http://172.17.112.163:3000/api/v1';
   }
   
@@ -44,12 +38,8 @@ if (typeof window !== 'undefined') {
   const currentHostname = window.location.hostname;
   if (apiBaseURL.includes('localhost') && currentHostname.startsWith('172.17.')) {
     apiBaseURL = `http://${currentHostname}:3000/api/v1`;
-    console.log('[API Client] URL corrigée pour IP WSL:', apiBaseURL);
   }
 }
-
-console.log('[API Client] URL de base configurée:', apiBaseURL);
-console.log('[API Client] Hostname actuel:', typeof window !== 'undefined' ? window.location.hostname : 'SSR');
 
 // Créer l'instance axios avec un interceptor pour mettre à jour l'URL si nécessaire
 const apiClient = axios.create({
@@ -67,16 +57,16 @@ apiClient.interceptors.request.use(
       const currentHostname = window.location.hostname;
       if (currentHostname.startsWith('172.17.') && config.baseURL?.includes('localhost')) {
         config.baseURL = `http://${currentHostname}:3000/api/v1`;
-        console.log('[API Client] URL corrigée dans l\'interceptor:', config.baseURL);
       }
+
       // Vérifier si le token est valide avant d'envoyer la requête
-      // Ne pas envoyer la requête si le token est expiré (évite les erreurs 401)
-      // Exception pour les routes d'authentification
       const isAuthRoute = config.url?.includes('/auth/login') ||
                           config.url?.includes('/auth/register') ||
                           config.url?.includes('/auth/refresh');
 
-      if (!isAuthenticated() && !isAuthRoute) {
+      const authStatus = isAuthenticated();
+
+      if (!authStatus && !isAuthRoute) {
         // Créer une promesse qui ne sera jamais résolue pour empêcher l'envoi de la requête
         // Cela évite les erreurs 401 dans la console
         const silentError: any = Object.create(null);
@@ -94,11 +84,31 @@ apiClient.interceptors.request.use(
       const token = localStorage.getItem('accessToken');
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
-      }
 
-      const tenantId = localStorage.getItem('tenantId');
-      if (tenantId) {
-        config.headers['X-Tenant-ID'] = tenantId;
+        // Extraire le tenantId directement du JWT pour éviter les désynchronisations avec localStorage
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          if (payload.tenantId) {
+            config.headers['X-Tenant-ID'] = payload.tenantId;
+            // Synchroniser le localStorage si différent
+            const storedTenantId = localStorage.getItem('tenantId');
+            if (storedTenantId !== payload.tenantId) {
+              localStorage.setItem('tenantId', payload.tenantId);
+            }
+          }
+        } catch (e) {
+          // Si on ne peut pas décoder le JWT, utiliser le localStorage comme fallback
+          const tenantId = localStorage.getItem('tenantId');
+          if (tenantId) {
+            config.headers['X-Tenant-ID'] = tenantId;
+          }
+        }
+      } else {
+        // Pas de token, utiliser le localStorage comme fallback
+        const tenantId = localStorage.getItem('tenantId');
+        if (tenantId) {
+          config.headers['X-Tenant-ID'] = tenantId;
+        }
       }
     }
 

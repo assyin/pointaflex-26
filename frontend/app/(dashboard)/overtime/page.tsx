@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { OvertimeDashboard } from '@/components/overtime';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +44,7 @@ import {
   useRejectOvertime,
   useConvertToRecovery,
   useCreateOvertime,
+  useOvertimeDashboardStats,
 } from '@/lib/hooks/useOvertime';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 import { useEmployees } from '@/lib/hooks/useEmployees';
@@ -52,6 +55,9 @@ import { PermissionGate } from '@/components/auth/PermissionGate';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 export default function OvertimePage() {
+  // Tab state
+  const [activeTab, setActiveTab] = useState<'list' | 'dashboard'>('list');
+
   // Search and basic filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
@@ -112,6 +118,18 @@ export default function OvertimePage() {
   const { data: employeesData } = useEmployees();
   const { data: sitesData } = useSites();
   const { data: departmentsData } = useDepartments();
+
+  // Dashboard stats (only fetch when dashboard tab is active)
+  const dashboardFilters = useMemo(() => ({
+    startDate: startDate || undefined,
+    endDate: endDate || undefined,
+    siteId: selectedSite !== 'all' ? selectedSite : undefined,
+    departmentId: selectedDepartment !== 'all' ? selectedDepartment : undefined,
+  }), [startDate, endDate, selectedSite, selectedDepartment]);
+
+  const { data: dashboardData, isLoading: isDashboardLoading } = useOvertimeDashboardStats(
+    activeTab === 'dashboard' ? dashboardFilters : undefined
+  );
 
   // Mutations
   const approveMutation = useApproveOvertime();
@@ -638,8 +656,16 @@ export default function OvertimePage() {
           )}
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'list' | 'dashboard')} className="w-full">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="list">Liste des demandes</TabsTrigger>
+            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="list" className="mt-6 space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
@@ -938,6 +964,12 @@ export default function OvertimePage() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="dashboard" className="mt-6">
+            <OvertimeDashboard data={dashboardData} isLoading={isDashboardLoading} />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Approval Dialog */}

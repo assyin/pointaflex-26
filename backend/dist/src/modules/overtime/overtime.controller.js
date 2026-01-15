@@ -45,6 +45,9 @@ let OvertimeController = class OvertimeController {
             departmentId,
         }, user.userId, user.permissions || []);
     }
+    getDashboardStats(user, startDate, endDate, siteId, departmentId) {
+        return this.overtimeService.getDashboardStats(user.tenantId, { startDate, endDate, siteId, departmentId }, user.userId, user.permissions || []);
+    }
     findOne(user, id) {
         return this.overtimeService.findOne(user.tenantId, id);
     }
@@ -97,6 +100,19 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], OvertimeController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Get)('dashboard/stats'),
+    (0, permissions_decorator_1.RequirePermissions)('overtime.view_all', 'overtime.view_department'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get overtime dashboard statistics' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Query)('startDate')),
+    __param(2, (0, common_1.Query)('endDate')),
+    __param(3, (0, common_1.Query)('siteId')),
+    __param(4, (0, common_1.Query)('departmentId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], OvertimeController.prototype, "getDashboardStats", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Get overtime record by ID' }),

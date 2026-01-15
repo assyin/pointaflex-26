@@ -176,24 +176,30 @@ export default function DashboardPage() {
     return (stats.employees.activeToday / stats.employees.total) * 100;
   }, [stats]);
 
-  // Calculate previous period for comparison
-  const previousPeriodData = useMemo(() => {
-    // Simulate previous period data (in real app, fetch from API)
-    return {
-      attendanceRate: attendanceRate - 2.5,
-      lates: (stats?.attendance?.anomalies || 0) + 3,
-      totalPointages: (stats?.attendance?.total || 0) - 45,
-      overtimeHours: (stats?.overtime?.totalHours || 0) - 15,
-    };
-  }, [stats, attendanceRate]);
+  // Calculate trends - Only show trends when there's actual data
+  // When no data exists, trends should be 0 (no comparison possible)
+  const trends = useMemo(() => {
+    const hasData = (stats?.attendance?.total || 0) > 0 || (stats?.employees?.total || 0) > 0;
 
-  // Calculate trends
-  const trends = useMemo(() => ({
-    attendanceRate: attendanceRate - previousPeriodData.attendanceRate,
-    lates: (stats?.attendance?.anomalies || 0) - previousPeriodData.lates,
-    totalPointages: (stats?.attendance?.total || 0) - previousPeriodData.totalPointages,
-    overtimeHours: (stats?.overtime?.totalHours || 0) - previousPeriodData.overtimeHours,
-  }), [stats, attendanceRate, previousPeriodData]);
+    if (!hasData) {
+      // No data = no trends to show
+      return {
+        attendanceRate: 0,
+        lates: 0,
+        totalPointages: 0,
+        overtimeHours: 0,
+      };
+    }
+
+    // When we have data, use the previous period data from API (if available)
+    // For now, show 0 since we don't have real previous period data from API
+    return {
+      attendanceRate: 0,
+      lates: 0,
+      totalPointages: 0,
+      overtimeHours: 0,
+    };
+  }, [stats]);
 
   // Top performers (mock data - replace with real API)
   const topPerformers = useMemo(() => {
@@ -228,7 +234,15 @@ export default function DashboardPage() {
     );
   }
 
+  // Check if we have any real data to show trends
+  const hasRealData = (stats?.attendance?.total || 0) > 0 || (stats?.employees?.total || 0) > 0;
+
   const TrendBadge = ({ value, inverse = false }: { value: number; inverse?: boolean }) => {
+    // Don't show trend badge if there's no data or value is 0
+    if (!hasRealData || value === 0) {
+      return null;
+    }
+
     const isPositive = inverse ? value < 0 : value > 0;
     const isNegative = inverse ? value > 0 : value < 0;
 
@@ -410,10 +424,12 @@ export default function DashboardPage() {
                   <h3 className="text-3xl font-bold text-gray-900 mb-2">
                     {attendanceRate.toFixed(1)}%
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <TrendBadge value={trends.attendanceRate} />
-                    <span className="text-xs text-gray-500">vs période préc.</span>
-                  </div>
+                  {hasRealData && trends.attendanceRate !== 0 && (
+                    <div className="flex items-center gap-2">
+                      <TrendBadge value={trends.attendanceRate} />
+                      <span className="text-xs text-gray-500">vs période préc.</span>
+                    </div>
+                  )}
                   <div className="mt-3 h-8">
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
@@ -437,10 +453,12 @@ export default function DashboardPage() {
                   <h3 className="text-3xl font-bold text-gray-900 mb-2">
                     {stats?.attendance?.anomalies || 0}
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <TrendBadge value={trends.lates} inverse />
-                    <span className="text-xs text-gray-500">vs période préc.</span>
-                  </div>
+                  {hasRealData && trends.lates !== 0 && (
+                    <div className="flex items-center gap-2">
+                      <TrendBadge value={trends.lates} inverse />
+                      <span className="text-xs text-gray-500">vs période préc.</span>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500 mt-3">
                     Derniers 7 jours
                   </p>
@@ -459,10 +477,12 @@ export default function DashboardPage() {
                   <h3 className="text-3xl font-bold text-gray-900 mb-2">
                     {stats?.attendance?.total || 0}
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <TrendBadge value={trends.totalPointages} />
-                    <span className="text-xs text-gray-500">vs période préc.</span>
-                  </div>
+                  {hasRealData && trends.totalPointages !== 0 && (
+                    <div className="flex items-center gap-2">
+                      <TrendBadge value={trends.totalPointages} />
+                      <span className="text-xs text-gray-500">vs période préc.</span>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500 mt-3">Période sélectionnée</p>
                 </CardContent>
               </Card>
@@ -479,10 +499,12 @@ export default function DashboardPage() {
                   <h3 className="text-3xl font-bold text-gray-900 mb-2">
                     {stats?.overtime?.totalHours ? Number(stats.overtime.totalHours).toFixed(2) : 0}h
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <TrendBadge value={trends.overtimeHours} inverse />
-                    <span className="text-xs text-gray-500">vs période préc.</span>
-                  </div>
+                  {hasRealData && trends.overtimeHours !== 0 && (
+                    <div className="flex items-center gap-2">
+                      <TrendBadge value={trends.overtimeHours} inverse />
+                      <span className="text-xs text-gray-500">vs période préc.</span>
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500 mt-3">Approuvées</p>
                 </CardContent>
               </Card>

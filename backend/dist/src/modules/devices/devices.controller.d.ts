@@ -1,10 +1,15 @@
+import { Request } from 'express';
 import { DevicesService } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
+import { UpdateIPWhitelistDto } from './dto/update-ip-whitelist.dto';
+import { AuditLogFiltersDto } from './dto/audit-log-filters.dto';
 export declare class DevicesController {
     private readonly devicesService;
     constructor(devicesService: DevicesService);
-    create(user: any, createDeviceDto: CreateDeviceDto): Promise<{
+    private getAuditContext;
+    create(user: any, createDeviceDto: CreateDeviceDto, req: Request): Promise<{
+        generatedApiKey: string;
         site: {
             id: string;
             createdAt: Date;
@@ -22,7 +27,6 @@ export declare class DevicesController {
             longitude: import("@prisma/client/runtime/library").Decimal | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
-    } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -34,9 +38,22 @@ export declare class DevicesController {
         ipAddress: string | null;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
         lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
     }>;
-    findAll(user: any, filters: any): Promise<({
+    findAll(user: any, filters: any): Promise<{
+        connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
+        hasApiKey: boolean;
+        apiKeyExpired: boolean;
         _count: {
             attendance: number;
         };
@@ -57,7 +74,6 @@ export declare class DevicesController {
             longitude: import("@prisma/client/runtime/library").Decimal | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
-    } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -69,17 +85,61 @@ export declare class DevicesController {
         ipAddress: string | null;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
         lastSync: Date | null;
-    })[]>;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
+    }[]>;
     getStats(user: any): Promise<{
         total: number;
-        active: number;
-        inactive: number;
+        online: number;
+        warning: number;
         offline: number;
+        inactive: number;
+        active: number;
+        apiKeyExpiringSoon: number;
+    }>;
+    getAuditLogs(user: any, filters: AuditLogFiltersDto): Promise<{
+        data: ({
+            device: {
+                name: string;
+                deviceId: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            tenantId: string;
+            deviceId: string;
+            ipAddress: string | null;
+            userAgent: string | null;
+            action: import(".prisma/client").$Enums.DeviceAction;
+            details: import("@prisma/client/runtime/library").JsonValue | null;
+            performedBy: string | null;
+            performedByName: string | null;
+            previousValue: import("@prisma/client/runtime/library").JsonValue | null;
+            newValue: import("@prisma/client/runtime/library").JsonValue | null;
+        })[];
+        meta: {
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        };
     }>;
     findOne(id: string, user: any): Promise<{
+        connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
+        hasApiKey: boolean;
+        apiKeyExpired: boolean;
         _count: {
             attendance: number;
+            auditLogs: number;
         };
         site: {
             id: string;
@@ -98,7 +158,6 @@ export declare class DevicesController {
             longitude: import("@prisma/client/runtime/library").Decimal | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
-    } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -110,9 +169,20 @@ export declare class DevicesController {
         ipAddress: string | null;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
         lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
     }>;
-    update(id: string, user: any, updateDeviceDto: UpdateDeviceDto): Promise<{
+    update(id: string, user: any, updateDeviceDto: UpdateDeviceDto, req: Request): Promise<{
+        connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
         site: {
             id: string;
             createdAt: Date;
@@ -130,7 +200,6 @@ export declare class DevicesController {
             longitude: import("@prisma/client/runtime/library").Decimal | null;
             workingDays: import("@prisma/client/runtime/library").JsonValue | null;
         };
-    } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -142,9 +211,19 @@ export declare class DevicesController {
         ipAddress: string | null;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
         lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
     }>;
-    remove(id: string, user: any): Promise<{
+    remove(id: string, user: any, req: Request): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -156,12 +235,23 @@ export declare class DevicesController {
         ipAddress: string | null;
         deviceType: import(".prisma/client").$Enums.DeviceType;
         apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
         lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
     }>;
-    sync(id: string, user: any): Promise<{
+    sync(id: string, user: any, req: Request): Promise<{
         success: boolean;
         message: string;
         device: {
+            connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
             site: {
                 id: string;
                 createdAt: Date;
@@ -179,7 +269,6 @@ export declare class DevicesController {
                 longitude: import("@prisma/client/runtime/library").Decimal | null;
                 workingDays: import("@prisma/client/runtime/library").JsonValue | null;
             };
-        } & {
             id: string;
             createdAt: Date;
             updatedAt: Date;
@@ -191,7 +280,191 @@ export declare class DevicesController {
             ipAddress: string | null;
             deviceType: import(".prisma/client").$Enums.DeviceType;
             apiKey: string | null;
+            apiKeyHash: string | null;
+            apiKeyLastRotation: Date | null;
+            apiKeyExpiresAt: Date | null;
+            allowedIPs: string[];
+            enforceIPWhitelist: boolean;
             lastSync: Date | null;
+            lastHeartbeat: Date | null;
+            heartbeatInterval: number;
+            totalSyncs: number;
+            failedSyncs: number;
+            avgResponseTime: number | null;
+        };
+    }>;
+    generateApiKey(id: string, user: any, req: Request): Promise<{
+        apiKey: string;
+        expiresAt: Date;
+    }>;
+    rotateApiKey(id: string, user: any, req: Request): Promise<{
+        apiKey: string;
+        expiresAt: Date;
+    }>;
+    revokeApiKey(id: string, user: any, req: Request): Promise<void>;
+    updateIPWhitelist(id: string, user: any, dto: UpdateIPWhitelistDto, req: Request): Promise<{
+        site: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            phone: string | null;
+            address: string | null;
+            timezone: string | null;
+            city: string | null;
+            tenantId: string;
+            code: string | null;
+            name: string;
+            departmentId: string | null;
+            managerId: string | null;
+            latitude: import("@prisma/client/runtime/library").Decimal | null;
+            longitude: import("@prisma/client/runtime/library").Decimal | null;
+            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        name: string;
+        isActive: boolean;
+        siteId: string | null;
+        deviceId: string;
+        ipAddress: string | null;
+        deviceType: import(".prisma/client").$Enums.DeviceType;
+        apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
+        lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
+    }>;
+    recordHeartbeat(id: string, user: any, req: Request): Promise<{
+        status: string;
+        serverTime: Date;
+        nextHeartbeatExpected: Date;
+    }>;
+    getConnectionStatus(id: string, user: any): Promise<{
+        deviceId: string;
+        status: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
+        lastHeartbeat: Date;
+        heartbeatInterval: number;
+        isActive: boolean;
+    }>;
+    activate(id: string, user: any, req: Request): Promise<{
+        connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
+        site: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            phone: string | null;
+            address: string | null;
+            timezone: string | null;
+            city: string | null;
+            tenantId: string;
+            code: string | null;
+            name: string;
+            departmentId: string | null;
+            managerId: string | null;
+            latitude: import("@prisma/client/runtime/library").Decimal | null;
+            longitude: import("@prisma/client/runtime/library").Decimal | null;
+            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+        };
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        name: string;
+        isActive: boolean;
+        siteId: string | null;
+        deviceId: string;
+        ipAddress: string | null;
+        deviceType: import(".prisma/client").$Enums.DeviceType;
+        apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
+        lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
+    }>;
+    deactivate(id: string, user: any, req: Request): Promise<{
+        connectionStatus: "WARNING" | "ONLINE" | "OFFLINE" | "INACTIVE";
+        site: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            phone: string | null;
+            address: string | null;
+            timezone: string | null;
+            city: string | null;
+            tenantId: string;
+            code: string | null;
+            name: string;
+            departmentId: string | null;
+            managerId: string | null;
+            latitude: import("@prisma/client/runtime/library").Decimal | null;
+            longitude: import("@prisma/client/runtime/library").Decimal | null;
+            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+        };
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        name: string;
+        isActive: boolean;
+        siteId: string | null;
+        deviceId: string;
+        ipAddress: string | null;
+        deviceType: import(".prisma/client").$Enums.DeviceType;
+        apiKey: string | null;
+        apiKeyHash: string | null;
+        apiKeyLastRotation: Date | null;
+        apiKeyExpiresAt: Date | null;
+        allowedIPs: string[];
+        enforceIPWhitelist: boolean;
+        lastSync: Date | null;
+        lastHeartbeat: Date | null;
+        heartbeatInterval: number;
+        totalSyncs: number;
+        failedSyncs: number;
+        avgResponseTime: number | null;
+    }>;
+    getDeviceAuditLogs(id: string, user: any, filters: AuditLogFiltersDto): Promise<{
+        data: ({
+            device: {
+                name: string;
+                deviceId: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            tenantId: string;
+            deviceId: string;
+            ipAddress: string | null;
+            userAgent: string | null;
+            action: import(".prisma/client").$Enums.DeviceAction;
+            details: import("@prisma/client/runtime/library").JsonValue | null;
+            performedBy: string | null;
+            performedByName: string | null;
+            previousValue: import("@prisma/client/runtime/library").JsonValue | null;
+            newValue: import("@prisma/client/runtime/library").JsonValue | null;
+        })[];
+        meta: {
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
         };
     }>;
 }

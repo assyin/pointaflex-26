@@ -1,0 +1,18 @@
+{
+  "name": "zkaccess-pointaflex-sync",
+  "version": "1.0.0",
+  "description": "Synchronisation automatique ZKAccess vers PointaFlex",
+  "main": "sync.js",
+  "scripts": {
+    "start": "node sync.js",
+    "install-service": "node install-service.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "node-adodb": "^5.0.3",
+    "node-zklib": "^1.3.0"
+  },
+  "author": "PointaFlex",
+  "license": "MIT",
+  "keywords": []
+}

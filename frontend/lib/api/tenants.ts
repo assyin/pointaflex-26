@@ -31,6 +31,19 @@ export interface TenantSettings {
   nightShiftStart?: string; // Heure de début du shift de nuit (format HH:mm)
   nightShiftEnd?: string; // Heure de fin du shift de nuit (format HH:mm)
 
+  // Overtime Majoration Settings
+  overtimeMajorationEnabled?: boolean; // Toggle global pour activer/désactiver les majorations
+  overtimeRateStandard?: number; // Taux de majoration standard (défaut: 1.25)
+  overtimeRateNight?: number; // Taux de majoration nuit (défaut: 1.50)
+  overtimeRateHoliday?: number; // Taux de majoration jour férié (défaut: 2.00)
+  overtimeRateEmergency?: number; // Taux de majoration urgence (défaut: 1.30)
+  overtimeAutoDetectType?: boolean; // Détection automatique du type (NIGHT, HOLIDAY)
+  overtimePendingNotificationTime?: string; // Heure d'envoi des notifications (format HH:mm)
+
+  // Overtime Auto-Approval Settings
+  overtimeAutoApprove?: boolean; // Activer l'auto-approbation des heures sup
+  overtimeAutoApproveMaxHours?: number; // Seuil maximum d'heures pour auto-approbation (défaut: 4)
+
   // Alerts
   alertWeeklyHoursExceeded?: boolean;
   alertInsufficientRest?: boolean;
@@ -84,10 +97,19 @@ export interface TenantSettings {
   absenceDetectionBufferMinutes?: number; // Délai tampon après absenceDetectionTime
   absencePartialNotificationFrequencyMinutes?: number; // Fréquence du job notification absence partielle
 
+  // Détection IN/OUT automatique
+  doublePunchToleranceMinutes?: number; // Fenêtre de tolérance en minutes pour erreur de badgeage (défaut: 2 min)
+  allowImplicitBreaks?: boolean; // Activer la tolérance des pauses implicites
+  minImplicitBreakMinutes?: number; // Durée minimum pause implicite (défaut: 30 min)
+  maxImplicitBreakMinutes?: number; // Durée maximum pause implicite (défaut: 120 min)
+  autoCloseOrphanSessions?: boolean; // Activer la clôture automatique des sessions orphelines
+  autoCloseDefaultTime?: string; // Heure de clôture par défaut (format HH:mm, défaut: 23:59)
+  autoCloseOvertimeBuffer?: number; // Buffer en minutes après fin shift pour heures sup (0 = désactivé)
+  autoCloseCheckApprovedOvertime?: boolean; // Vérifier si overtime approuvé existe avant clôture
+
   // DOUBLE_IN Detection Settings
   doubleInDetectionWindow?: number; // Fenêtre de détection DOUBLE_IN en heures (défaut: 24h)
   orphanInThreshold?: number; // Seuil en heures pour considérer un IN comme orphelin (défaut: 12h)
-  doublePunchToleranceMinutes?: number; // Fenêtre de tolérance en minutes pour erreur de badgeage (défaut: 2 min)
   enableDoubleInPatternDetection?: boolean; // Activer la détection de patterns suspects DOUBLE_IN
   doubleInPatternAlertThreshold?: number; // Seuil d'alerte pour patterns suspects (nombre sur 30 jours)
 
@@ -143,6 +165,19 @@ export interface UpdateTenantSettingsDto {
   nightShiftStart?: string;
   nightShiftEnd?: string;
 
+  // Overtime Majoration Settings
+  overtimeMajorationEnabled?: boolean;
+  overtimeRateStandard?: number;
+  overtimeRateNight?: number;
+  overtimeRateHoliday?: number;
+  overtimeRateEmergency?: number;
+  overtimeAutoDetectType?: boolean;
+  overtimePendingNotificationTime?: string;
+
+  // Overtime Auto-Approval Settings
+  overtimeAutoApprove?: boolean;
+  overtimeAutoApproveMaxHours?: number;
+
   // Alerts
   alertWeeklyHoursExceeded?: boolean;
   alertInsufficientRest?: boolean;
@@ -196,10 +231,19 @@ export interface UpdateTenantSettingsDto {
   absenceDetectionBufferMinutes?: number;
   absencePartialNotificationFrequencyMinutes?: number;
 
+  // Détection IN/OUT automatique
+  doublePunchToleranceMinutes?: number;
+  allowImplicitBreaks?: boolean;
+  minImplicitBreakMinutes?: number;
+  maxImplicitBreakMinutes?: number;
+  autoCloseOrphanSessions?: boolean;
+  autoCloseDefaultTime?: string;
+  autoCloseOvertimeBuffer?: number;
+  autoCloseCheckApprovedOvertime?: boolean;
+
   // DOUBLE_IN Detection Settings
   doubleInDetectionWindow?: number;
   orphanInThreshold?: number;
-  doublePunchToleranceMinutes?: number;
   enableDoubleInPatternDetection?: boolean;
   doubleInPatternAlertThreshold?: number;
 

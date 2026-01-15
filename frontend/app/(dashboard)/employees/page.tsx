@@ -639,7 +639,7 @@ export default function EmployeesPage() {
                           {employee.department?.name || '—'}
                         </td>
                         <td className="p-3 text-sm text-text-secondary">
-                          {employee.region || employee.site?.name || employee.site?.city || '—'}
+                          {employee.site?.name || employee.region || '—'}
                         </td>
                         <td className="p-3 text-sm text-text-secondary">
                           {employee.hireDate ? new Date(employee.hireDate).toLocaleDateString('fr-FR') : '—'}

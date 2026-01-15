@@ -55,4 +55,13 @@ __decorate([
     (0, class_validator_1.IsBoolean)(),
     __metadata("design:type", Boolean)
 ], CreateDeviceDto.prototype, "isActive", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Générer automatiquement une API Key sécurisée lors de la création',
+        default: false,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], CreateDeviceDto.prototype, "generateApiKey", void 0);
 //# sourceMappingURL=create-device.dto.js.map

@@ -3,7 +3,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { CreateOvertimeDto } from './dto/create-overtime.dto';
 import { UpdateOvertimeDto } from './dto/update-overtime.dto';
 import { ApproveOvertimeDto } from './dto/approve-overtime.dto';
-import { OvertimeStatus } from '@prisma/client';
+import { OvertimeStatus, LeaveStatus, RecoveryDayStatus } from '@prisma/client';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 
 @Injectable()
@@ -230,6 +230,20 @@ export class OvertimeService {
     if (employee.isEligibleForOvertime === false) {
       throw new BadRequestException(
         'Cet employé n\'est pas éligible aux heures supplémentaires',
+      );
+    }
+
+    // Vérifier si l'employé est en congé ou en récupération pour cette date
+    const overtimeDate = new Date(dto.date);
+    const leaveCheck = await this.isEmployeeOnLeaveOrRecovery(
+      tenantId,
+      dto.employeeId,
+      overtimeDate,
+    );
+
+    if (leaveCheck.isOnLeave) {
+      throw new BadRequestException(
+        `Impossible de créer des heures supplémentaires : l'employé est ${leaveCheck.reason} pour cette date`,
       );
     }
 
@@ -912,5 +926,280 @@ export class OvertimeService {
     return this.prisma.overtime.delete({
       where: { id },
     });
+  }
+
+  /**
+   * Récupère les statistiques du dashboard heures supplémentaires
+   */
+  async getDashboardStats(
+    tenantId: string,
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      siteId?: string;
+      departmentId?: string;
+    },
+    userId: string,
+    userPermissions: string[],
+  ) {
+    // Construire le filtre de base
+    const where: any = { tenantId };
+
+    if (filters.startDate) {
+      where.date = { ...where.date, gte: new Date(filters.startDate) };
+    }
+    if (filters.endDate) {
+      where.date = { ...where.date, lte: new Date(filters.endDate) };
+    }
+
+    // Filtrer par site/département si spécifié
+    if (filters.siteId || filters.departmentId) {
+      where.employee = {};
+      if (filters.siteId) {
+        where.employee.siteId = filters.siteId;
+      }
+      if (filters.departmentId) {
+        where.employee.departmentId = filters.departmentId;
+      }
+    }
+
+    // Filtrer selon les permissions (comme dans findAll)
+    const hasViewAll = userPermissions.includes('overtime.view_all');
+    const hasViewDepartment = userPermissions.includes('overtime.view_department');
+
+    if (!hasViewAll) {
+      const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+      const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+      if (hasViewDepartment && managedEmployeeIds.length > 0) {
+        where.employeeId = { in: managedEmployeeIds };
+      } else {
+        // Ne voir que ses propres heures sup
+        const employee = await this.prisma.employee.findFirst({
+          where: { userId, tenantId },
+          select: { id: true },
+        });
+        where.employeeId = employee?.id || 'none';
+      }
+    }
+
+    // Récupérer toutes les données pour les statistiques
+    const overtimes = await this.prisma.overtime.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+            department: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // 1. Totaux généraux
+    const summary = {
+      totalRecords: overtimes.length,
+      totalHours: 0,
+      totalApprovedHours: 0,
+      pendingCount: 0,
+      approvedCount: 0,
+      rejectedCount: 0,
+      paidCount: 0,
+      recoveredCount: 0,
+    };
+
+    // 2. Par type (pour pie chart)
+    const byType: Record<string, { count: number; hours: number }> = {
+      STANDARD: { count: 0, hours: 0 },
+      NIGHT: { count: 0, hours: 0 },
+      HOLIDAY: { count: 0, hours: 0 },
+      EMERGENCY: { count: 0, hours: 0 },
+    };
+
+    // 3. Par status (pour pie chart)
+    const byStatus: Record<string, { count: number; hours: number }> = {
+      PENDING: { count: 0, hours: 0 },
+      APPROVED: { count: 0, hours: 0 },
+      REJECTED: { count: 0, hours: 0 },
+      PAID: { count: 0, hours: 0 },
+      RECOVERED: { count: 0, hours: 0 },
+    };
+
+    // 4. Par employé (pour bar chart - top 10)
+    const byEmployee: Record<string, { name: string; hours: number; count: number }> = {};
+
+    // 5. Par département (pour bar chart)
+    const byDepartment: Record<string, { name: string; hours: number; count: number }> = {};
+
+    // 6. Tendance par jour (pour line chart)
+    const byDay: Record<string, { date: string; hours: number; count: number }> = {};
+
+    // Parcourir les données
+    for (const ot of overtimes) {
+      const hours = Number(ot.hours) || 0;
+      const approvedHours = Number(ot.approvedHours || ot.hours) || 0;
+
+      // Summary
+      summary.totalHours += hours;
+      if (ot.status === 'APPROVED' || ot.status === 'PAID' || ot.status === 'RECOVERED') {
+        summary.totalApprovedHours += approvedHours;
+      }
+
+      switch (ot.status) {
+        case 'PENDING': summary.pendingCount++; break;
+        case 'APPROVED': summary.approvedCount++; break;
+        case 'REJECTED': summary.rejectedCount++; break;
+        case 'PAID': summary.paidCount++; break;
+        case 'RECOVERED': summary.recoveredCount++; break;
+      }
+
+      // By type
+      if (byType[ot.type]) {
+        byType[ot.type].count++;
+        byType[ot.type].hours += hours;
+      }
+
+      // By status
+      if (byStatus[ot.status]) {
+        byStatus[ot.status].count++;
+        byStatus[ot.status].hours += hours;
+      }
+
+      // By employee
+      const empKey = ot.employeeId;
+      if (!byEmployee[empKey]) {
+        byEmployee[empKey] = {
+          name: `${ot.employee.firstName} ${ot.employee.lastName}`,
+          hours: 0,
+          count: 0,
+        };
+      }
+      byEmployee[empKey].hours += hours;
+      byEmployee[empKey].count++;
+
+      // By department
+      const deptKey = ot.employee.department?.id || 'unknown';
+      const deptName = ot.employee.department?.name || 'Sans département';
+      if (!byDepartment[deptKey]) {
+        byDepartment[deptKey] = { name: deptName, hours: 0, count: 0 };
+      }
+      byDepartment[deptKey].hours += hours;
+      byDepartment[deptKey].count++;
+
+      // By day (trend)
+      const dateKey = ot.date.toISOString().split('T')[0];
+      if (!byDay[dateKey]) {
+        byDay[dateKey] = { date: dateKey, hours: 0, count: 0 };
+      }
+      byDay[dateKey].hours += hours;
+      byDay[dateKey].count++;
+    }
+
+    // Convertir et trier les données
+    const typeData = Object.entries(byType)
+      .map(([type, data]) => ({ type, ...data }))
+      .filter(d => d.count > 0);
+
+    const statusData = Object.entries(byStatus)
+      .map(([status, data]) => ({ status, ...data }))
+      .filter(d => d.count > 0);
+
+    const employeeData = Object.entries(byEmployee)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.hours - a.hours)
+      .slice(0, 10); // Top 10
+
+    const departmentData = Object.entries(byDepartment)
+      .map(([id, data]) => ({ id, ...data }))
+      .sort((a, b) => b.hours - a.hours);
+
+    const trendData = Object.values(byDay).sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
+
+    return {
+      summary: {
+        ...summary,
+        totalHours: Math.round(summary.totalHours * 100) / 100,
+        totalApprovedHours: Math.round(summary.totalApprovedHours * 100) / 100,
+      },
+      byType: typeData,
+      byStatus: statusData,
+      topEmployees: employeeData.map(e => ({
+        ...e,
+        hours: Math.round(e.hours * 100) / 100,
+      })),
+      byDepartment: departmentData.map(d => ({
+        ...d,
+        hours: Math.round(d.hours * 100) / 100,
+      })),
+      trend: trendData.map(t => ({
+        ...t,
+        hours: Math.round(t.hours * 100) / 100,
+      })),
+    };
+  }
+
+  /**
+   * Vérifie si un employé est en congé ou en récupération pour une date donnée
+   * @param tenantId L'ID du tenant
+   * @param employeeId L'ID de l'employé
+   * @param date La date à vérifier
+   * @returns Un objet avec isOnLeave et reason si applicable
+   */
+  async isEmployeeOnLeaveOrRecovery(
+    tenantId: string,
+    employeeId: string,
+    date: Date,
+  ): Promise<{ isOnLeave: boolean; reason?: string }> {
+    // Vérifier les congés approuvés
+    const approvedLeaveStatuses = [
+      LeaveStatus.APPROVED,
+      LeaveStatus.MANAGER_APPROVED,
+      LeaveStatus.HR_APPROVED,
+    ];
+
+    const leave = await this.prisma.leave.findFirst({
+      where: {
+        tenantId,
+        employeeId,
+        status: { in: approvedLeaveStatuses },
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+      include: {
+        leaveType: { select: { name: true } },
+      },
+    });
+
+    if (leave) {
+      return {
+        isOnLeave: true,
+        reason: `en congé (${leave.leaveType.name})`,
+      };
+    }
+
+    // Vérifier les jours de récupération approuvés ou utilisés
+    const recoveryDay = await this.prisma.recoveryDay.findFirst({
+      where: {
+        tenantId,
+        employeeId,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+    });
+
+    if (recoveryDay) {
+      return {
+        isOnLeave: true,
+        reason: 'en jour de récupération',
+      };
+    }
+
+    return { isOnLeave: false };
   }
 }

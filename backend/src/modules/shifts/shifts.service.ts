@@ -54,7 +54,7 @@ export class ShiftsService {
       where.isNightShift = filters.isNightShift;
     }
 
-    const [data, total] = await Promise.all([
+    const [shifts, total] = await Promise.all([
       this.prisma.shift.findMany({
         where,
         skip,
@@ -64,8 +64,37 @@ export class ShiftsService {
       this.prisma.shift.count({ where }),
     ]);
 
+    // Récupérer les statistiques d'utilisation pour chaque shift
+    const shiftsWithUsage = await Promise.all(
+      shifts.map(async (shift) => {
+        const [employeeCount, scheduleCount] = await Promise.all([
+          this.prisma.employee.count({
+            where: {
+              tenantId,
+              currentShiftId: shift.id,
+            },
+          }),
+          this.prisma.schedule.count({
+            where: {
+              tenantId,
+              shiftId: shift.id,
+            },
+          }),
+        ]);
+
+        return {
+          ...shift,
+          _usage: {
+            employeeCount,
+            scheduleCount,
+            canDelete: employeeCount === 0 && scheduleCount === 0,
+          },
+        };
+      })
+    );
+
     return {
-      data,
+      data: shiftsWithUsage,
       meta: {
         total,
         page,
@@ -115,10 +144,66 @@ export class ShiftsService {
   }
 
   async remove(tenantId: string, id: string) {
-    await this.findOne(tenantId, id);
+    const shift = await this.findOne(tenantId, id);
+
+    // Vérifier si des employés utilisent ce shift comme shift par défaut
+    const employeesWithShift = await this.prisma.employee.count({
+      where: {
+        tenantId,
+        currentShiftId: id,
+      },
+    });
+
+    if (employeesWithShift > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce shift : ${employeesWithShift} employé(s) l'utilisent comme shift par défaut. Veuillez d'abord réassigner ces employés à un autre shift.`
+      );
+    }
+
+    // Vérifier si des schedules utilisent ce shift
+    const schedulesWithShift = await this.prisma.schedule.count({
+      where: {
+        tenantId,
+        shiftId: id,
+      },
+    });
+
+    if (schedulesWithShift > 0) {
+      throw new ConflictException(
+        `Impossible de supprimer ce shift : ${schedulesWithShift} planning(s) l'utilisent. Veuillez d'abord supprimer ou modifier ces plannings.`
+      );
+    }
 
     return this.prisma.shift.delete({
       where: { id },
     });
+  }
+
+  /**
+   * Récupère les statistiques d'utilisation d'un shift
+   */
+  async getShiftUsage(tenantId: string, id: string) {
+    await this.findOne(tenantId, id);
+
+    const [employeeCount, scheduleCount] = await Promise.all([
+      this.prisma.employee.count({
+        where: {
+          tenantId,
+          currentShiftId: id,
+        },
+      }),
+      this.prisma.schedule.count({
+        where: {
+          tenantId,
+          shiftId: id,
+        },
+      }),
+    ]);
+
+    return {
+      employeeCount,
+      scheduleCount,
+      canDelete: employeeCount === 0 && scheduleCount === 0,
+    };
   }
 }

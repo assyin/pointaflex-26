@@ -23,7 +23,7 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
         this.logger = new common_1.Logger(DetectOvertimeJob_1.name);
     }
     async detectOvertime() {
-        this.logger.log('Démarrage de la détection automatique des heures supplémentaires...');
+        this.logger.log('🔄 Démarrage du job de CONSOLIDATION des heures supplémentaires...');
         try {
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
@@ -38,19 +38,19 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
             this.logger.log(`Traitement de ${tenants.length} tenant(s)...`);
             for (const tenant of tenants) {
                 try {
-                    await this.detectOvertimeForTenant(tenant.id, yesterday, yesterdayEnd);
+                    await this.consolidateOvertimeForTenant(tenant.id, yesterday, yesterdayEnd);
                 }
                 catch (error) {
-                    this.logger.error(`Erreur lors de la détection des heures sup pour le tenant ${tenant.id}:`, error);
+                    this.logger.error(`Erreur lors de la consolidation des heures sup pour le tenant ${tenant.id}:`, error);
                 }
             }
-            this.logger.log('Détection automatique des heures supplémentaires terminée avec succès');
+            this.logger.log('✅ Consolidation des heures supplémentaires terminée avec succès');
         }
         catch (error) {
-            this.logger.error('Erreur lors de la détection globale des heures sup:', error);
+            this.logger.error('Erreur lors de la consolidation globale des heures sup:', error);
         }
     }
-    async detectOvertimeForTenant(tenantId, startDate, endDate) {
+    async consolidateOvertimeForTenant(tenantId, startDate, endDate) {
         const settings = await this.prisma.tenantSettings.findUnique({
             where: { tenantId },
             select: {
@@ -63,12 +63,16 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
                 overtimeRateNight: true,
                 overtimeRateHoliday: true,
                 overtimeRateEmergency: true,
+                overtimeAutoApprove: true,
+                overtimeAutoApproveMaxHours: true,
                 overtimeRate: true,
                 nightShiftRate: true,
             },
         });
         const minimumThreshold = settings?.overtimeMinimumThreshold || 30;
         const autoDetectType = settings?.overtimeAutoDetectType !== false;
+        const autoApprove = settings?.overtimeAutoApprove === true;
+        const autoApproveMaxHours = Number(settings?.overtimeAutoApproveMaxHours) || 4.0;
         const attendancesWithOvertime = await this.prisma.attendance.findMany({
             where: {
                 tenantId,
@@ -96,7 +100,7 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
             },
             orderBy: { timestamp: 'asc' },
         });
-        this.logger.log(`Analyse de ${attendancesWithOvertime.length} pointage(s) avec heures sup pour le tenant ${tenantId}...`);
+        this.logger.log(`🔍 Vérification de ${attendancesWithOvertime.length} pointage(s) avec heures sup pour le tenant ${tenantId}...`);
         let holidays = new Set();
         if (autoDetectType) {
             const holidayRecords = await this.prisma.holiday.findMany({
@@ -113,11 +117,19 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
             this.logger.debug(`${holidays.size} jour(s) férié(s) trouvé(s) pour la période`);
         }
         let createdCount = 0;
+        let existingCount = 0;
         let skippedCount = 0;
         for (const attendance of attendancesWithOvertime) {
             try {
                 if (attendance.employee.isEligibleForOvertime === false) {
                     this.logger.debug(`Skipping overtime pour ${attendance.employee.firstName} ${attendance.employee.lastName} (non éligible)`);
+                    skippedCount++;
+                    continue;
+                }
+                const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+                const leaveCheck = await this.isEmployeeOnLeaveOrRecovery(tenantId, attendance.employeeId, attendanceDate);
+                if (leaveCheck.isOnLeave) {
+                    this.logger.debug(`Skipping overtime pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${leaveCheck.reason})`);
                     skippedCount++;
                     continue;
                 }
@@ -129,10 +141,10 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
                     },
                 });
                 if (existingOvertime) {
-                    this.logger.debug(`Overtime existe déjà pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${attendance.timestamp.toISOString().split('T')[0]}`);
-                    skippedCount++;
+                    existingCount++;
                     continue;
                 }
+                this.logger.warn(`⚠️ [CONSOLIDATION] Overtime manquant détecté pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${attendance.timestamp.toISOString().split('T')[0]} - Création...`);
                 const overtimeHours = (attendance.overtimeMinutes || 0) / 60;
                 let hoursToCreate = overtimeHours;
                 if (attendance.employee.maxOvertimeHoursPerMonth ||
@@ -161,28 +173,38 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
                     }
                 }
                 const rate = this.overtimeService.getOvertimeRate(settings, overtimeType);
+                const shouldAutoApprove = autoApprove && hoursToCreate <= autoApproveMaxHours;
+                const status = shouldAutoApprove ? client_1.OvertimeStatus.APPROVED : client_1.OvertimeStatus.PENDING;
+                const statusNote = shouldAutoApprove ? ' - Auto-approuvé' : '';
                 await this.prisma.overtime.create({
                     data: {
                         tenantId,
                         employeeId: attendance.employeeId,
                         date: new Date(dateStr),
                         hours: hoursToCreate,
+                        approvedHours: shouldAutoApprove ? hoursToCreate : null,
                         type: overtimeType,
                         rate,
                         isNightShift: overtimeType === 'NIGHT',
-                        status: client_1.OvertimeStatus.PENDING,
-                        notes: `Créé automatiquement depuis le pointage du ${attendance.timestamp.toLocaleDateString('fr-FR')}${overtimeType !== 'STANDARD' ? ` (${overtimeType})` : ''}`,
+                        status,
+                        approvedAt: shouldAutoApprove ? new Date() : null,
+                        notes: `[CONSOLIDATION] Créé par le job de filet de sécurité depuis le pointage du ${attendance.timestamp.toLocaleDateString('fr-FR')}${overtimeType !== 'STANDARD' ? ` (${overtimeType})` : ''}${statusNote}`,
                     },
                 });
                 createdCount++;
-                this.logger.log(`✅ Overtime créé pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule}): ${hoursToCreate.toFixed(2)}h`);
+                const statusEmoji = shouldAutoApprove ? '✅' : '⏳';
+                const statusText = shouldAutoApprove ? 'auto-approuvé' : 'en attente';
+                this.logger.log(`${statusEmoji} Overtime ${statusText} pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule}): ${hoursToCreate.toFixed(2)}h`);
             }
             catch (error) {
                 this.logger.error(`Erreur lors de la création de l'Overtime pour le pointage ${attendance.id}:`, error);
                 skippedCount++;
             }
         }
-        this.logger.log(`Détection des heures sup pour le tenant ${tenantId} terminée. ${createdCount} créé(s), ${skippedCount} ignoré(s).`);
+        if (createdCount > 0) {
+            this.logger.warn(`⚠️ [CONSOLIDATION] ${createdCount} overtime(s) manquant(s) créé(s) par le filet de sécurité`);
+        }
+        this.logger.log(`📊 Consolidation pour tenant ${tenantId}: ${existingCount} déjà créé(s) en temps réel, ${createdCount} récupéré(s), ${skippedCount} ignoré(s).`);
     }
     isNightShiftTime(timestamp, settings) {
         const nightStart = settings?.nightShiftStart || '21:00';
@@ -200,6 +222,47 @@ let DetectOvertimeJob = DetectOvertimeJob_1 = class DetectOvertimeJob {
         else {
             return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
         }
+    }
+    async isEmployeeOnLeaveOrRecovery(tenantId, employeeId, date) {
+        const approvedLeaveStatuses = [
+            client_1.LeaveStatus.APPROVED,
+            client_1.LeaveStatus.MANAGER_APPROVED,
+            client_1.LeaveStatus.HR_APPROVED,
+        ];
+        const leave = await this.prisma.leave.findFirst({
+            where: {
+                tenantId,
+                employeeId,
+                status: { in: approvedLeaveStatuses },
+                startDate: { lte: date },
+                endDate: { gte: date },
+            },
+            include: {
+                leaveType: { select: { name: true } },
+            },
+        });
+        if (leave) {
+            return {
+                isOnLeave: true,
+                reason: `en congé (${leave.leaveType.name})`,
+            };
+        }
+        const recoveryDay = await this.prisma.recoveryDay.findFirst({
+            where: {
+                tenantId,
+                employeeId,
+                status: { in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.USED] },
+                startDate: { lte: date },
+                endDate: { gte: date },
+            },
+        });
+        if (recoveryDay) {
+            return {
+                isOnLeave: true,
+                reason: 'en jour de récupération',
+            };
+        }
+        return { isOnLeave: false };
     }
 };
 exports.DetectOvertimeJob = DetectOvertimeJob;

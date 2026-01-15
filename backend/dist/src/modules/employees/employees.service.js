@@ -49,34 +49,65 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
         }
     }
     async generateTemporaryMatricule(tenantId) {
-        const lastTemp = await this.prisma.employee.findFirst({
-            where: {
-                tenantId,
-                matricule: {
-                    startsWith: 'TEMP-',
+        const [lastTempEmployee, lastTempMapping] = await Promise.all([
+            this.prisma.employee.findFirst({
+                where: {
+                    tenantId,
+                    matricule: {
+                        startsWith: 'TEMP-',
+                    },
                 },
-            },
-            orderBy: {
-                createdAt: 'desc',
-            },
-        });
+                orderBy: {
+                    matricule: 'desc',
+                },
+            }),
+            this.prisma.terminalMatriculeMapping.findFirst({
+                where: {
+                    tenantId,
+                    terminalMatricule: {
+                        startsWith: 'TEMP-',
+                    },
+                },
+                orderBy: {
+                    terminalMatricule: 'desc',
+                },
+            }),
+        ]);
         let nextNumber = 1;
-        if (lastTemp) {
-            const match = lastTemp.matricule.match(/TEMP-(\d+)/);
+        if (lastTempEmployee) {
+            const match = lastTempEmployee.matricule.match(/TEMP-(\d+)/);
             if (match) {
-                nextNumber = parseInt(match[1], 10) + 1;
+                nextNumber = Math.max(nextNumber, parseInt(match[1], 10) + 1);
+            }
+        }
+        if (lastTempMapping) {
+            const match = lastTempMapping.terminalMatricule.match(/TEMP-(\d+)/);
+            if (match) {
+                nextNumber = Math.max(nextNumber, parseInt(match[1], 10) + 1);
             }
         }
         let tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
         let counter = 0;
-        while (await this.prisma.employee.findUnique({
-            where: {
-                tenantId_matricule: {
-                    tenantId,
-                    matricule: tempMatricule,
-                },
-            },
-        })) {
+        while (true) {
+            const [existsInEmployee, existsInMapping] = await Promise.all([
+                this.prisma.employee.findUnique({
+                    where: {
+                        tenantId_matricule: {
+                            tenantId,
+                            matricule: tempMatricule,
+                        },
+                    },
+                }),
+                this.prisma.terminalMatriculeMapping.findFirst({
+                    where: {
+                        tenantId,
+                        terminalMatricule: tempMatricule,
+                    },
+                }),
+            ]);
+            if (!existsInEmployee && !existsInMapping) {
+                break;
+            }
             nextNumber++;
             tempMatricule = `TEMP-${String(nextNumber).padStart(3, '0')}`;
             counter++;
@@ -532,10 +563,10 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
             ];
         }
         const page = filters?.page || 1;
-        const limit = filters?.limit || 50;
+        const limit = filters?.limit || 500;
         const skip = (page - 1) * limit;
         const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
-        const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+        const maxLimit = shouldPaginate ? limit : Math.min(limit, 2000);
         const [data, total] = await Promise.all([
             this.prisma.employee.findMany({
                 where,
@@ -835,21 +866,22 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
             failed: 0,
             errors: [],
             imported: [],
+            logs: [],
+            totalToProcess: 0,
         };
         try {
             const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-            const dataRows = rows.slice(1);
+            const dataRows = rows.slice(1).filter((row) => row && row.length > 0 && row[0]);
+            result.totalToProcess = dataRows.length;
+            result.logs.push({ type: 'info', message: `📊 Début de l'import: ${dataRows.length} employés à traiter`, timestamp: new Date().toISOString() });
             console.log(`📊 Import started: ${dataRows.length} employees to process`);
             for (let i = 0; i < dataRows.length; i++) {
                 const row = dataRows[i];
                 const rowNumber = i + 2;
                 try {
-                    if (!row || row.length === 0 || !row[0]) {
-                        continue;
-                    }
                     const matricule = String(row[0] || '').trim();
                     const civilite = String(row[1] || '').trim();
                     const lastName = String(row[2] || '').trim();
@@ -870,6 +902,13 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                     const category = String(row[17] || '').trim();
                     const position = String(row[18] || '').trim();
                     const phone = String(row[19] || '').trim();
+                    const emailFromFile = row[20] ? String(row[20]).trim() : undefined;
+                    const shiftName = row[21] ? String(row[21]).trim() : undefined;
+                    const teamName = row[22] ? String(row[22]).trim() : undefined;
+                    const isEligibleOvertimeStr = row[23] ? String(row[23]).toUpperCase().trim() : '';
+                    const isEligibleForOvertime = isEligibleOvertimeStr === 'NON' ? false : true;
+                    const maxOvertimeHoursPerMonth = row[24] ? parseFloat(String(row[24])) : undefined;
+                    const rfidBadge = row[25] ? String(row[25]).trim() : undefined;
                     if (!matricule || !firstName || !lastName) {
                         result.errors.push({
                             row: rowNumber,
@@ -895,6 +934,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                     name: region,
                                 },
                             });
+                            result.logs.push({ type: 'site', message: `📍 Nouveau site créé: ${region}`, timestamp: new Date().toISOString() });
                             console.log(`📍 Created site from region: ${region}`);
                         }
                         siteId = site.id;
@@ -914,6 +954,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                     name: department,
                                 },
                             });
+                            result.logs.push({ type: 'department', message: `📁 Nouveau département créé: ${department}`, timestamp: new Date().toISOString() });
                             console.log(`📁 Created department: ${department}`);
                         }
                         departmentId = dept.id;
@@ -934,9 +975,55 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                     category: category || undefined,
                                 },
                             });
+                            result.logs.push({ type: 'position', message: `💼 Nouvelle fonction créée: ${position}`, timestamp: new Date().toISOString() });
                             console.log(`💼 Created position: ${position}`);
                         }
                         positionId = pos.id;
+                    }
+                    let currentShiftId;
+                    if (shiftName) {
+                        const shift = await this.prisma.shift.findFirst({
+                            where: {
+                                tenantId,
+                                OR: [
+                                    { name: { equals: shiftName, mode: 'insensitive' } },
+                                    { code: { equals: shiftName, mode: 'insensitive' } },
+                                ],
+                            },
+                        });
+                        if (shift) {
+                            currentShiftId = shift.id;
+                            result.logs.push({ type: 'info', message: `🕐 Shift assigné: ${shift.name} (${shift.code})`, timestamp: new Date().toISOString() });
+                        }
+                        else {
+                            result.logs.push({ type: 'warning', message: `⚠️ Shift non trouvé: ${shiftName} (ignoré)`, timestamp: new Date().toISOString() });
+                            console.log(`⚠️ Shift non trouvé: ${shiftName} (ignoré)`);
+                        }
+                    }
+                    let teamId;
+                    if (teamName) {
+                        let team = await this.prisma.team.findFirst({
+                            where: {
+                                tenantId,
+                                name: teamName,
+                            },
+                        });
+                        if (!team) {
+                            const teamCode = teamName
+                                .toUpperCase()
+                                .replace(/[^A-Z0-9]/g, '')
+                                .substring(0, 10);
+                            team = await this.prisma.team.create({
+                                data: {
+                                    tenantId,
+                                    name: teamName,
+                                    code: teamCode || `TEAM${Date.now()}`,
+                                },
+                            });
+                            result.logs.push({ type: 'team', message: `👥 Nouvelle équipe créée: ${teamName}`, timestamp: new Date().toISOString() });
+                            console.log(`👥 Created team: ${teamName} (code: ${team.code})`);
+                        }
+                        teamId = team.id;
                     }
                     const existing = await this.prisma.employee.findUnique({
                         where: {
@@ -952,7 +1039,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                             data: {
                                 firstName,
                                 lastName,
-                                email,
+                                email: emailFromFile || email,
                                 phone: phone || undefined,
                                 position: position || undefined,
                                 positionId: positionId || undefined,
@@ -972,6 +1059,11 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                 region: region || undefined,
                                 categorie: category || undefined,
                                 isActive: true,
+                                currentShiftId: currentShiftId || existing.currentShiftId,
+                                teamId: teamId || existing.teamId,
+                                isEligibleForOvertime: isEligibleForOvertime,
+                                maxOvertimeHoursPerMonth: maxOvertimeHoursPerMonth !== undefined ? maxOvertimeHoursPerMonth : existing.maxOvertimeHoursPerMonth,
+                                rfidBadge: rfidBadge || existing.rfidBadge,
                             },
                         });
                         result.imported.push({ matricule, firstName, lastName });
@@ -984,7 +1076,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                 matricule,
                                 firstName,
                                 lastName,
-                                email,
+                                email: emailFromFile || email,
                                 phone: phone || undefined,
                                 position: position || undefined,
                                 positionId: positionId || undefined,
@@ -1004,6 +1096,11 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                                 region: region || undefined,
                                 categorie: category || undefined,
                                 isActive: true,
+                                currentShiftId: currentShiftId || undefined,
+                                teamId: teamId || undefined,
+                                isEligibleForOvertime: isEligibleForOvertime,
+                                maxOvertimeHoursPerMonth: maxOvertimeHoursPerMonth || undefined,
+                                rfidBadge: rfidBadge || undefined,
                             },
                         });
                         result.imported.push({ matricule, firstName, lastName });
@@ -1019,6 +1116,7 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                     result.failed++;
                 }
             }
+            result.logs.push({ type: 'success', message: `✅ Import terminé: ${result.success} succès, ${result.failed} échec(s)`, timestamp: new Date().toISOString() });
             console.log(`✅ Import completed: ${result.success} success, ${result.failed} failed`);
             return result;
         }

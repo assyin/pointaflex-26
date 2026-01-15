@@ -180,7 +180,15 @@ export default function AttendancePage() {
   }, [attendanceData, lastCount]);
 
   // Fetch anomalies
-  const { data: anomaliesData } = useAttendanceAnomalies(startDate);
+  const { data: anomaliesDataRaw } = useAttendanceAnomalies(startDate);
+
+  // Normalize anomalies data (handle both array and paginated response)
+  const anomaliesData = useMemo(() => {
+    if (!anomaliesDataRaw) return [];
+    if (Array.isArray(anomaliesDataRaw)) return anomaliesDataRaw;
+    if (anomaliesDataRaw.data && Array.isArray(anomaliesDataRaw.data)) return anomaliesDataRaw.data;
+    return [];
+  }, [anomaliesDataRaw]);
 
   // Export mutation
   const exportMutation = useExportAttendance();
@@ -328,6 +336,9 @@ export default function AttendancePage() {
       return;
     }
 
+    // Extraire la date du pointage créé pour mettre à jour le filtre de dates
+    const createdDate = format(new Date(createFormData.timestamp), 'yyyy-MM-dd');
+
     createMutation.mutate(
       {
         employeeId: createFormData.employeeId,
@@ -340,6 +351,21 @@ export default function AttendancePage() {
       {
         onSuccess: () => {
           setShowCreateModal(false);
+
+          // Mettre à jour le filtre de dates pour inclure la date du pointage créé
+          // Cela permet de voir immédiatement le pointage créé
+          if (createdDate < startDate) {
+            setStartDate(createdDate);
+          }
+          if (createdDate > endDate) {
+            setEndDate(createdDate);
+          }
+          // Si la date est en dehors de la plage actuelle, ajuster la plage
+          if (createdDate < startDate || createdDate > endDate) {
+            setStartDate(createdDate);
+            setEndDate(createdDate);
+          }
+
           setCreateFormData({
             employeeId: '',
             type: 'IN',

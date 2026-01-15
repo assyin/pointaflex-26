@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../database/prisma.service';
-import { AttendanceType, OvertimeStatus } from '@prisma/client';
+import { AttendanceType, OvertimeStatus, LeaveStatus, RecoveryDayStatus } from '@prisma/client';
 import { OvertimeService } from '../overtime.service';
 
 @Injectable()
@@ -14,12 +14,23 @@ export class DetectOvertimeJob {
   ) {}
 
   /**
-   * Job batch quotidien pour détecter et créer automatiquement les Overtime depuis les Attendance
+   * Job batch quotidien de CONSOLIDATION des heures supplémentaires
+   *
+   * MODÈLE HYBRIDE:
+   * - Niveau 1 (Temps réel): Les Overtime sont créés immédiatement lors du pointage OUT
+   *   dans AttendanceService.createAutoOvertime()
+   * - Niveau 2 (Ce job): Filet de sécurité qui vérifie, recalcule et corrige les incohérences
+   *
+   * Ce job ne crée plus systématiquement de nouvelles heures, mais:
+   * 1. Détecte les pointages avec overtimeMinutes > seuil SANS Overtime associé
+   * 2. Recalcule les heures si nécessaire (corrections de pointage)
+   * 3. Signale les incohérences pour audit
+   *
    * Exécution par défaut à minuit chaque jour
    */
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async detectOvertime() {
-    this.logger.log('Démarrage de la détection automatique des heures supplémentaires...');
+    this.logger.log('🔄 Démarrage du job de CONSOLIDATION des heures supplémentaires...');
 
     try {
       const yesterday = new Date();
@@ -40,25 +51,30 @@ export class DetectOvertimeJob {
 
       for (const tenant of tenants) {
         try {
-          await this.detectOvertimeForTenant(tenant.id, yesterday, yesterdayEnd);
+          await this.consolidateOvertimeForTenant(tenant.id, yesterday, yesterdayEnd);
         } catch (error) {
           this.logger.error(
-            `Erreur lors de la détection des heures sup pour le tenant ${tenant.id}:`,
+            `Erreur lors de la consolidation des heures sup pour le tenant ${tenant.id}:`,
             error,
           );
         }
       }
 
-      this.logger.log('Détection automatique des heures supplémentaires terminée avec succès');
+      this.logger.log('✅ Consolidation des heures supplémentaires terminée avec succès');
     } catch (error) {
-      this.logger.error('Erreur lors de la détection globale des heures sup:', error);
+      this.logger.error('Erreur lors de la consolidation globale des heures sup:', error);
     }
   }
 
   /**
-   * Détecte et crée les Overtime pour un tenant spécifique
+   * Consolide et vérifie les Overtime pour un tenant spécifique
+   *
+   * Rôle: Filet de sécurité pour détecter et corriger les incohérences
+   * - Crée les Overtime manquants (si le temps réel a échoué)
+   * - Vérifie la cohérence entre pointages et Overtime existants
+   * - Log les anomalies pour audit
    */
-  private async detectOvertimeForTenant(
+  private async consolidateOvertimeForTenant(
     tenantId: string,
     startDate: Date,
     endDate: Date,
@@ -75,6 +91,9 @@ export class DetectOvertimeJob {
         overtimeRateNight: true,
         overtimeRateHoliday: true,
         overtimeRateEmergency: true,
+        // Auto-approbation
+        overtimeAutoApprove: true,
+        overtimeAutoApproveMaxHours: true,
         // Fallback sur anciens champs
         overtimeRate: true,
         nightShiftRate: true,
@@ -83,6 +102,8 @@ export class DetectOvertimeJob {
 
     const minimumThreshold = settings?.overtimeMinimumThreshold || 30; // Défaut: 30 minutes
     const autoDetectType = settings?.overtimeAutoDetectType !== false; // Activé par défaut
+    const autoApprove = settings?.overtimeAutoApprove === true; // Désactivé par défaut
+    const autoApproveMaxHours = Number(settings?.overtimeAutoApproveMaxHours) || 4.0; // 4h par défaut
 
     // Récupérer tous les Attendance avec overtimeMinutes > seuil minimum
     const attendancesWithOvertime = await this.prisma.attendance.findMany({
@@ -114,7 +135,7 @@ export class DetectOvertimeJob {
     });
 
     this.logger.log(
-      `Analyse de ${attendancesWithOvertime.length} pointage(s) avec heures sup pour le tenant ${tenantId}...`,
+      `🔍 Vérification de ${attendancesWithOvertime.length} pointage(s) avec heures sup pour le tenant ${tenantId}...`,
     );
 
     // Charger les jours fériés pour la période (si détection auto activée)
@@ -135,6 +156,7 @@ export class DetectOvertimeJob {
     }
 
     let createdCount = 0;
+    let existingCount = 0;
     let skippedCount = 0;
 
     for (const attendance of attendancesWithOvertime) {
@@ -143,6 +165,22 @@ export class DetectOvertimeJob {
         if (attendance.employee.isEligibleForOvertime === false) {
           this.logger.debug(
             `Skipping overtime pour ${attendance.employee.firstName} ${attendance.employee.lastName} (non éligible)`,
+          );
+          skippedCount++;
+          continue;
+        }
+
+        // Vérifier si l'employé est en congé ou en récupération
+        const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+        const leaveCheck = await this.isEmployeeOnLeaveOrRecovery(
+          tenantId,
+          attendance.employeeId,
+          attendanceDate,
+        );
+
+        if (leaveCheck.isOnLeave) {
+          this.logger.debug(
+            `Skipping overtime pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${leaveCheck.reason})`,
           );
           skippedCount++;
           continue;
@@ -158,12 +196,15 @@ export class DetectOvertimeJob {
         });
 
         if (existingOvertime) {
-          this.logger.debug(
-            `Overtime existe déjà pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${attendance.timestamp.toISOString().split('T')[0]}`,
-          );
-          skippedCount++;
+          // L'overtime existe déjà (créé en temps réel) - vérification OK
+          existingCount++;
           continue;
         }
+
+        // ⚠️ FILET DE SÉCURITÉ: Overtime manquant détecté
+        this.logger.warn(
+          `⚠️ [CONSOLIDATION] Overtime manquant détecté pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${attendance.timestamp.toISOString().split('T')[0]} - Création...`,
+        );
 
         // Convertir overtimeMinutes en heures
         const overtimeHours = (attendance.overtimeMinutes || 0) / 60;
@@ -218,6 +259,11 @@ export class DetectOvertimeJob {
         // Calculer le taux de majoration avec la méthode du service
         const rate = this.overtimeService.getOvertimeRate(settings, overtimeType);
 
+        // Déterminer le statut selon l'auto-approbation
+        const shouldAutoApprove = autoApprove && hoursToCreate <= autoApproveMaxHours;
+        const status = shouldAutoApprove ? OvertimeStatus.APPROVED : OvertimeStatus.PENDING;
+        const statusNote = shouldAutoApprove ? ' - Auto-approuvé' : '';
+
         // Créer l'Overtime
         await this.prisma.overtime.create({
           data: {
@@ -225,17 +271,21 @@ export class DetectOvertimeJob {
             employeeId: attendance.employeeId,
             date: new Date(dateStr),
             hours: hoursToCreate,
+            approvedHours: shouldAutoApprove ? hoursToCreate : null,
             type: overtimeType,
             rate,
             isNightShift: overtimeType === 'NIGHT', // Backward compatibility
-            status: OvertimeStatus.PENDING,
-            notes: `Créé automatiquement depuis le pointage du ${attendance.timestamp.toLocaleDateString('fr-FR')}${overtimeType !== 'STANDARD' ? ` (${overtimeType})` : ''}`,
+            status,
+            approvedAt: shouldAutoApprove ? new Date() : null,
+            notes: `[CONSOLIDATION] Créé par le job de filet de sécurité depuis le pointage du ${attendance.timestamp.toLocaleDateString('fr-FR')}${overtimeType !== 'STANDARD' ? ` (${overtimeType})` : ''}${statusNote}`,
           },
         });
 
         createdCount++;
+        const statusEmoji = shouldAutoApprove ? '✅' : '⏳';
+        const statusText = shouldAutoApprove ? 'auto-approuvé' : 'en attente';
         this.logger.log(
-          `✅ Overtime créé pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule}): ${hoursToCreate.toFixed(2)}h`,
+          `${statusEmoji} Overtime ${statusText} pour ${attendance.employee.firstName} ${attendance.employee.lastName} (${attendance.employee.matricule}): ${hoursToCreate.toFixed(2)}h`,
         );
       } catch (error) {
         this.logger.error(
@@ -246,8 +296,15 @@ export class DetectOvertimeJob {
       }
     }
 
+    // Log de synthèse
+    if (createdCount > 0) {
+      this.logger.warn(
+        `⚠️ [CONSOLIDATION] ${createdCount} overtime(s) manquant(s) créé(s) par le filet de sécurité`,
+      );
+    }
+
     this.logger.log(
-      `Détection des heures sup pour le tenant ${tenantId} terminée. ${createdCount} créé(s), ${skippedCount} ignoré(s).`,
+      `📊 Consolidation pour tenant ${tenantId}: ${existingCount} déjà créé(s) en temps réel, ${createdCount} récupéré(s), ${skippedCount} ignoré(s).`,
     );
   }
 
@@ -280,6 +337,66 @@ export class DetectOvertimeJob {
       // ou cas atypique où nightEnd > nightStart (ex: 06:00 - 14:00)
       return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
     }
+  }
+
+  /**
+   * Vérifie si un employé est en congé ou en récupération pour une date donnée
+   * @param tenantId L'ID du tenant
+   * @param employeeId L'ID de l'employé
+   * @param date La date à vérifier
+   * @returns Un objet avec isOnLeave, leaveType (si applicable)
+   */
+  private async isEmployeeOnLeaveOrRecovery(
+    tenantId: string,
+    employeeId: string,
+    date: Date,
+  ): Promise<{ isOnLeave: boolean; reason?: string }> {
+    // Vérifier les congés approuvés
+    const approvedLeaveStatuses = [
+      LeaveStatus.APPROVED,
+      LeaveStatus.MANAGER_APPROVED,
+      LeaveStatus.HR_APPROVED,
+    ];
+
+    const leave = await this.prisma.leave.findFirst({
+      where: {
+        tenantId,
+        employeeId,
+        status: { in: approvedLeaveStatuses },
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+      include: {
+        leaveType: { select: { name: true } },
+      },
+    });
+
+    if (leave) {
+      return {
+        isOnLeave: true,
+        reason: `en congé (${leave.leaveType.name})`,
+      };
+    }
+
+    // Vérifier les jours de récupération approuvés ou utilisés
+    const recoveryDay = await this.prisma.recoveryDay.findFirst({
+      where: {
+        tenantId,
+        employeeId,
+        status: { in: [RecoveryDayStatus.APPROVED, RecoveryDayStatus.USED] },
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
+    });
+
+    if (recoveryDay) {
+      return {
+        isOnLeave: true,
+        reason: 'en jour de récupération',
+      };
+    }
+
+    return { isOnLeave: false };
   }
 }
 

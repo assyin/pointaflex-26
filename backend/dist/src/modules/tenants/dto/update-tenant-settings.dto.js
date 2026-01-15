@@ -238,6 +238,25 @@ __decorate([
 ], UpdateTenantSettingsDto.prototype, "overtimePendingNotificationTime", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
+        description: 'Activer l\'auto-approbation des heures supplémentaires',
+        default: false,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "overtimeAutoApprove", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Seuil maximum d\'heures pour l\'auto-approbation (au-delà, approbation manuelle requise)',
+        example: 4.0,
+        default: 4.0,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "overtimeAutoApproveMaxHours", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
         description: 'Heure de début du shift de nuit (format HH:mm)',
         example: '21:00',
         default: '21:00',
@@ -588,6 +607,73 @@ __decorate([
     (0, class_validator_1.IsInt)(),
     __metadata("design:type", Number)
 ], UpdateTenantSettingsDto.prototype, "doublePunchToleranceMinutes", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Activer la tolérance des pauses implicites (OUT suivi de IN dans délai raisonnable)',
+        default: true,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "allowImplicitBreaks", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Durée minimum en minutes pour considérer une pause implicite (défaut: 30 min)',
+        example: 30,
+        default: 30,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "minImplicitBreakMinutes", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Durée maximum en minutes pour considérer une pause implicite (défaut: 120 min)',
+        example: 120,
+        default: 120,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "maxImplicitBreakMinutes", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Activer la clôture automatique des sessions IN sans OUT (badge oublié)',
+        default: true,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "autoCloseOrphanSessions", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Heure de clôture par défaut si pas de shift défini (format HH:mm)',
+        example: '23:59',
+        default: '23:59',
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateTenantSettingsDto.prototype, "autoCloseDefaultTime", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Buffer en minutes à ajouter après fin de shift pour heures sup (0 = désactivé)',
+        example: 120,
+        default: 0,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "autoCloseOvertimeBuffer", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Vérifier si overtime approuvé existe avant clôture (ajuste l\'heure de sortie)',
+        default: true,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "autoCloseCheckApprovedOvertime", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
         description: 'Activer la détection de patterns suspects DOUBLE_IN',

@@ -48,6 +48,13 @@ export declare class TenantsController {
             doubleInDetectionWindow: number;
             orphanInThreshold: number;
             doublePunchToleranceMinutes: number;
+            allowImplicitBreaks: boolean;
+            minImplicitBreakMinutes: number;
+            maxImplicitBreakMinutes: number;
+            autoCloseOrphanSessions: boolean;
+            autoCloseDefaultTime: string;
+            autoCloseOvertimeBuffer: number;
+            autoCloseCheckApprovedOvertime: boolean;
             enableDoubleInPatternDetection: boolean;
             doubleInPatternAlertThreshold: number;
             allowMissingInForRemoteWork: boolean;
@@ -85,6 +92,8 @@ export declare class TenantsController {
             overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
             overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
             overtimePendingNotificationTime: string;
+            overtimeAutoApprove: boolean;
+            overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
         };
     } & {
         id: string;
@@ -148,6 +157,13 @@ export declare class TenantsController {
                 doubleInDetectionWindow: number;
                 orphanInThreshold: number;
                 doublePunchToleranceMinutes: number;
+                allowImplicitBreaks: boolean;
+                minImplicitBreakMinutes: number;
+                maxImplicitBreakMinutes: number;
+                autoCloseOrphanSessions: boolean;
+                autoCloseDefaultTime: string;
+                autoCloseOvertimeBuffer: number;
+                autoCloseCheckApprovedOvertime: boolean;
                 enableDoubleInPatternDetection: boolean;
                 doubleInPatternAlertThreshold: number;
                 allowMissingInForRemoteWork: boolean;
@@ -185,6 +201,8 @@ export declare class TenantsController {
                 overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
                 overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
                 overtimePendingNotificationTime: string;
+                overtimeAutoApprove: boolean;
+                overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
             };
             _count: {
                 employees: number;
@@ -258,6 +276,13 @@ export declare class TenantsController {
             doubleInDetectionWindow: number;
             orphanInThreshold: number;
             doublePunchToleranceMinutes: number;
+            allowImplicitBreaks: boolean;
+            minImplicitBreakMinutes: number;
+            maxImplicitBreakMinutes: number;
+            autoCloseOrphanSessions: boolean;
+            autoCloseDefaultTime: string;
+            autoCloseOvertimeBuffer: number;
+            autoCloseCheckApprovedOvertime: boolean;
             enableDoubleInPatternDetection: boolean;
             doubleInPatternAlertThreshold: number;
             allowMissingInForRemoteWork: boolean;
@@ -295,6 +320,8 @@ export declare class TenantsController {
             overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
             overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
             overtimePendingNotificationTime: string;
+            overtimeAutoApprove: boolean;
+            overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
         };
         _count: {
             employees: number;
@@ -362,6 +389,13 @@ export declare class TenantsController {
             doubleInDetectionWindow: number;
             orphanInThreshold: number;
             doublePunchToleranceMinutes: number;
+            allowImplicitBreaks: boolean;
+            minImplicitBreakMinutes: number;
+            maxImplicitBreakMinutes: number;
+            autoCloseOrphanSessions: boolean;
+            autoCloseDefaultTime: string;
+            autoCloseOvertimeBuffer: number;
+            autoCloseCheckApprovedOvertime: boolean;
             enableDoubleInPatternDetection: boolean;
             doubleInPatternAlertThreshold: number;
             allowMissingInForRemoteWork: boolean;
@@ -399,6 +433,8 @@ export declare class TenantsController {
             overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
             overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
             overtimePendingNotificationTime: string;
+            overtimeAutoApprove: boolean;
+            overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
         };
     } & {
         id: string;
@@ -478,6 +514,13 @@ export declare class TenantsController {
         doubleInDetectionWindow?: number;
         orphanInThreshold?: number;
         doublePunchToleranceMinutes?: number;
+        allowImplicitBreaks?: boolean;
+        minImplicitBreakMinutes?: number;
+        maxImplicitBreakMinutes?: number;
+        autoCloseOrphanSessions?: boolean;
+        autoCloseDefaultTime?: string;
+        autoCloseOvertimeBuffer?: number;
+        autoCloseCheckApprovedOvertime?: boolean;
         enableDoubleInPatternDetection?: boolean;
         doubleInPatternAlertThreshold?: number;
         allowMissingInForRemoteWork?: boolean;
@@ -515,6 +558,8 @@ export declare class TenantsController {
         overtimeRateNight?: import("@prisma/client/runtime/library").Decimal;
         overtimeRateStandard?: import("@prisma/client/runtime/library").Decimal;
         overtimePendingNotificationTime?: string;
+        overtimeAutoApprove?: boolean;
+        overtimeAutoApproveMaxHours?: import("@prisma/client/runtime/library").Decimal | null;
         legalName: any;
         displayName: any;
         country: any;
@@ -566,6 +611,13 @@ export declare class TenantsController {
             doubleInDetectionWindow: number;
             orphanInThreshold: number;
             doublePunchToleranceMinutes: number;
+            allowImplicitBreaks: boolean;
+            minImplicitBreakMinutes: number;
+            maxImplicitBreakMinutes: number;
+            autoCloseOrphanSessions: boolean;
+            autoCloseDefaultTime: string;
+            autoCloseOvertimeBuffer: number;
+            autoCloseCheckApprovedOvertime: boolean;
             enableDoubleInPatternDetection: boolean;
             doubleInPatternAlertThreshold: number;
             allowMissingInForRemoteWork: boolean;
@@ -603,6 +655,8 @@ export declare class TenantsController {
             overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
             overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
             overtimePendingNotificationTime: string;
+            overtimeAutoApprove: boolean;
+            overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
         };
         id: string;
         createdAt: Date;
@@ -664,6 +718,13 @@ export declare class TenantsController {
             doubleInDetectionWindow: number;
             orphanInThreshold: number;
             doublePunchToleranceMinutes: number;
+            allowImplicitBreaks: boolean;
+            minImplicitBreakMinutes: number;
+            maxImplicitBreakMinutes: number;
+            autoCloseOrphanSessions: boolean;
+            autoCloseDefaultTime: string;
+            autoCloseOvertimeBuffer: number;
+            autoCloseCheckApprovedOvertime: boolean;
             enableDoubleInPatternDetection: boolean;
             doubleInPatternAlertThreshold: number;
             allowMissingInForRemoteWork: boolean;
@@ -701,6 +762,8 @@ export declare class TenantsController {
             overtimeRateNight: import("@prisma/client/runtime/library").Decimal;
             overtimeRateStandard: import("@prisma/client/runtime/library").Decimal;
             overtimePendingNotificationTime: string;
+            overtimeAutoApprove: boolean;
+            overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
         };
     }>;
 }

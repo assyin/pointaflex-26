@@ -24,7 +24,15 @@ export class CreateShiftDto {
   })
   endTime: string;
 
-  @ApiPropertyOptional({ example: 60, default: 60 })
+  @ApiPropertyOptional({ example: '12:00', description: 'Heure de début de pause (Format HH:mm)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/, {
+    message: 'breakStartTime must be in HH:mm format',
+  })
+  breakStartTime?: string;
+
+  @ApiPropertyOptional({ example: 60, default: 60, description: 'Durée de pause en minutes' })
   @IsOptional()
   @IsInt()
   @Min(0)

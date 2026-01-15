@@ -1,0 +1,92 @@
+===============================================
+   INSTALLATION - SYNCHRONISATION ZKACCESS
+===============================================
+
+PREREQUIS:
+- Node.js installe (deja fait)
+- ZKAccess 3.5 installe (deja fait)
+- Acces a PointaFlex (admin)
+
+===============================================
+ETAPE 1 : COPIER LE DOSSIER
+===============================================
+
+Copiez tout ce dossier "zkaccess-sync" sur votre PC Windows
+Par exemple dans: C:\zkaccess-sync
+
+===============================================
+ETAPE 2 : CREER LE TERMINAL DANS POINTAFLEX
+===============================================
+
+1. Ouvrez PointaFlex dans votre navigateur
+2. Allez dans TERMINAUX (menu gauche)
+3. Cliquez sur "Ajouter terminal"
+4. Remplissez:
+   - Nom: pointeuse (ou le nom que vous voulez)
+   - ID Terminal: A6F5211460142
+   - Type: FINGERPRINT
+5. Cliquez "Enregistrer"
+6. Une fois cree, cliquez sur le terminal
+7. Cliquez sur "Generer cle API"
+8. COPIEZ CETTE CLE (elle ressemble a: pk_xxxx...)
+
+===============================================
+ETAPE 3 : CONFIGURER LE SCRIPT
+===============================================
+
+1. Ouvrez le fichier "sync.js" avec Notepad
+2. Trouvez la ligne (vers ligne 45):
+
+   apiKey: 'VOTRE_CLE_API_ICI',
+
+3. Remplacez VOTRE_CLE_API_ICI par la cle copiee
+   Exemple: apiKey: 'pk_abc123xyz...',
+
+4. Sauvegardez le fichier (Ctrl+S)
+
+===============================================
+ETAPE 4 : LANCER LA SYNCHRONISATION
+===============================================
+
+1. Double-cliquez sur "START_SYNC.bat"
+2. Une fenetre noire s'ouvre
+3. Les pointages se synchronisent automatiquement toutes les 30 secondes
+
+POUR ARRETER: Appuyez Ctrl+C ou fermez la fenetre
+
+===============================================
+DEMARRAGE AUTOMATIQUE (OPTIONNEL)
+===============================================
+
+Pour lancer automatiquement au demarrage de Windows:
+1. Appuyez Windows+R
+2. Tapez: shell:startup
+3. Copiez un raccourci de START_SYNC.bat dans ce dossier
+
+===============================================
+VERIFIER QUE CA MARCHE
+===============================================
+
+1. Faites un pointage sur le terminal ZKTeco
+2. Attendez 30 secondes
+3. Le script affiche: "Pointage envoye avec succes"
+4. Verifiez dans PointaFlex > Pointages
+
+===============================================
+EN CAS DE PROBLEME
+===============================================
+
+ERREUR "Base de donnees non trouvee":
+- Verifiez que ZKAccess est installe
+- Le fichier Access.mdb doit etre dans:
+  C:\Program Files (x86)\ZKTeco\ZKAccess3.5\Access.mdb
+
+ERREUR "Pas de reponse du serveur":
+- Verifiez que le serveur PointaFlex est demarre
+- Verifiez l'URL de l'API dans sync.js
+
+ERREUR "Cle API invalide":
+- Regenerez la cle API dans PointaFlex
+- Copiez-la dans sync.js
+
+===============================================

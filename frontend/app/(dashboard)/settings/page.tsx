@@ -99,6 +99,9 @@ export default function SettingsPage() {
     overtimeRateEmergency: 1.30,
     overtimeAutoDetectType: true,
     overtimePendingNotificationTime: '09:00',
+    // Auto-approbation
+    overtimeAutoApprove: false,
+    overtimeAutoApproveMaxHours: 4,
 
     // Conges
     twoLevelWorkflow: true,
@@ -128,10 +131,19 @@ export default function SettingsPage() {
     alertNightWorkRepetitive: true,
     alertMinimumStaffing: true,
 
+    // Détection IN/OUT automatique
+    doublePunchToleranceMinutes: 2,
+    allowImplicitBreaks: true,
+    minImplicitBreakMinutes: 30,
+    maxImplicitBreakMinutes: 120,
+    autoCloseOrphanSessions: true,
+    autoCloseDefaultTime: '23:59',
+    autoCloseOvertimeBuffer: 0,
+    autoCloseCheckApprovedOvertime: true,
+
     // Anomalies - DOUBLE_IN
     doubleInDetectionWindow: 24,
     orphanInThreshold: 12,
-    doublePunchToleranceMinutes: 2,
     enableDoubleInPatternDetection: true,
     doubleInPatternAlertThreshold: 3,
 
@@ -202,6 +214,9 @@ export default function SettingsPage() {
         overtimeRateEmergency: settings.overtimeRateEmergency ?? 1.30,
         overtimeAutoDetectType: settings.overtimeAutoDetectType ?? true,
         overtimePendingNotificationTime: settings.overtimePendingNotificationTime ?? '09:00',
+        // Auto-approbation
+        overtimeAutoApprove: settings.overtimeAutoApprove ?? false,
+        overtimeAutoApproveMaxHours: settings.overtimeAutoApproveMaxHours ?? 4,
 
         // Conges
         twoLevelWorkflow: settings.twoLevelWorkflow ?? true,
@@ -231,10 +246,19 @@ export default function SettingsPage() {
         alertNightWorkRepetitive: settings.alertNightWorkRepetitive ?? true,
         alertMinimumStaffing: settings.alertMinimumStaffing ?? true,
 
+        // Détection IN/OUT automatique
+        doublePunchToleranceMinutes: settings.doublePunchToleranceMinutes ?? 2,
+        allowImplicitBreaks: settings.allowImplicitBreaks ?? true,
+        minImplicitBreakMinutes: settings.minImplicitBreakMinutes ?? 30,
+        maxImplicitBreakMinutes: settings.maxImplicitBreakMinutes ?? 120,
+        autoCloseOrphanSessions: settings.autoCloseOrphanSessions ?? true,
+        autoCloseDefaultTime: settings.autoCloseDefaultTime ?? '23:59',
+        autoCloseOvertimeBuffer: settings.autoCloseOvertimeBuffer ?? 0,
+        autoCloseCheckApprovedOvertime: settings.autoCloseCheckApprovedOvertime ?? true,
+
         // Anomalies - DOUBLE_IN
         doubleInDetectionWindow: settings.doubleInDetectionWindow ?? 24,
         orphanInThreshold: settings.orphanInThreshold ?? 12,
-        doublePunchToleranceMinutes: settings.doublePunchToleranceMinutes ?? 2,
         enableDoubleInPatternDetection: settings.enableDoubleInPatternDetection ?? true,
         doubleInPatternAlertThreshold: settings.doubleInPatternAlertThreshold ?? 3,
 

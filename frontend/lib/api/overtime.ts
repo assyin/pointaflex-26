@@ -87,4 +87,14 @@ export const overtimeApi = {
     const response = await apiClient.get(`/overtime/balance/${employeeId}`);
     return response.data;
   },
+
+  getDashboardStats: async (filters?: {
+    startDate?: string;
+    endDate?: string;
+    siteId?: string;
+    departmentId?: string;
+  }) => {
+    const response = await apiClient.get('/overtime/dashboard/stats', { params: filters });
+    return response.data;
+  },
 };

@@ -85,6 +85,45 @@ export declare class OvertimeController {
             totalHours: any;
         };
     }>;
+    getDashboardStats(user: any, startDate?: string, endDate?: string, siteId?: string, departmentId?: string): Promise<{
+        summary: {
+            totalHours: number;
+            totalApprovedHours: number;
+            totalRecords: number;
+            pendingCount: number;
+            approvedCount: number;
+            rejectedCount: number;
+            paidCount: number;
+            recoveredCount: number;
+        };
+        byType: {
+            count: number;
+            hours: number;
+            type: string;
+        }[];
+        byStatus: {
+            count: number;
+            hours: number;
+            status: string;
+        }[];
+        topEmployees: {
+            hours: number;
+            name: string;
+            count: number;
+            id: string;
+        }[];
+        byDepartment: {
+            hours: number;
+            name: string;
+            count: number;
+            id: string;
+        }[];
+        trend: {
+            hours: number;
+            date: string;
+            count: number;
+        }[];
+    }>;
     findOne(user: any, id: string): Promise<{
         id: string;
         createdAt: Date;

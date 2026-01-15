@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, memo } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -139,34 +139,36 @@ const menuItems: MenuItem[] = [
   },
 ];
 
-export function Sidebar() {
+function SidebarComponent() {
   const pathname = usePathname();
   const { hasPermission, hasAnyPermission, hasAllPermissions, user } = useAuth();
 
-  // Filtrer les items de menu selon les permissions
-  const visibleMenuItems = menuItems.filter((item) => {
-    // Items publics accessibles à tous
-    if (item.public) {
-      return true;
-    }
-
-    // Vérifier une permission unique
-    if (item.permission) {
-      return hasPermission(item.permission);
-    }
-
-    // Vérifier plusieurs permissions
-    if (item.permissions && item.permissions.length > 0) {
-      if (item.requireAll) {
-        return hasAllPermissions(item.permissions);
-      } else {
-        return hasAnyPermission(item.permissions);
+  // Mémoriser les items de menu visibles pour éviter les recalculs à chaque render
+  const visibleMenuItems = useMemo(() => {
+    return menuItems.filter((item) => {
+      // Items publics accessibles à tous
+      if (item.public) {
+        return true;
       }
-    }
 
-    // Si aucune permission n'est spécifiée, masquer par défaut
-    return false;
-  });
+      // Vérifier une permission unique
+      if (item.permission) {
+        return hasPermission(item.permission);
+      }
+
+      // Vérifier plusieurs permissions
+      if (item.permissions && item.permissions.length > 0) {
+        if (item.requireAll) {
+          return hasAllPermissions(item.permissions);
+        } else {
+          return hasAnyPermission(item.permissions);
+        }
+      }
+
+      // Si aucune permission n'est spécifiée, masquer par défaut
+      return false;
+    });
+  }, [hasPermission, hasAnyPermission, hasAllPermissions]);
 
   return (
     <aside className="w-sidebar h-screen bg-background-card border-r border-border-light flex flex-col fixed left-0 top-0 z-30">
@@ -224,3 +226,6 @@ export function Sidebar() {
     </aside>
   );
 }
+
+// Mémoriser le composant pour éviter les re-renders inutiles
+export const Sidebar = memo(SidebarComponent);

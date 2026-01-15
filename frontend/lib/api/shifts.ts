@@ -6,6 +6,7 @@ export interface Shift {
   type: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'CUSTOM';
   startTime: string;
   endTime: string;
+  breakStartTime?: string; // Heure de début de pause (ex: "12:00")
   breakDuration?: number;
   color?: string;
   tenantId: string;
@@ -18,6 +19,7 @@ export interface CreateShiftDto {
   code: string;
   startTime: string;
   endTime: string;
+  breakStartTime?: string; // Heure de début de pause (ex: "12:00")
   breakDuration?: number;
   isNightShift?: boolean;
   color?: string;

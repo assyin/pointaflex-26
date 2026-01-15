@@ -8,7 +8,10 @@ export declare class AttendanceService {
     private prisma;
     constructor(prisma: PrismaService);
     private roundOvertimeHours;
-    create(tenantId: string, createAttendanceDto: CreateAttendanceDto): Promise<{
+    private getOvertimeRate;
+    private isNightShiftTime;
+    private createAutoOvertime;
+    create(tenantId: string, createAttendanceDto: CreateAttendanceDto): Promise<({
         employee: {
             id: string;
             firstName: string;
@@ -56,7 +59,17 @@ export declare class AttendanceService {
             ipAddress: string | null;
             deviceType: import(".prisma/client").$Enums.DeviceType;
             apiKey: string | null;
+            apiKeyHash: string | null;
+            apiKeyLastRotation: Date | null;
+            apiKeyExpiresAt: Date | null;
+            allowedIPs: string[];
+            enforceIPWhitelist: boolean;
             lastSync: Date | null;
+            lastHeartbeat: Date | null;
+            heartbeatInterval: number;
+            totalSyncs: number;
+            failedSyncs: number;
+            avgResponseTime: number | null;
         };
     } & {
         id: string;
@@ -89,8 +102,156 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+    }) | {
+        _debounced: boolean;
+        _debounceInfo: {
+            reason: string;
+            message: string;
+            previousPunchId: string;
+            previousPunchTime: Date;
+            configuredTolerance: number;
+        };
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+            photo: string;
+        };
+        site: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            phone: string | null;
+            address: string | null;
+            timezone: string | null;
+            city: string | null;
+            tenantId: string;
+            code: string | null;
+            name: string;
+            departmentId: string | null;
+            managerId: string | null;
+            latitude: Decimal | null;
+            longitude: Decimal | null;
+            workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+        };
+        device: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            name: string;
+            isActive: boolean;
+            siteId: string | null;
+            deviceId: string;
+            ipAddress: string | null;
+            deviceType: import(".prisma/client").$Enums.DeviceType;
+            apiKey: string | null;
+            apiKeyHash: string | null;
+            apiKeyLastRotation: Date | null;
+            apiKeyExpiresAt: Date | null;
+            allowedIPs: string[];
+            enforceIPWhitelist: boolean;
+            lastSync: Date | null;
+            lastHeartbeat: Date | null;
+            heartbeatInterval: number;
+            totalSyncs: number;
+            failedSyncs: number;
+            avgResponseTime: number | null;
+        };
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        siteId: string | null;
+        latitude: Decimal | null;
+        longitude: Decimal | null;
+        employeeId: string;
+        deviceId: string | null;
+        timestamp: Date;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        method: import(".prisma/client").$Enums.DeviceType;
+        hasAnomaly: boolean;
+        anomalyType: string | null;
+        anomalyNote: string | null;
+        isCorrected: boolean;
+        correctedBy: string | null;
+        correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        generatedBy: string | null;
+        isGenerated: boolean;
     }>;
-    handleWebhook(tenantId: string, deviceId: string, webhookData: WebhookAttendanceDto, apiKey?: string): Promise<{
+    getPunchCountForDay(tenantId: string, employeeId: string, date: string, deviceId?: string, apiKey?: string, punchTime?: string): Promise<{
+        count: number;
+        forceType: any;
+        reason?: undefined;
+        openSessionFrom?: undefined;
+        nightShiftConfig?: undefined;
+    } | {
+        count: number;
+        forceType: string;
+        reason: string;
+        openSessionFrom: Date;
+        nightShiftConfig: {
+            nightShiftEnd: string;
+            isNightShiftEmployee: boolean;
+            inHour: number;
+        };
+    }>;
+    handleWebhookFast(tenantId: string, deviceId: string, webhookData: WebhookAttendanceDto, apiKey?: string): Promise<{
+        status: string;
+        reason: string;
+        message: string;
+        existingAttendanceId: string;
+        attendanceId?: undefined;
+        lastPunchTime?: undefined;
+        lastPunchType?: undefined;
+        configuredTolerance?: undefined;
+        success?: undefined;
+        employee?: undefined;
+        timestamp?: undefined;
+        type?: undefined;
+    } | {
+        status: string;
+        reason: string;
+        message: string;
+        attendanceId: string;
+        lastPunchTime: Date;
+        lastPunchType: import(".prisma/client").$Enums.AttendanceType;
+        configuredTolerance: number;
+        existingAttendanceId?: undefined;
+        success?: undefined;
+        employee?: undefined;
+        timestamp?: undefined;
+        type?: undefined;
+    } | {
+        success: boolean;
+        attendanceId: string;
+        employee: {
+            id: any;
+            matricule: any;
+            name: string;
+        };
+        timestamp: string;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        status?: undefined;
+        reason?: undefined;
+        message?: undefined;
+        existingAttendanceId?: undefined;
+        lastPunchTime?: undefined;
+        lastPunchType?: undefined;
+        configuredTolerance?: undefined;
+    }>;
+    handleWebhook(tenantId: string, deviceId: string, webhookData: WebhookAttendanceDto, apiKey?: string): Promise<({
         employee: {
             id: string;
             firstName: string;
@@ -139,6 +300,24 @@ export declare class AttendanceService {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+    }) | {
+        status: string;
+        reason: string;
+        message: string;
+        existingAttendanceId: string;
+        attendanceId?: undefined;
+        lastPunchTime?: undefined;
+        lastPunchType?: undefined;
+        configuredTolerance?: undefined;
+    } | {
+        status: string;
+        reason: string;
+        message: string;
+        attendanceId: string;
+        lastPunchTime: Date;
+        lastPunchType: import(".prisma/client").$Enums.AttendanceType;
+        configuredTolerance: number;
+        existingAttendanceId?: undefined;
     }>;
     findAll(tenantId: string, filters?: {
         employeeId?: string;
@@ -334,7 +513,17 @@ export declare class AttendanceService {
             ipAddress: string | null;
             deviceType: import(".prisma/client").$Enums.DeviceType;
             apiKey: string | null;
+            apiKeyHash: string | null;
+            apiKeyLastRotation: Date | null;
+            apiKeyExpiresAt: Date | null;
+            allowedIPs: string[];
+            enforceIPWhitelist: boolean;
             lastSync: Date | null;
+            lastHeartbeat: Date | null;
+            heartbeatInterval: number;
+            totalSyncs: number;
+            failedSyncs: number;
+            avgResponseTime: number | null;
         };
     } & {
         id: string;
@@ -479,6 +668,89 @@ export declare class AttendanceService {
         generatedBy: string | null;
         isGenerated: boolean;
     }[]>;
+    getAnomaliesPaginated(tenantId: string, filters: {
+        startDate?: string;
+        endDate?: string;
+        employeeId?: string;
+        departmentId?: string;
+        siteId?: string;
+        anomalyType?: string;
+        isCorrected?: boolean;
+        page?: number;
+        limit?: number;
+    }, userId?: string, userPermissions?: string[]): Promise<{
+        data: ({
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+                photo: string;
+                department: {
+                    id: string;
+                    name: string;
+                };
+                site: {
+                    id: string;
+                    name: string;
+                };
+            };
+            site: {
+                id: string;
+                createdAt: Date;
+                updatedAt: Date;
+                phone: string | null;
+                address: string | null;
+                timezone: string | null;
+                city: string | null;
+                tenantId: string;
+                code: string | null;
+                name: string;
+                departmentId: string | null;
+                managerId: string | null;
+                latitude: Decimal | null;
+                longitude: Decimal | null;
+                workingDays: import("@prisma/client/runtime/library").JsonValue | null;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            siteId: string | null;
+            latitude: Decimal | null;
+            longitude: Decimal | null;
+            employeeId: string;
+            deviceId: string | null;
+            timestamp: Date;
+            type: import(".prisma/client").$Enums.AttendanceType;
+            method: import(".prisma/client").$Enums.DeviceType;
+            hasAnomaly: boolean;
+            anomalyType: string | null;
+            anomalyNote: string | null;
+            isCorrected: boolean;
+            correctedBy: string | null;
+            correctedAt: Date | null;
+            correctionNote: string | null;
+            hoursWorked: Decimal | null;
+            lateMinutes: number | null;
+            earlyLeaveMinutes: number | null;
+            overtimeMinutes: number | null;
+            needsApproval: boolean;
+            approvalStatus: string | null;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            rawData: import("@prisma/client/runtime/library").JsonValue | null;
+            generatedBy: string | null;
+            isGenerated: boolean;
+        })[];
+        meta: {
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        };
+    }>;
     getDailyReport(tenantId: string, date: string): Promise<{
         date: string;
         totalRecords: number;
@@ -826,6 +1098,7 @@ export declare class AttendanceService {
                 name: string;
                 startTime: string;
                 endTime: string;
+                breakStartTime: string | null;
                 breakDuration: number;
                 isNightShift: boolean;
                 color: string | null;
@@ -860,7 +1133,17 @@ export declare class AttendanceService {
             ipAddress: string | null;
             deviceType: import(".prisma/client").$Enums.DeviceType;
             apiKey: string | null;
+            apiKeyHash: string | null;
+            apiKeyLastRotation: Date | null;
+            apiKeyExpiresAt: Date | null;
+            allowedIPs: string[];
+            enforceIPWhitelist: boolean;
             lastSync: Date | null;
+            lastHeartbeat: Date | null;
+            heartbeatInterval: number;
+            totalSyncs: number;
+            failedSyncs: number;
+            avgResponseTime: number | null;
         };
     } & {
         id: string;

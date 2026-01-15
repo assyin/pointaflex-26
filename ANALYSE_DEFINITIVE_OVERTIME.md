@@ -45,6 +45,9 @@ Le module Heures Supplémentaires est **quasi-complet** avec toutes les fonction
 - Approbation en masse (bulk approval)
 - Auto-approbation optionnelle
 
+### Nouvelles Fonctionnalités (v3.1)
+- ✅ **Vérification congés** - Bloque les heures sup si employé en congé ou récupération
+
 ---
 
 ## Ce qui est Implémenté
@@ -229,8 +232,8 @@ Le job `detect-overtime.job.ts` détecte automatiquement :
 | Item | Description | Effort |
 |------|-------------|--------|
 | **Intégration paie** | Lien avec module de paie | 10h |
-| **Vérification congés** | Bloquer si employé en congé | 4h |
-| **Dashboard dédié** | Graphiques et tendances | 8h |
+| ~~**Vérification congés**~~ | ~~Bloquer si employé en congé~~ | ✅ Implémenté |
+| ~~**Dashboard dédié**~~ | ~~Graphiques et tendances~~ | ✅ Implémenté |
 
 ---
 
@@ -253,7 +256,7 @@ Dans `/settings` > Horaires, configurer `overtimePendingNotificationTime` (défa
 
 ## Conclusion
 
-### État Actuel: 98% Opérationnel
+### État Actuel: 100% Fonctionnel
 
 | Aspect | Status |
 |--------|--------|
@@ -264,19 +267,34 @@ Dans `/settings` > Horaires, configurer `overtimePendingNotificationTime` (défa
 | Workflow approbation | ✅ 100% |
 | Limites employé | ✅ 100% |
 | Conversion récupération | ✅ 100% |
-| Frontend | ✅ 98% |
+| **Vérification congés** | ✅ 100% (v3.1) |
+| **Dashboard dédié** | ✅ 100% (v3.1) |
+| Frontend | ✅ 100% |
 | Configuration UI | ✅ 100% |
 
-### Pour atteindre 100%
+### Améliorations optionnelles restantes
 
 | Phase | Effort | Priorité |
 |-------|--------|----------|
 | Bulk approval + Auto-approbation | 10h | Optionnel |
-| Nice to have | 22h | Optionnel |
+| Intégration paie | 10h | Optionnel |
 
-**Total restant: ~32 heures** (tout optionnel)
+**Total restant: ~20 heures** (tout optionnel)
 
-### Améliorations Récentes (v3.0)
+### Améliorations Récentes (v3.1)
+
+- ✅ **Vérification congés/récupération** - Bloque automatiquement les heures sup si l'employé est en congé ou en récupération
+- ✅ **Détection automatique** - Le job de détection vérifie les congés/récupération avant de créer
+- ✅ **Création manuelle** - Erreur explicite si tentative de créer des heures sup pour un employé en congé
+- ✅ **Dashboard dédié** - Graphiques et tendances avec recharts :
+  - Cartes de statistiques (total heures, approuvées, en attente, rejetées)
+  - Répartition par type (pie chart)
+  - Répartition par statut (pie chart)
+  - Tendance des heures sup (line chart)
+  - Top 10 employés (bar chart horizontal)
+  - Heures par département (bar chart)
+
+### Améliorations v3.0
 
 - ✅ **Notifications email OVERTIME_PENDING** - Récapitulatif quotidien aux managers
 - ✅ **Heure d'envoi configurable** - Via TenantSettings
@@ -306,7 +324,24 @@ Dans `/settings` > Horaires, configurer `overtimePendingNotificationTime` (défa
 - `backend/src/modules/tenants/tenants.service.ts` - Nouveau champ dans validSettingsFields
 - `backend/src/modules/email-admin/email-admin.service.ts` - Template OVERTIME_PENDING
 
+### Fichiers Modifiés (v3.1)
+
+- `backend/src/modules/overtime/jobs/detect-overtime.job.ts` - Ajout vérification congés/récupération
+- `backend/src/modules/overtime/overtime.service.ts` - Ajout méthodes isEmployeeOnLeaveOrRecovery et getDashboardStats
+- `backend/src/modules/overtime/overtime.controller.ts` - Ajout endpoint GET /overtime/dashboard/stats
+
+### Fichiers Créés (v3.1)
+
+- `frontend/components/overtime/OvertimeDashboard.tsx` - Composant dashboard avec graphiques recharts
+- `frontend/components/overtime/index.ts` - Export du composant
+
+### Fichiers Modifiés Frontend (v3.1)
+
+- `frontend/lib/api/overtime.ts` - Ajout getDashboardStats
+- `frontend/lib/hooks/useOvertime.ts` - Ajout useOvertimeDashboardStats
+- `frontend/app/(dashboard)/overtime/page.tsx` - Ajout tabs Liste/Dashboard
+
 ---
 
 *Document mis à jour le 5 Janvier 2026*
-*Version 3.0 - Après implémentation notifications email*
+*Version 3.1 - Vérification congés + Dashboard dédié*

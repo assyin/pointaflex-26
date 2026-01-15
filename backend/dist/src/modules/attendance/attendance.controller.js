@@ -41,6 +41,18 @@ let AttendanceController = class AttendanceController {
         }
         return this.attendanceService.handleWebhook(tenantId, deviceId, webhookData, apiKey);
     }
+    async handleWebhookFast(deviceId, tenantId, apiKey, webhookData) {
+        if (!deviceId || !tenantId) {
+            throw new common_1.UnauthorizedException('Missing device credentials');
+        }
+        return this.attendanceService.handleWebhookFast(tenantId, deviceId, webhookData, apiKey);
+    }
+    async getPunchCount(deviceId, tenantId, apiKey, employeeId, date, punchTime) {
+        if (!deviceId || !tenantId) {
+            throw new common_1.UnauthorizedException('Missing device credentials');
+        }
+        return this.attendanceService.getPunchCountForDay(tenantId, employeeId, date, deviceId, apiKey, punchTime);
+    }
     async handlePushFromTerminal(body, headers) {
         console.log('📥 [Push URL] Données reçues du terminal:', JSON.stringify(body, null, 2));
         console.log('📋 [Push URL] Headers:', headers);
@@ -102,6 +114,10 @@ let AttendanceController = class AttendanceController {
         return map[modeNum] || client_1.DeviceType.MANUAL;
     }
     findAll(user, tenantId, employeeId, siteId, startDate, endDate, hasAnomaly, type) {
+        console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
+        console.log('🔵 [AttendanceController.findAll] tenantId:', tenantId);
+        console.log('🔵 [AttendanceController.findAll] user:', JSON.stringify(user));
+        console.log('🔵 [AttendanceController.findAll] startDate:', startDate, 'endDate:', endDate);
         return this.attendanceService.findAll(tenantId, {
             employeeId,
             siteId,
@@ -111,8 +127,18 @@ let AttendanceController = class AttendanceController {
             type,
         }, user.userId, user.permissions || []);
     }
-    getAnomalies(user, tenantId, date) {
-        return this.attendanceService.getAnomalies(tenantId, date, user.userId, user.permissions || []);
+    getAnomalies(user, tenantId, startDate, endDate, employeeId, departmentId, siteId, anomalyType, isCorrected, page, limit, date) {
+        return this.attendanceService.getAnomaliesPaginated(tenantId, {
+            startDate: startDate || date,
+            endDate: endDate || date,
+            employeeId,
+            departmentId,
+            siteId,
+            anomalyType,
+            isCorrected: isCorrected !== undefined ? isCorrected === 'true' : undefined,
+            page: page ? parseInt(page, 10) : 1,
+            limit: limit ? parseInt(limit, 10) : 20,
+        }, user.userId, user.permissions || []);
     }
     getDailyReport(tenantId, date) {
         return this.attendanceService.getDailyReport(tenantId, date);
@@ -221,6 +247,43 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AttendanceController.prototype, "handleWebhook", null);
 __decorate([
+    (0, common_1.Post)('webhook/fast'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Fast webhook - returns immediately, processes in background' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Device-ID', required: true, description: 'Device unique ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: false, description: 'Device API Key' }),
+    (0, swagger_1.ApiResponse)({ status: 201, description: 'Attendance queued for processing' }),
+    __param(0, (0, common_1.Headers)('x-device-id')),
+    __param(1, (0, common_1.Headers)('x-tenant-id')),
+    __param(2, (0, common_1.Headers)('x-api-key')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, webhook_attendance_dto_1.WebhookAttendanceDto]),
+    __metadata("design:returntype", Promise)
+], AttendanceController.prototype, "handleWebhookFast", null);
+__decorate([
+    (0, common_1.Get)('count'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({ summary: 'Get punch count for an employee on a specific date (for IN/OUT detection)' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Device-ID', required: true, description: 'Device unique ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: false, description: 'Device API Key' }),
+    (0, swagger_1.ApiQuery)({ name: 'employeeId', required: true, description: 'Employee ID or matricule' }),
+    (0, swagger_1.ApiQuery)({ name: 'date', required: true, description: 'Date in YYYY-MM-DD format' }),
+    (0, swagger_1.ApiQuery)({ name: 'punchTime', required: false, description: 'Punch time ISO string (for night shift detection)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Returns the punch count and optional forceType for night shifts' }),
+    __param(0, (0, common_1.Headers)('x-device-id')),
+    __param(1, (0, common_1.Headers)('x-tenant-id')),
+    __param(2, (0, common_1.Headers)('x-api-key')),
+    __param(3, (0, common_1.Query)('employeeId')),
+    __param(4, (0, common_1.Query)('date')),
+    __param(5, (0, common_1.Query)('punchTime')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", Promise)
+], AttendanceController.prototype, "getPunchCount", null);
+__decorate([
     (0, common_1.Post)('push'),
     (0, public_decorator_1.Public)(),
     (0, swagger_1.ApiOperation)({ summary: 'Push URL endpoint for ZKTeco native push (no auth required)' }),
@@ -256,13 +319,22 @@ __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     (0, swagger_1.ApiBearerAuth)(),
     (0, permissions_decorator_1.RequirePermissions)('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team', 'attendance.view_department', 'attendance.view_site'),
-    (0, swagger_1.ApiOperation)({ summary: 'Get attendance anomalies' }),
-    (0, swagger_1.ApiResponse)({ status: 200, description: 'List of anomalies' }),
+    (0, swagger_1.ApiOperation)({ summary: 'Get attendance anomalies with filters and pagination' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Paginated list of anomalies' }),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
-    __param(2, (0, common_1.Query)('date')),
+    __param(2, (0, common_1.Query)('startDate')),
+    __param(3, (0, common_1.Query)('endDate')),
+    __param(4, (0, common_1.Query)('employeeId')),
+    __param(5, (0, common_1.Query)('departmentId')),
+    __param(6, (0, common_1.Query)('siteId')),
+    __param(7, (0, common_1.Query)('anomalyType')),
+    __param(8, (0, common_1.Query)('isCorrected')),
+    __param(9, (0, common_1.Query)('page')),
+    __param(10, (0, common_1.Query)('limit')),
+    __param(11, (0, common_1.Query)('date')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "getAnomalies", null);
 __decorate([

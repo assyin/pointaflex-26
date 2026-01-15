@@ -6,6 +6,7 @@ export declare class DetectOvertimeJob {
     private readonly logger;
     constructor(prisma: PrismaService, overtimeService: OvertimeService);
     detectOvertime(): Promise<void>;
-    private detectOvertimeForTenant;
+    private consolidateOvertimeForTenant;
     private isNightShiftTime;
+    private isEmployeeOnLeaveOrRecovery;
 }

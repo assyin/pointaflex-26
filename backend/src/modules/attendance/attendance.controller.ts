@@ -11,7 +11,7 @@ import {
   Headers,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiHeader } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiHeader, ApiQuery } from '@nestjs/swagger';
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
@@ -65,6 +65,51 @@ export class AttendanceController {
 
     // Passer l'API Key au service pour validation
     return this.attendanceService.handleWebhook(tenantId, deviceId, webhookData, apiKey);
+  }
+
+  @Post('webhook/fast')
+  @Public()
+  @ApiOperation({ summary: 'Fast webhook - returns immediately, processes in background' })
+  @ApiHeader({ name: 'X-Device-ID', required: true, description: 'Device unique ID' })
+  @ApiHeader({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' })
+  @ApiHeader({ name: 'X-API-Key', required: false, description: 'Device API Key' })
+  @ApiResponse({ status: 201, description: 'Attendance queued for processing' })
+  async handleWebhookFast(
+    @Headers('x-device-id') deviceId: string,
+    @Headers('x-tenant-id') tenantId: string,
+    @Headers('x-api-key') apiKey: string,
+    @Body() webhookData: WebhookAttendanceDto,
+  ) {
+    if (!deviceId || !tenantId) {
+      throw new UnauthorizedException('Missing device credentials');
+    }
+
+    return this.attendanceService.handleWebhookFast(tenantId, deviceId, webhookData, apiKey);
+  }
+
+  @Get('count')
+  @Public()
+  @ApiOperation({ summary: 'Get punch count for an employee on a specific date (for IN/OUT detection)' })
+  @ApiHeader({ name: 'X-Device-ID', required: true, description: 'Device unique ID' })
+  @ApiHeader({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' })
+  @ApiHeader({ name: 'X-API-Key', required: false, description: 'Device API Key' })
+  @ApiQuery({ name: 'employeeId', required: true, description: 'Employee ID or matricule' })
+  @ApiQuery({ name: 'date', required: true, description: 'Date in YYYY-MM-DD format' })
+  @ApiQuery({ name: 'punchTime', required: false, description: 'Punch time ISO string (for night shift detection)' })
+  @ApiResponse({ status: 200, description: 'Returns the punch count and optional forceType for night shifts' })
+  async getPunchCount(
+    @Headers('x-device-id') deviceId: string,
+    @Headers('x-tenant-id') tenantId: string,
+    @Headers('x-api-key') apiKey: string,
+    @Query('employeeId') employeeId: string,
+    @Query('date') date: string,
+    @Query('punchTime') punchTime?: string,
+  ) {
+    if (!deviceId || !tenantId) {
+      throw new UnauthorizedException('Missing device credentials');
+    }
+
+    return this.attendanceService.getPunchCountForDay(tenantId, employeeId, date, deviceId, apiKey, punchTime);
   }
 
   @Post('push')
@@ -193,6 +238,12 @@ export class AttendanceController {
     @Query('hasAnomaly') hasAnomaly?: string,
     @Query('type') type?: AttendanceType,
   ) {
+    // DEBUG: Log de la requête au contrôleur
+    console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
+    console.log('🔵 [AttendanceController.findAll] tenantId:', tenantId);
+    console.log('🔵 [AttendanceController.findAll] user:', JSON.stringify(user));
+    console.log('🔵 [AttendanceController.findAll] startDate:', startDate, 'endDate:', endDate);
+
     return this.attendanceService.findAll(
       tenantId,
       {
@@ -212,16 +263,35 @@ export class AttendanceController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @ApiBearerAuth()
   @RequirePermissions('attendance.view_all', 'attendance.view_anomalies', 'attendance.view_team', 'attendance.view_department', 'attendance.view_site')
-  @ApiOperation({ summary: 'Get attendance anomalies' })
-  @ApiResponse({ status: 200, description: 'List of anomalies' })
+  @ApiOperation({ summary: 'Get attendance anomalies with filters and pagination' })
+  @ApiResponse({ status: 200, description: 'Paginated list of anomalies' })
   getAnomalies(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('date') date?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('employeeId') employeeId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('siteId') siteId?: string,
+    @Query('anomalyType') anomalyType?: string,
+    @Query('isCorrected') isCorrected?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('date') date?: string, // Backward compatibility
   ) {
-    return this.attendanceService.getAnomalies(
+    return this.attendanceService.getAnomaliesPaginated(
       tenantId,
-      date,
+      {
+        startDate: startDate || date,
+        endDate: endDate || date,
+        employeeId,
+        departmentId,
+        siteId,
+        anomalyType,
+        isCorrected: isCorrected !== undefined ? isCorrected === 'true' : undefined,
+        page: page ? parseInt(page, 10) : 1,
+        limit: limit ? parseInt(limit, 10) : 20,
+      },
       user.userId,
       user.permissions || [],
     );

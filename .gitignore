@@ -52,3 +52,5 @@ backups/
 # Prisma
 /backend/prisma/migrations/**/migration.sql.bak
 venv/
+scripts/google-sheets/credentials.json
+scripts/google-sheets/token.json

@@ -34,4 +34,12 @@ export class CreateDeviceDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Générer automatiquement une API Key sécurisée lors de la création',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  generateApiKey?: boolean;
 }

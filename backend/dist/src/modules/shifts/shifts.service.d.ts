@@ -13,6 +13,7 @@ export declare class ShiftsService {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
@@ -22,6 +23,11 @@ export declare class ShiftsService {
         isNightShift?: boolean;
     }): Promise<{
         data: {
+            _usage: {
+                employeeCount: number;
+                scheduleCount: number;
+                canDelete: boolean;
+            };
             id: string;
             createdAt: Date;
             updatedAt: Date;
@@ -30,6 +36,7 @@ export declare class ShiftsService {
             name: string;
             startTime: string;
             endTime: string;
+            breakStartTime: string | null;
             breakDuration: number;
             isNightShift: boolean;
             color: string | null;
@@ -50,6 +57,7 @@ export declare class ShiftsService {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
@@ -63,6 +71,7 @@ export declare class ShiftsService {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
@@ -76,8 +85,14 @@ export declare class ShiftsService {
         name: string;
         startTime: string;
         endTime: string;
+        breakStartTime: string | null;
         breakDuration: number;
         isNightShift: boolean;
         color: string | null;
+    }>;
+    getShiftUsage(tenantId: string, id: string): Promise<{
+        employeeCount: number;
+        scheduleCount: number;
+        canDelete: boolean;
     }>;
 }

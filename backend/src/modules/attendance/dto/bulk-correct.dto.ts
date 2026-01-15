@@ -1,4 +1,4 @@
-import { IsArray, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsString, IsBoolean, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -7,11 +7,13 @@ export class BulkCorrectionItemDto {
   @IsString()
   attendanceId: string;
 
-  @ApiProperty({ description: 'Nouveau timestamp corrigé (optionnel)' })
+  @ApiProperty({ description: 'Nouveau timestamp corrigé (optionnel)', required: false })
+  @IsOptional()
   @IsString()
   correctedTimestamp?: string;
 
-  @ApiProperty({ description: 'Note de correction spécifique pour ce pointage' })
+  @ApiProperty({ description: 'Note de correction spécifique pour ce pointage', required: false })
+  @IsOptional()
   @IsString()
   correctionNote?: string;
 }
@@ -27,11 +29,14 @@ export class BulkCorrectAttendanceDto {
   @IsString()
   generalNote: string;
 
-  @ApiProperty({ description: 'ID de l\'utilisateur qui corrige' })
+  @ApiProperty({ description: 'ID de l\'utilisateur qui corrige (ajouté automatiquement par le controller)', required: false })
+  @IsOptional()
   @IsString()
-  correctedBy: string;
+  correctedBy?: string;
 
   @ApiProperty({ description: 'Forcer la correction sans approbation (admin seulement)', required: false })
+  @IsOptional()
+  @IsBoolean()
   forceApproval?: boolean;
 }
 

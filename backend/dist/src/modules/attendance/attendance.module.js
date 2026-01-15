@@ -15,6 +15,7 @@ const prisma_module_1 = require("../../database/prisma.module");
 const mail_module_1 = require("../mail/mail.module");
 const detect_absences_job_1 = require("./jobs/detect-absences.job");
 const detect_missing_out_job_1 = require("./jobs/detect-missing-out.job");
+const auto_close_sessions_job_1 = require("./jobs/auto-close-sessions.job");
 const missing_out_manager_notification_job_1 = require("./jobs/missing-out-manager-notification.job");
 const missing_in_manager_notification_job_1 = require("./jobs/missing-in-manager-notification.job");
 const late_manager_notification_job_1 = require("./jobs/late-manager-notification.job");
@@ -32,6 +33,7 @@ exports.AttendanceModule = AttendanceModule = __decorate([
             attendance_service_1.AttendanceService,
             detect_absences_job_1.DetectAbsencesJob,
             detect_missing_out_job_1.DetectMissingOutJob,
+            auto_close_sessions_job_1.AutoCloseSessionsJob,
             missing_out_manager_notification_job_1.MissingOutManagerNotificationJob,
             missing_in_manager_notification_job_1.MissingInManagerNotificationJob,
             late_manager_notification_job_1.LateManagerNotificationJob,

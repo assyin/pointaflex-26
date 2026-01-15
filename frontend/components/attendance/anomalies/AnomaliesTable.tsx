@@ -30,13 +30,16 @@ import {
   XCircle,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 import {
   ANOMALY_LABELS,
   ANOMALY_COLORS,
+  INFORMATIVE_ANOMALY_TYPES,
   type AnomalyRecord,
   type AnomalyType,
 } from '@/lib/api/anomalies';
+import { Info } from 'lucide-react';
 
 interface AnomaliesTableProps {
   data?: AnomalyRecord[];
@@ -66,10 +69,11 @@ export function AnomaliesTable({
 }: AnomaliesTableProps) {
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      const uncorrectedIds = data
-        .filter((a) => !a.isCorrected)
+      // Exclure les anomalies corrigées ET les anomalies informatives
+      const selectableIds = data
+        .filter((a) => !a.isCorrected && !INFORMATIVE_ANOMALY_TYPES.includes(a.anomalyType as AnomalyType))
         .map((a) => a.id);
-      onSelectionChange(uncorrectedIds);
+      onSelectionChange(selectableIds);
     } else {
       onSelectionChange([]);
     }
@@ -83,9 +87,12 @@ export function AnomaliesTable({
     }
   };
 
-  const uncorrectedCount = data.filter((a) => !a.isCorrected).length;
-  const allUncorrectedSelected =
-    uncorrectedCount > 0 && selectedIds.length === uncorrectedCount;
+  // Compter les anomalies sélectionnables (non corrigées ET non informatives)
+  const selectableCount = data.filter(
+    (a) => !a.isCorrected && !INFORMATIVE_ANOMALY_TYPES.includes(a.anomalyType as AnomalyType)
+  ).length;
+  const allSelectableSelected =
+    selectableCount > 0 && selectedIds.length === selectableCount;
 
   if (isLoading) {
     return (
@@ -127,7 +134,7 @@ export function AnomaliesTable({
                   <TableRow>
                     <TableHead className="w-12">
                       <Checkbox
-                        checked={allUncorrectedSelected}
+                        checked={allSelectableSelected}
                         onCheckedChange={handleSelectAll}
                         aria-label="Sélectionner tout"
                       />
@@ -147,6 +154,7 @@ export function AnomaliesTable({
                       ANOMALY_LABELS[anomalyType] || anomaly.anomalyType;
                     const anomalyColor =
                       ANOMALY_COLORS[anomalyType] || '#6C757D';
+                    const isInformative = INFORMATIVE_ANOMALY_TYPES.includes(anomalyType);
 
                     return (
                       <TableRow
@@ -154,18 +162,24 @@ export function AnomaliesTable({
                         className={
                           selectedIds.includes(anomaly.id)
                             ? 'bg-blue-50'
+                            : isInformative
+                            ? 'bg-gray-50/50'
                             : undefined
                         }
                       >
                         <TableCell>
-                          <Checkbox
-                            checked={selectedIds.includes(anomaly.id)}
-                            onCheckedChange={(checked) =>
-                              handleSelectOne(anomaly.id, !!checked)
-                            }
-                            disabled={anomaly.isCorrected}
-                            aria-label={`Sélectionner ${anomaly.employee?.firstName}`}
-                          />
+                          {!isInformative ? (
+                            <Checkbox
+                              checked={selectedIds.includes(anomaly.id)}
+                              onCheckedChange={(checked) =>
+                                handleSelectOne(anomaly.id, !!checked)
+                              }
+                              disabled={anomaly.isCorrected}
+                              aria-label={`Sélectionner ${anomaly.employee?.firstName}`}
+                            />
+                          ) : (
+                            <Info className="h-4 w-4 text-gray-400" />
+                          )}
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
@@ -205,13 +219,26 @@ export function AnomaliesTable({
                           {anomaly.employee?.department?.name || '-'}
                         </TableCell>
                         <TableCell>
-                          {anomaly.isCorrected ? (
+                          {isInformative ? (
                             <Badge
                               variant="outline"
-                              className="bg-green-50 text-green-700 border-green-200"
+                              className="bg-gray-50 text-gray-600 border-gray-200"
+                            >
+                              <Info className="h-3 w-3 mr-1" />
+                              Informatif
+                            </Badge>
+                          ) : anomaly.isCorrected ? (
+                            <Badge
+                              variant="outline"
+                              className="bg-green-50 text-green-700 border-green-200 cursor-pointer hover:bg-green-100"
+                              onClick={() => onViewDetails?.(anomaly)}
+                              title={anomaly.correctionNote || 'Cliquez pour voir les détails'}
                             >
                               <CheckCircle className="h-3 w-3 mr-1" />
                               Corrigée
+                              {anomaly.correctionNote && (
+                                <FileText className="h-3 w-3 ml-1" />
+                              )}
                             </Badge>
                           ) : (
                             <Badge
@@ -239,7 +266,7 @@ export function AnomaliesTable({
                                   Voir détails
                                 </DropdownMenuItem>
                               )}
-                              {!anomaly.isCorrected && (
+                              {!anomaly.isCorrected && !isInformative && (
                                 <DropdownMenuItem
                                   onClick={() => onCorrect(anomaly)}
                                 >

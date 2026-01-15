@@ -123,6 +123,7 @@ export default function ShiftsPlanningPage() {
     code: '',
     startTime: '08:00',
     endTime: '17:00',
+    breakStartTime: '',
     breakDuration: 60,
     isNightShift: false,
     color: '#0052CC',
@@ -514,6 +515,7 @@ export default function ShiftsPlanningPage() {
         code: shift.code || '',
         startTime: shift.startTime || '08:00',
         endTime: shift.endTime || '17:00',
+        breakStartTime: shift.breakStartTime || '',
         breakDuration: shift.breakDuration || 60,
         isNightShift: shift.isNightShift || false,
         color: shift.color || '#0052CC',
@@ -525,6 +527,7 @@ export default function ShiftsPlanningPage() {
         code: '',
         startTime: '08:00',
         endTime: '17:00',
+        breakStartTime: '',
         breakDuration: 60,
         isNightShift: false,
         color: '#0052CC',
@@ -541,6 +544,7 @@ export default function ShiftsPlanningPage() {
       code: '',
       startTime: '08:00',
       endTime: '17:00',
+      breakStartTime: '',
       breakDuration: 60,
       isNightShift: false,
       color: '#0052CC',
@@ -1462,8 +1466,14 @@ export default function ShiftsPlanningPage() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleDeleteShift(shift.id)}
+                                  disabled={!shift._usage?.canDelete}
+                                  title={
+                                    shift._usage?.canDelete
+                                      ? 'Supprimer ce shift'
+                                      : `Impossible de supprimer : ${shift._usage?.employeeCount || 0} employé(s) et ${shift._usage?.scheduleCount || 0} planning(s) associés`
+                                  }
                                 >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                  <Trash2 className={`h-4 w-4 ${shift._usage?.canDelete ? 'text-destructive' : 'text-gray-300'}`} />
                                 </Button>
                               </PermissionGate>
                             </div>
@@ -1479,17 +1489,47 @@ export default function ShiftsPlanningPage() {
                               <span className="text-text-secondary">Fin:</span>
                               <span className="font-medium">{shift.endTime}</span>
                             </div>
+                            {shift.breakStartTime && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-text-secondary">Début pause:</span>
+                                <span className="font-medium">{shift.breakStartTime}</span>
+                              </div>
+                            )}
                             {shift.breakDuration && (
                               <div className="flex items-center justify-between">
-                                <span className="text-text-secondary">Pause:</span>
+                                <span className="text-text-secondary">Durée pause:</span>
                                 <span className="font-medium">{shift.breakDuration} min</span>
                               </div>
                             )}
-                            {shift.isNightShift && (
-                              <Badge variant="secondary" className="mt-2">
-                                Shift de nuit
-                              </Badge>
-                            )}
+                            {/* Statistiques d'utilisation */}
+                            <div className="pt-2 mt-2 border-t border-gray-200">
+                              <div className="flex items-center justify-between">
+                                <span className="text-text-secondary flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  Employés:
+                                </span>
+                                <span className="font-medium">{shift._usage?.employeeCount || 0}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-text-secondary flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  Plannings:
+                                </span>
+                                <span className="font-medium">{shift._usage?.scheduleCount || 0}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {shift.isNightShift && (
+                                <Badge variant="secondary">
+                                  Shift de nuit
+                                </Badge>
+                              )}
+                              {shift._usage?.canDelete && (
+                                <Badge variant="outline" className="text-green-600 border-green-300">
+                                  Supprimable
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </CardContent>
                       </Card>
@@ -1552,6 +1592,16 @@ export default function ShiftsPlanningPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
+                      <Label htmlFor="shift-break-start">Heure début pause</Label>
+                      <Input
+                        id="shift-break-start"
+                        type="time"
+                        value={shiftFormData.breakStartTime || ''}
+                        onChange={(e) => setShiftFormData({ ...shiftFormData, breakStartTime: e.target.value })}
+                        placeholder="12:00"
+                      />
+                    </div>
+                    <div>
                       <Label htmlFor="shift-break">Durée de pause (minutes)</Label>
                       <Input
                         id="shift-break"
@@ -1561,6 +1611,9 @@ export default function ShiftsPlanningPage() {
                         onChange={(e) => setShiftFormData({ ...shiftFormData, breakDuration: parseInt(e.target.value) || 0 })}
                       />
                     </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="shift-color">Couleur</Label>
                       <div className="flex gap-2">

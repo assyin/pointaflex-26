@@ -1,16 +1,24 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Upload, X, FileSpreadsheet, AlertCircle, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, X, FileSpreadsheet, AlertCircle, CheckCircle, XCircle, Building2, Briefcase, Users, MapPin, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '@/lib/api/client';
+import * as XLSX from 'xlsx';
+
+interface ImportLogEntry {
+  type: 'info' | 'success' | 'warning' | 'error' | 'site' | 'department' | 'position' | 'team' | 'shift';
+  message: string;
+  timestamp: string;
+}
 
 interface ImportResult {
   success: number;
   failed: number;
+  totalToProcess: number;
   errors: Array<{
     row: number;
     matricule?: string;
@@ -21,6 +29,7 @@ interface ImportResult {
     firstName: string;
     lastName: string;
   }>;
+  logs: ImportLogEntry[];
 }
 
 interface ImportExcelModalProps {
@@ -33,14 +42,49 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [totalEmployees, setTotalEmployees] = useState(0);
+  const [currentCount, setCurrentCount] = useState(0);
+  const [importLogs, setImportLogs] = useState<ImportLogEntry[]>([]);
+  const logsContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
+  }, [importLogs]);
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.name.match(/\.(xlsx|xls)$/)) {
         setSelectedFile(file);
         setImportResult(null);
         setUploadProgress(0);
+        setImportLogs([]);
+        setCurrentCount(0);
+
+        // Parse Excel file to get total count
+        try {
+          const buffer = await file.arrayBuffer();
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[sheetName];
+          const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+          // Count non-empty rows (excluding header)
+          const dataRows = rows.slice(1).filter((row: any) => row && row.length > 0 && row[0]);
+          setTotalEmployees(dataRows.length);
+
+          setImportLogs([{
+            type: 'info',
+            message: `📄 Fichier analysé: ${dataRows.length} employés détectés`,
+            timestamp: new Date().toISOString()
+          }]);
+        } catch (error) {
+          console.error('Error parsing Excel:', error);
+          toast.error('Erreur lors de l\'analyse du fichier');
+        }
       } else {
         toast.error('Format de fichier invalide. Seuls les fichiers .xlsx et .xls sont acceptés.');
       }
@@ -56,44 +100,47 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
     setIsUploading(true);
     setUploadProgress(0);
     setImportResult(null);
+    setCurrentCount(0);
+
+    // Add starting log
+    setImportLogs(prev => [...prev, {
+      type: 'info',
+      message: `🚀 Démarrage de l'import...`,
+      timestamp: new Date().toISOString()
+    }]);
 
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
 
-      // Simuler une progression initiale pour l'upload
+      // Simulate progress based on total employees
       const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
-          // Ne pas dépasser 80% pendant l'upload (le reste sera pour le traitement)
-          if (prev < 80) {
-            return Math.min(prev + 5, 80);
-          }
-          return prev;
+        setCurrentCount((prev) => {
+          const newCount = Math.min(prev + 1, totalEmployees - 1);
+          const progress = Math.round((newCount / totalEmployees) * 90);
+          setUploadProgress(progress);
+          return newCount;
         });
-      }, 200);
+      }, 100);
 
       const response = await apiClient.post('/employees/import/excel', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            // Upload représente 80% du processus total
-            const uploadPercent = Math.round((progressEvent.loaded * 80) / progressEvent.total);
-            setUploadProgress(uploadPercent);
-          }
-        },
       });
 
-      // Arrêter l'intervalle de progression simulée
+      // Stop progress simulation
       clearInterval(progressInterval);
 
-      // Simuler le traitement (80% -> 100%)
-      setUploadProgress(90);
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Set final values
       setUploadProgress(100);
-
+      setCurrentCount(response.data.data.success);
       setImportResult(response.data.data);
+
+      // Add logs from backend response
+      if (response.data.data.logs && response.data.data.logs.length > 0) {
+        setImportLogs(prev => [...prev, ...response.data.data.logs]);
+      }
 
       if (response.data.data.success > 0) {
         toast.success(`${response.data.data.success} employé(s) importé(s) avec succès!`);
@@ -107,8 +154,59 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
       console.error('Import error:', error);
       toast.error(error.response?.data?.message || 'Erreur lors de l\'importation');
       setUploadProgress(0);
+      setImportLogs(prev => [...prev, {
+        type: 'error',
+        message: `❌ Erreur: ${error.response?.data?.message || 'Erreur inconnue'}`,
+        timestamp: new Date().toISOString()
+      }]);
     } finally {
       setIsUploading(false);
+    }
+  };
+
+  const getLogIcon = (type: string) => {
+    switch (type) {
+      case 'site':
+        return <MapPin className="h-3 w-3 text-blue-500" />;
+      case 'department':
+        return <Building2 className="h-3 w-3 text-purple-500" />;
+      case 'position':
+        return <Briefcase className="h-3 w-3 text-orange-500" />;
+      case 'team':
+        return <Users className="h-3 w-3 text-green-500" />;
+      case 'shift':
+        return <Clock className="h-3 w-3 text-cyan-500" />;
+      case 'warning':
+        return <AlertCircle className="h-3 w-3 text-yellow-500" />;
+      case 'error':
+        return <XCircle className="h-3 w-3 text-red-500" />;
+      case 'success':
+        return <CheckCircle className="h-3 w-3 text-green-500" />;
+      default:
+        return <Clock className="h-3 w-3 text-gray-500" />;
+    }
+  };
+
+  const getLogColor = (type: string) => {
+    switch (type) {
+      case 'site':
+        return 'text-blue-600 bg-blue-50';
+      case 'department':
+        return 'text-purple-600 bg-purple-50';
+      case 'position':
+        return 'text-orange-600 bg-orange-50';
+      case 'team':
+        return 'text-green-600 bg-green-50';
+      case 'shift':
+        return 'text-cyan-600 bg-cyan-50';
+      case 'warning':
+        return 'text-yellow-600 bg-yellow-50';
+      case 'error':
+        return 'text-red-600 bg-red-50';
+      case 'success':
+        return 'text-green-600 bg-green-50';
+      default:
+        return 'text-gray-600 bg-gray-50';
     }
   };
 
@@ -170,9 +268,13 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
                   <FileSpreadsheet className="h-12 w-12 mx-auto text-success" />
                   <p className="font-medium text-text-primary">{selectedFile.name}</p>
                   <p className="text-sm text-text-secondary">
-                    {(selectedFile.size / 1024).toFixed(2)} KB
+                    {(selectedFile.size / 1024).toFixed(2)} KB • {totalEmployees} employés détectés
                   </p>
-                  <Button variant="outline" size="sm" onClick={() => setSelectedFile(null)} disabled={isUploading}>
+                  <Button variant="outline" size="sm" onClick={() => {
+                    setSelectedFile(null);
+                    setTotalEmployees(0);
+                    setImportLogs([]);
+                  }} disabled={isUploading}>
                     Changer de fichier
                   </Button>
                 </div>
@@ -190,30 +292,59 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
             </label>
           </div>
 
-          {/* Progress Bar */}
+          {/* Progress Bar with Counter */}
           {isUploading && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-text-primary">Importation en cours...</span>
-                <span className="text-text-secondary font-semibold">{uploadProgress}%</span>
+            <div className="space-y-3">
+              {/* Counter */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent"></div>
+                  <span className="font-medium text-text-primary">Importation en cours...</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-primary">{currentCount}</span>
+                  <span className="text-lg text-text-secondary">/{totalEmployees}</span>
+                  <span className="text-sm text-text-secondary ml-2">employés</span>
+                </div>
               </div>
-              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden shadow-inner">
+
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-5 overflow-hidden shadow-inner">
                 <div
-                  className="bg-primary h-full transition-all duration-300 ease-out rounded-full flex items-center justify-center relative"
-                  style={{ width: `${uploadProgress}%`, minWidth: uploadProgress > 0 ? '2rem' : '0' }}
+                  className="bg-gradient-to-r from-primary to-primary/80 h-full transition-all duration-300 ease-out rounded-full flex items-center justify-center relative"
+                  style={{ width: `${uploadProgress}%`, minWidth: uploadProgress > 0 ? '3rem' : '0' }}
                 >
                   {uploadProgress > 10 && (
-                    <span className="text-xs font-semibold text-white">
+                    <span className="text-xs font-bold text-white drop-shadow">
                       {uploadProgress}%
                     </span>
                   )}
                 </div>
               </div>
-              {uploadProgress < 100 && (
-                <p className="text-xs text-text-secondary text-center animate-pulse">
-                  Veuillez patienter, traitement du fichier...
-                </p>
-              )}
+            </div>
+          )}
+
+          {/* Import Logs */}
+          {importLogs.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-text-primary">Journal d'import</p>
+                <span className="text-xs text-text-secondary">{importLogs.length} entrée(s)</span>
+              </div>
+              <div
+                ref={logsContainerRef}
+                className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 max-h-40 overflow-y-auto space-y-1 font-mono text-xs"
+              >
+                {importLogs.map((log, index) => (
+                  <div
+                    key={index}
+                    className={`flex items-center gap-2 px-2 py-1 rounded ${getLogColor(log.type)}`}
+                  >
+                    {getLogIcon(log.type)}
+                    <span>{log.message}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -224,12 +355,12 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
                 <CheckCircle className="h-4 w-4" />
                 <AlertDescription>
                   <div className="space-y-2">
-                    <div className="flex gap-4">
-                      <span className="text-success font-semibold">
+                    <div className="flex gap-4 items-center">
+                      <span className="text-success font-semibold text-lg">
                         ✅ {importResult.success} importés
                       </span>
                       {importResult.failed > 0 && (
-                        <span className="text-danger font-semibold">
+                        <span className="text-danger font-semibold text-lg">
                           ❌ {importResult.failed} échoués
                         </span>
                       )}
@@ -245,7 +376,7 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
                             </div>
                           ))}
                           {importResult.imported.length > 10 && (
-                            <div className="text-text-secondary">
+                            <div className="text-text-secondary font-medium">
                               ... et {importResult.imported.length - 10} autres
                             </div>
                           )}
@@ -294,7 +425,7 @@ export function ImportExcelModal({ onClose, onSuccess }: ImportExcelModalProps) 
               ) : (
                 <>
                   <Upload className="h-4 w-4 mr-2" />
-                  Importer
+                  Importer {totalEmployees > 0 ? `(${totalEmployees})` : ''}
                 </>
               )}
             </Button>

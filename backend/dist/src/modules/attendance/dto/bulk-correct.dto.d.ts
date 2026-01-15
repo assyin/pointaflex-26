@@ -6,6 +6,6 @@ export declare class BulkCorrectionItemDto {
 export declare class BulkCorrectAttendanceDto {
     attendances: BulkCorrectionItemDto[];
     generalNote: string;
-    correctedBy: string;
+    correctedBy?: string;
     forceApproval?: boolean;
 }

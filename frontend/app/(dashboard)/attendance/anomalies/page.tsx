@@ -32,6 +32,7 @@ import {
   BulkCorrectionModal,
   type AnomaliesFiltersState,
 } from '@/components/attendance/anomalies';
+import { CorrectionDetailsModal } from '@/components/attendance/anomalies/CorrectionDetailsModal';
 
 export default function AnomaliesPage() {
   const { user, hasPermission } = useAuth();
@@ -56,6 +57,7 @@ export default function AnomaliesPage() {
   // Modals
   const [correctionModalOpen, setCorrectionModalOpen] = useState(false);
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [selectedAnomaly, setSelectedAnomaly] = useState<AnomalyRecord | null>(null);
 
   // Tab actif
@@ -144,6 +146,11 @@ export default function AnomaliesPage() {
   const handleCorrect = useCallback((anomaly: AnomalyRecord) => {
     setSelectedAnomaly(anomaly);
     setCorrectionModalOpen(true);
+  }, []);
+
+  const handleViewDetails = useCallback((anomaly: AnomalyRecord) => {
+    setSelectedAnomaly(anomaly);
+    setDetailsModalOpen(true);
   }, []);
 
   const handleCorrectionSubmit = useCallback(
@@ -335,6 +342,7 @@ export default function AnomaliesPage() {
                   selectedIds={selectedIds}
                   onSelectionChange={setSelectedIds}
                   onCorrect={handleCorrect}
+                  onViewDetails={handleViewDetails}
                   pagination={listData?.meta}
                   onPageChange={setPage}
                 />
@@ -360,6 +368,16 @@ export default function AnomaliesPage() {
               anomalies={selectedAnomalies}
               onSubmit={handleBulkSubmit}
               isLoading={bulkCorrectMutation.isPending}
+            />
+
+            {/* Modal détails de correction */}
+            <CorrectionDetailsModal
+              isOpen={detailsModalOpen}
+              onClose={() => {
+                setDetailsModalOpen(false);
+                setSelectedAnomaly(null);
+              }}
+              anomaly={selectedAnomaly}
             />
           </div>
         </DashboardLayout>

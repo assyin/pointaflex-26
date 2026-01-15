@@ -58,6 +58,12 @@ export class ShiftsController {
     return this.shiftsService.findOne(user.tenantId, id);
   }
 
+  @Get(':id/usage')
+  @ApiOperation({ summary: 'Get shift usage statistics' })
+  getUsage(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.shiftsService.getShiftUsage(user.tenantId, id);
+  }
+
   @Patch(':id')
   @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
   @ApiOperation({ summary: 'Update shift' })

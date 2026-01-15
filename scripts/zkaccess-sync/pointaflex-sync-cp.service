@@ -1,0 +1,18 @@
+[Unit]
+Description=PointaFlex ZKTeco Sync - Terminal CP
+Documentation=https://github.com/pointaflex
+After=network.target
+
+[Service]
+Type=simple
+User=assyin
+WorkingDirectory=/home/assyin/PointaFlex/scripts/zkaccess-sync
+ExecStart=/home/assyin/.nvm/versions/node/v18.20.8/bin/node /home/assyin/PointaFlex/scripts/zkaccess-sync/sync-cp.js
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/assyin/PointaFlex/scripts/zkaccess-sync/sync_cp.log
+StandardError=append:/home/assyin/PointaFlex/scripts/zkaccess-sync/sync_cp.log
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

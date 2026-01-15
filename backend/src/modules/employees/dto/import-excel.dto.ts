@@ -78,9 +78,16 @@ export class ImportEmployeeDto {
   phone?: string;
 }
 
+export interface ImportLogEntry {
+  type: 'info' | 'success' | 'warning' | 'error' | 'site' | 'department' | 'position' | 'team' | 'shift';
+  message: string;
+  timestamp: string;
+}
+
 export class ImportResultDto {
   success: number;
   failed: number;
+  totalToProcess: number;
   errors: Array<{
     row: number;
     matricule?: string;
@@ -91,4 +98,5 @@ export class ImportResultDto {
     firstName: string;
     lastName: string;
   }>;
+  logs: ImportLogEntry[];
 }
