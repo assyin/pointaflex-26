@@ -255,6 +255,7 @@ export class DetectAbsencesJob {
 
   /**
    * Crée un enregistrement d'absence virtuel
+   * FIX 17/01/2026: Vérifier s'il existe un pointage réel proche avant de créer une absence
    */
   private async createAbsenceRecord(tenantId: string, schedule: any) {
     try {
@@ -270,14 +271,20 @@ export class DetectAbsencesJob {
         0,
       );
 
+      // FIX 17/01/2026: Créer des copies des dates pour éviter la mutation
+      const startOfDay = new Date(schedule.date);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(schedule.date);
+      endOfDay.setHours(23, 59, 59, 999);
+
       // Vérifier si un enregistrement d'absence n'existe pas déjà
       const existingAbsence = await this.prisma.attendance.findFirst({
         where: {
           tenantId,
           employeeId: schedule.employeeId,
           timestamp: {
-            gte: new Date(schedule.date.setHours(0, 0, 0, 0)),
-            lte: new Date(schedule.date.setHours(23, 59, 59, 999)),
+            gte: startOfDay,
+            lte: endOfDay,
           },
           anomalyType: 'ABSENCE',
           isGenerated: true,
@@ -287,6 +294,65 @@ export class DetectAbsencesJob {
 
       if (existingAbsence) {
         return; // L'absence a déjà été détectée
+      }
+
+      // FIX 17/01/2026: Vérifier s'il existe un pointage RÉEL (non généré) proche de l'heure prévue
+      // Fenêtre de tolérance: 30 minutes avant/après l'heure prévue
+      const TOLERANCE_MINUTES = 30;
+      const toleranceStart = new Date(absenceTimestamp.getTime() - TOLERANCE_MINUTES * 60 * 1000);
+      const toleranceEnd = new Date(absenceTimestamp.getTime() + TOLERANCE_MINUTES * 60 * 1000);
+
+      const existingRealPunch = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId: schedule.employeeId,
+          timestamp: {
+            gte: toleranceStart,
+            lte: toleranceEnd,
+          },
+          // Exclure les pointages générés automatiquement
+          OR: [
+            { isGenerated: false },
+            { isGenerated: null },
+          ],
+          // Exclure les enregistrements DEBOUNCE_BLOCKED
+          NOT: {
+            anomalyType: 'DEBOUNCE_BLOCKED',
+          },
+        },
+      });
+
+      if (existingRealPunch) {
+        this.logger.debug(
+          `Pointage réel trouvé pour ${schedule.employee.firstName} ${schedule.employee.lastName} à ${existingRealPunch.timestamp.toISOString()} - Absence NON créée`,
+        );
+        return; // Un pointage réel existe, ne pas créer d'absence
+      }
+
+      // Vérifier aussi s'il y a un pointage RÉEL n'importe quand dans la journée
+      const anyRealPunchToday = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId: schedule.employeeId,
+          timestamp: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+          OR: [
+            { isGenerated: false },
+            { isGenerated: null },
+          ],
+          NOT: {
+            anomalyType: 'DEBOUNCE_BLOCKED',
+          },
+        },
+      });
+
+      if (anyRealPunchToday) {
+        this.logger.debug(
+          `Pointage réel trouvé ailleurs dans la journée pour ${schedule.employee.firstName} ${schedule.employee.lastName} - Absence NON créée`,
+        );
+        return; // L'employé a pointé, ce n'est pas une absence complète
       }
 
       // Créer le pointage d'absence virtuel

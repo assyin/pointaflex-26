@@ -1,6 +1,6 @@
-import { IsString, IsEnum, IsOptional, IsDateString, IsObject, IsUUID } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsDateString, IsObject, IsUUID, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { AttendanceType, DeviceType } from '@prisma/client';
+import { AttendanceType, DeviceType, ValidationStatus } from '@prisma/client';
 
 export class WebhookAttendanceDto {
   @ApiProperty({ description: 'Matricule ou ID de l\'employé' })
@@ -23,4 +23,20 @@ export class WebhookAttendanceDto {
   @IsObject()
   @IsOptional()
   rawData?: any;
+
+  // Champs pour gestion des pointages ambigus (shifts de nuit)
+  @ApiPropertyOptional({ description: 'Indique si le pointage est ambigu et nécessite validation' })
+  @IsBoolean()
+  @IsOptional()
+  isAmbiguous?: boolean;
+
+  @ApiPropertyOptional({ description: 'Statut de validation', enum: ['NONE', 'PENDING_VALIDATION'] })
+  @IsString()
+  @IsOptional()
+  validationStatus?: 'NONE' | 'PENDING_VALIDATION';
+
+  @ApiPropertyOptional({ description: 'Raison de l\'ambiguïté' })
+  @IsString()
+  @IsOptional()
+  ambiguityReason?: string;
 }

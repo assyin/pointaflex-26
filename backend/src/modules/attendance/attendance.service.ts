@@ -3,7 +3,9 @@ import { PrismaService } from '../../database/prisma.service';
 import { RecoveryDayStatus, LeaveStatus, OvertimeStatus } from '@prisma/client';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
+import { WebhookStateDto, WebhookStateResponseDto } from './dto/webhook-state.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
+import { ValidateAttendanceDto, ValidationAction } from './dto/validate-attendance.dto';
 import { AttendanceType, NotificationType, DeviceType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { findEmployeeByMatriculeFlexible } from '../../common/utils/matricule.util';
@@ -537,9 +539,564 @@ export class AttendanceService {
 
   /**
    * ═══════════════════════════════════════════════════════════════════════════════
+   * ═══════════════════════════════════════════════════════════════════════════════
+   * DETERMINE PUNCH TYPE - Algorithme intelligent de détection IN/OUT
+   * ═══════════════════════════════════════════════════════════════════════════════
+   *
+   * Algorithme professionnel avec 3 niveaux de priorité:
+   * 1. ALTERNATION (HIGH confidence): Basé sur le dernier pointage valide
+   * 2. SHIFT_BASED (MEDIUM confidence): Basé sur le shift de l'employé
+   * 3. TIME_BASED (LOW confidence): Fallback basé sur l'heure du jour
+   *
+   * Gère tous les scénarios:
+   * - Shifts normaux et de nuit
+   * - Sessions ouvertes de la veille
+   * - Re-syncs et doublons
+   * - Employés sans shift assigné
+   */
+  /**
+   * @deprecated DEPUIS 19/01/2026 - Utiliser processTerminalPunch() à la place
+   *
+   * Cette méthode DÉDUIT le type IN/OUT via des heuristiques complexes.
+   * Elle est conservée pour la rétrocompatibilité avec les anciens endpoints.
+   *
+   * NOUVELLE APPROCHE (RECOMMANDÉE):
+   * - Utiliser l'endpoint /webhook/state avec processTerminalPunch()
+   * - Le type IN/OUT vient directement du terminal via le champ state
+   * - Aucune déduction nécessaire, fiabilité 100%
+   *
+   * Cette méthode sera supprimée dans une version future.
+   */
+  async determinePunchType(
+    tenantId: string,
+    employeeId: string,
+    punchTimeStr: string,
+    deviceId?: string,
+    apiKey?: string,
+  ): Promise<{
+    type: 'IN' | 'OUT';
+    method: 'ALTERNATION' | 'SHIFT_BASED' | 'TIME_BASED';
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    reason: string;
+    debug?: any;
+    isAmbiguous?: boolean;
+    validationStatus?: 'NONE' | 'PENDING_VALIDATION';
+    ambiguityReason?: string;
+  }> {
+    const punchTime = new Date(punchTimeStr);
+    const punchHour = punchTime.getHours();
+    const punchDate = punchTime.toISOString().split('T')[0];
+
+    // Validation du device si fourni
+    if (deviceId) {
+      const device = await this.prisma.attendanceDevice.findFirst({
+        where: { deviceId, tenantId },
+        select: { id: true, apiKey: true },
+      });
+
+      if (device && apiKey && device.apiKey && device.apiKey !== apiKey) {
+        throw new Error('Invalid API key');
+      }
+    }
+
+    // Trouver l'employé
+    const employee = await findEmployeeByMatriculeFlexible(
+      this.prisma,
+      tenantId,
+      employeeId,
+    );
+
+    if (!employee) {
+      // Employé inconnu → premier pointage = IN
+      return {
+        type: 'IN',
+        method: 'TIME_BASED',
+        confidence: 'LOW',
+        reason: 'Employé non trouvé, défaut à IN',
+      };
+    }
+
+    // FIX 17/01/2026: Utiliser getScheduleWithFallback pour récupérer le planning personnalisé
+    // au lieu de currentShift (shift par défaut) - CRITIQUE pour la détection IN/OUT correcte
+    const schedule = await this.getScheduleWithFallback(tenantId, employee.id, punchTime);
+    const shift = schedule?.shift as {
+      id: string;
+      name: string;
+      startTime: string;
+      endTime: string;
+      isNightShift?: boolean;
+      breakStartTime?: string | null;
+    } | null;
+
+    // Récupérer les paramètres tenant pour les seuils
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: {
+        nightShiftEnd: true,
+        nightShiftStart: true,
+        enableAmbiguousPunchDetection: true,
+        ambiguousPunchWindowHours: true,
+      },
+    });
+
+    const nightShiftEndHour = parseInt((settings?.nightShiftEnd || '06:00').split(':')[0]);
+    const nightShiftStartHour = parseInt((settings?.nightShiftStart || '21:00').split(':')[0]);
+    const ambiguousWindowHours = settings?.ambiguousPunchWindowHours ?? 3;
+    const enableAmbiguousDetection = settings?.enableAmbiguousPunchDetection !== false;
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PRIORITÉ 1: ALTERNATION - Basé sur le dernier pointage valide
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // FIX 17/01/2026: Fenêtre de recherche étendue à 48h et prévention DOUBLE_IN
+
+    // Définir la fenêtre de recherche (48h pour couvrir tous les cas de shifts de nuit)
+    const searchWindowStart = new Date(punchTime);
+    searchWindowStart.setUTCHours(searchWindowStart.getUTCHours() - 48);
+
+    const searchWindowEnd = punchTime;
+
+    // DEBUG 18/01/2026: Log la fenêtre de recherche
+    console.log(`🔍 [determinePunchType] Recherche lastPunch pour ${employee.matricule}:`);
+    console.log(`   - punchTime: ${punchTime.toISOString()}`);
+    console.log(`   - window: ${searchWindowStart.toISOString()} → ${searchWindowEnd.toISOString()}`);
+    console.log(`   - employeeId: ${employee.id}`);
+
+    // Chercher le dernier pointage valide (exclure DEBOUNCE_BLOCKED)
+    const lastPunch = await this.prisma.attendance.findFirst({
+      where: {
+        tenantId,
+        employeeId: employee.id,
+        timestamp: {
+          gte: searchWindowStart,
+          lt: searchWindowEnd, // Strictement avant le pointage actuel
+        },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
+      },
+      orderBy: { timestamp: 'desc' },
+      select: {
+        id: true,
+        type: true,
+        timestamp: true,
+      },
+    });
+
+    // DEBUG 18/01/2026: Log le résultat de la recherche
+    console.log(`   - lastPunch trouvé: ${lastPunch ? `${lastPunch.type} à ${lastPunch.timestamp}` : 'AUCUN'}`);
+
+    if (lastPunch) {
+      // ALTERNATION: Si le dernier est IN → celui-ci est OUT, et vice versa
+      const newType = lastPunch.type === 'IN' ? 'OUT' : 'IN';
+
+      // Vérification de cohérence temporelle
+      const hoursSinceLastPunch = (punchTime.getTime() - lastPunch.timestamp.getTime()) / (1000 * 60 * 60);
+
+      // FIX 17/01/2026: PRÉVENTION DOUBLE_IN - Toujours respecter l'alternance
+      // Si le dernier pointage était IN, le nouveau DOIT être OUT (sauf cas très anciens)
+      if (lastPunch.type === 'IN') {
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // FIX 18/01/2026: SHIFT_BASED PRIORITAIRE POUR SESSIONS LONGUES
+        // Pour les sessions > 12h, vérifier le contexte horaire du shift
+        // Si l'heure actuelle est proche du DÉBUT du shift → nouvelle session (IN)
+        // Si l'heure actuelle est proche de la FIN du shift → fermeture session (OUT)
+        // ═══════════════════════════════════════════════════════════════════════════════
+        if (hoursSinceLastPunch > 12 && shift) {
+          const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
+          const shiftStartMin = parseInt(shift.startTime.split(':')[1] || '0');
+          const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
+          const shiftEndMin = parseInt(shift.endTime.split(':')[1] || '0');
+          const punchMinutes = punchHour * 60 + punchTime.getMinutes();
+          const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
+          const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
+
+          // Fenêtre autour du début du shift (±90 min)
+          const START_WINDOW = 90; // minutes
+          const isNearShiftStart = Math.abs(punchMinutes - shiftStartMinutes) <= START_WINDOW ||
+            Math.abs(punchMinutes - shiftStartMinutes + 1440) <= START_WINDOW || // Passage minuit
+            Math.abs(punchMinutes - shiftStartMinutes - 1440) <= START_WINDOW;
+
+          // Fenêtre autour de la fin du shift (±180 min pour shifts de nuit car sorties tardives)
+          const END_WINDOW = shift.isNightShift ? 240 : 120; // 4h pour nuit, 2h pour jour
+          const isNearShiftEnd = Math.abs(punchMinutes - shiftEndMinutes) <= END_WINDOW ||
+            Math.abs(punchMinutes - shiftEndMinutes + 1440) <= END_WINDOW ||
+            Math.abs(punchMinutes - shiftEndMinutes - 1440) <= END_WINDOW;
+
+          console.log(`🕐 [SHIFT_CONTEXT] Session ouverte ${hoursSinceLastPunch.toFixed(1)}h, shift ${shift.name} (${shift.startTime}-${shift.endTime})`);
+          console.log(`   - punchTime: ${punchHour}:${punchTime.getMinutes().toString().padStart(2, '0')} (${punchMinutes} min)`);
+          console.log(`   - isNearShiftStart: ${isNearShiftStart}, isNearShiftEnd: ${isNearShiftEnd}`);
+
+          // Si proche du DÉBUT du shift → nouvelle session IN
+          if (isNearShiftStart && !isNearShiftEnd) {
+            console.log(`   → NOUVELLE SESSION: IN (proche début shift)`);
+            return {
+              type: 'IN',
+              method: 'SHIFT_BASED',
+              confidence: 'HIGH',
+              reason: `Session orpheline (${hoursSinceLastPunch.toFixed(1)}h) mais proche début shift ${shift.startTime} → nouvelle session IN`,
+              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftStartMinutes, isNearShiftStart },
+            };
+          }
+
+          // Si proche de la FIN du shift → fermeture session OUT
+          if (isNearShiftEnd && !isNearShiftStart) {
+            console.log(`   → FERMETURE SESSION: OUT (proche fin shift)`);
+            return {
+              type: 'OUT',
+              method: 'SHIFT_BASED',
+              confidence: 'HIGH',
+              reason: `Session orpheline (${hoursSinceLastPunch.toFixed(1)}h), proche fin shift ${shift.endTime} → fermeture OUT`,
+              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftEndMinutes, isNearShiftEnd },
+            };
+          }
+        }
+
+        // Si la session est ouverte depuis longtemps (>16h) sans contexte shift clair
+        if (hoursSinceLastPunch > 16) {
+          // C'est un OUT pour une session ouverte trop longtemps
+          // Marquer comme nécessitant validation si ce n'est pas clairement un shift de nuit
+          const isLikelyNightShift = punchHour < 10 || (shift?.isNightShift === true);
+          return {
+            type: 'OUT',
+            method: 'ALTERNATION',
+            confidence: isLikelyNightShift ? 'HIGH' : 'MEDIUM',
+            reason: `Session IN ouverte depuis ${hoursSinceLastPunch.toFixed(1)}h (${lastPunch.timestamp.toISOString()}) → OUT`,
+            debug: { lastPunch, hoursSinceLastPunch, isLikelyNightShift },
+            isAmbiguous: !isLikelyNightShift && hoursSinceLastPunch > 24,
+            validationStatus: (!isLikelyNightShift && hoursSinceLastPunch > 24) ? 'PENDING_VALIDATION' : 'NONE',
+            ambiguityReason: (!isLikelyNightShift && hoursSinceLastPunch > 24)
+              ? `Session ouverte depuis ${hoursSinceLastPunch.toFixed(1)}h - Vérification recommandée`
+              : undefined,
+          };
+        }
+        // Session normale (<16h) → OUT certain
+        return {
+          type: 'OUT',
+          method: 'ALTERNATION',
+          confidence: 'HIGH',
+          reason: `Dernier pointage: IN à ${lastPunch.timestamp.toISOString()} (${hoursSinceLastPunch.toFixed(1)}h) → OUT`,
+          debug: { lastPunch, hoursSinceLastPunch },
+        };
+      }
+
+      // Si le dernier pointage était OUT, le nouveau est IN
+      if (lastPunch.type === 'OUT') {
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // FIX 18/01/2026: SHIFT_BASED pour OUT → vérifier contexte horaire
+        // Si le dernier OUT date de longtemps et l'heure actuelle est proche de la FIN du shift,
+        // c'est peut-être une sortie (l'employé a oublié de badger IN)
+        // ═══════════════════════════════════════════════════════════════════════════════
+        if (hoursSinceLastPunch > 12 && shift) {
+          const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
+          const shiftStartMin = parseInt(shift.startTime.split(':')[1] || '0');
+          const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
+          const shiftEndMin = parseInt(shift.endTime.split(':')[1] || '0');
+          const punchMinutes = punchHour * 60 + punchTime.getMinutes();
+          const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
+          const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
+
+          // Fenêtre autour du début du shift (±90 min)
+          const START_WINDOW = 90;
+          const isNearShiftStart = Math.abs(punchMinutes - shiftStartMinutes) <= START_WINDOW ||
+            Math.abs(punchMinutes - shiftStartMinutes + 1440) <= START_WINDOW ||
+            Math.abs(punchMinutes - shiftStartMinutes - 1440) <= START_WINDOW;
+
+          // Fenêtre autour de la fin du shift (élargie pour shifts de nuit)
+          const END_WINDOW = shift.isNightShift ? 240 : 120;
+          const isNearShiftEnd = Math.abs(punchMinutes - shiftEndMinutes) <= END_WINDOW ||
+            Math.abs(punchMinutes - shiftEndMinutes + 1440) <= END_WINDOW ||
+            Math.abs(punchMinutes - shiftEndMinutes - 1440) <= END_WINDOW;
+
+          console.log(`🕐 [SHIFT_CONTEXT after OUT] Session fermée il y a ${hoursSinceLastPunch.toFixed(1)}h, shift ${shift.name}`);
+          console.log(`   - punchTime: ${punchHour}:${punchTime.getMinutes().toString().padStart(2, '0')}`);
+          console.log(`   - isNearShiftStart: ${isNearShiftStart}, isNearShiftEnd: ${isNearShiftEnd}`);
+
+          // Si proche de la FIN du shift et PAS du début → probablement un OUT (IN manquant)
+          if (isNearShiftEnd && !isNearShiftStart) {
+            console.log(`   → OUT détecté: proche fin shift, IN probablement manquant`);
+            return {
+              type: 'OUT',
+              method: 'SHIFT_BASED',
+              confidence: 'MEDIUM',
+              reason: `Proche fin shift ${shift.endTime} mais dernier pointage OUT → OUT (IN manquant probable)`,
+              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftEndMinutes },
+              isAmbiguous: true,
+              validationStatus: 'PENDING_VALIDATION',
+              ambiguityReason: `Sortie sans entrée correspondante - Vérification recommandée`,
+            };
+          }
+        }
+
+        return {
+          type: 'IN',
+          method: 'ALTERNATION',
+          confidence: 'HIGH',
+          reason: `Dernier pointage: OUT à ${lastPunch.timestamp.toISOString()} → IN`,
+          debug: { lastPunch, hoursSinceLastPunch },
+        };
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PRIORITÉ 2: SHIFT_BASED - Basé sur le shift de l'employé
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    if (shift) {
+      const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
+      const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
+
+      if (shift.isNightShift) {
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // SHIFT DE NUIT - ALGORITHME FENÊTRE DYNAMIQUE (configurable)
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // Règle métier : Un pointage est IN seulement s'il est dans une fenêtre
+        // autour de l'heure de début du shift. En dehors, c'est un OUT ou AMBIGU.
+        // ═══════════════════════════════════════════════════════════════════════════════
+
+        const WINDOW_HOURS = ambiguousWindowHours; // Fenêtre configurable (défaut: ±3h)
+
+        // Calculer la fenêtre IN [shiftStart - Xh, shiftStart + Xh]
+        let windowStart = shiftStartHour - WINDOW_HOURS;
+        let windowEnd = shiftStartHour + WINDOW_HOURS;
+
+        // Normaliser pour gérer le passage de minuit
+        // Ex: shift 23:00 → fenêtre [20, 26] où 26 = 2h du matin
+        if (windowStart < 0) windowStart += 24;
+        if (windowEnd >= 24) windowEnd -= 24;
+
+        // Vérifier si le punch est dans la fenêtre IN
+        // Cas complexe car la fenêtre peut traverser minuit
+        let isInWindow = false;
+        if (windowStart < windowEnd) {
+          // Fenêtre ne traverse pas minuit (ex: 14:00-20:00)
+          isInWindow = punchHour >= windowStart && punchHour <= windowEnd;
+        } else {
+          // Fenêtre traverse minuit (ex: 20:00-02:00)
+          isInWindow = punchHour >= windowStart || punchHour <= windowEnd;
+        }
+
+        // CAS 1: Punch dans la fenêtre IN → Entrée normale
+        if (isInWindow) {
+          return {
+            type: 'IN',
+            method: 'SHIFT_BASED',
+            confidence: 'HIGH',
+            reason: `Shift nuit ${shift.name}: punch ${punchHour}h dans fenêtre IN [${windowStart}h-${windowEnd}h] → IN`,
+            debug: { shift, punchHour, windowStart, windowEnd },
+          };
+        }
+
+        // CAS 2: Punch hors fenêtre IN → Vérifier s'il y a une session ouverte
+        // Chercher le dernier IN non fermé (48h en arrière)
+        const lastOpenIn = await this.prisma.attendance.findFirst({
+          where: {
+            tenantId,
+            employeeId: employee.id,
+            type: 'IN',
+            timestamp: {
+              gte: searchWindowStart,
+              lt: punchTime,
+            },
+            OR: [
+              { anomalyType: null },
+              { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+            ],
+          },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        if (lastOpenIn) {
+          // Vérifier s'il y a déjà un OUT après ce IN
+          const hasOutAfterIn = await this.prisma.attendance.findFirst({
+            where: {
+              tenantId,
+              employeeId: employee.id,
+              type: 'OUT',
+              timestamp: {
+                gt: lastOpenIn.timestamp,
+                lt: punchTime,
+              },
+              OR: [
+                { anomalyType: null },
+                { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+              ],
+            },
+          });
+
+          if (!hasOutAfterIn) {
+            // Session ouverte trouvée → c'est un OUT
+            return {
+              type: 'OUT',
+              method: 'SHIFT_BASED',
+              confidence: 'HIGH',
+              reason: `Shift nuit: Session ouverte depuis ${lastOpenIn.timestamp.toISOString()} → OUT`,
+              debug: { shift, lastOpenIn, punchHour, windowStart, windowEnd },
+            };
+          }
+        }
+
+        // CAS 3: Hors fenêtre IN ET pas de session ouverte → PENDING_VALIDATION (si activé)
+        // C'est un cas ambigu qui nécessite validation humaine
+        if (enableAmbiguousDetection) {
+          return {
+            type: 'IN',
+            method: 'SHIFT_BASED',
+            confidence: 'LOW',
+            reason: `Shift nuit: punch ${punchHour}h hors fenêtre IN [${windowStart}h-${windowEnd}h], aucune session ouverte → PENDING_VALIDATION`,
+            debug: { shift, punchHour, windowStart, windowEnd },
+            isAmbiguous: true,
+            validationStatus: 'PENDING_VALIDATION',
+            ambiguityReason: `Pointage à ${punchHour}h hors fenêtre d'entrée normale [${windowStart}h-${windowEnd}h] pour shift ${shift.name}`,
+          };
+        } else {
+          // Détection ambiguë désactivée: retourner IN simple
+          return {
+            type: 'IN',
+            method: 'SHIFT_BASED',
+            confidence: 'LOW',
+            reason: `Shift nuit: punch ${punchHour}h hors fenêtre IN [${windowStart}h-${windowEnd}h], détection ambiguë désactivée → IN par défaut`,
+            debug: { shift, punchHour, windowStart, windowEnd },
+          };
+        }
+      } else {
+        // SHIFT NORMAL (JOUR)
+        // Calculer le point médian du shift
+        const shiftMidpoint = shiftStartHour + (shiftEndHour - shiftStartHour) / 2;
+
+        if (punchHour < shiftMidpoint) {
+          return {
+            type: 'IN',
+            method: 'SHIFT_BASED',
+            confidence: 'MEDIUM',
+            reason: `Shift ${shift.name} (${shift.startTime}-${shift.endTime}): punch ${punchHour}h < midpoint ${shiftMidpoint}h → IN`,
+            debug: { shift, punchHour, shiftMidpoint },
+          };
+        } else {
+          return {
+            type: 'OUT',
+            method: 'SHIFT_BASED',
+            confidence: 'MEDIUM',
+            reason: `Shift ${shift.name} (${shift.startTime}-${shift.endTime}): punch ${punchHour}h ≥ midpoint ${shiftMidpoint}h → OUT`,
+            debug: { shift, punchHour, shiftMidpoint },
+          };
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PRIORITÉ 3: TIME_BASED - Fallback basé sur l'heure du jour
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    // Vérifier s'il y a une session ouverte aujourd'hui (IN sans OUT correspondant)
+    const startOfToday = new Date(punchDate + 'T00:00:00.000Z');
+    const todayPunches = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId: employee.id,
+        timestamp: {
+          gte: startOfToday,
+          lt: punchTime,
+        },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
+      },
+      orderBy: { timestamp: 'asc' },
+      select: { type: true, timestamp: true },
+    });
+
+    const inCount = todayPunches.filter(p => p.type === 'IN').length;
+    const outCount = todayPunches.filter(p => p.type === 'OUT').length;
+    const hasOpenSession = inCount > outCount;
+
+    if (hasOpenSession) {
+      return {
+        type: 'OUT',
+        method: 'TIME_BASED',
+        confidence: 'LOW',
+        reason: `Session ouverte aujourd'hui (${inCount} IN, ${outCount} OUT) → OUT`,
+        debug: { inCount, outCount, todayPunches },
+      };
+    }
+
+    // Pas de session ouverte - utiliser l'heure du jour
+    // Seuil par défaut: 12h00
+    const DEFAULT_MIDDAY = 12;
+
+    if (punchHour < DEFAULT_MIDDAY) {
+      return {
+        type: 'IN',
+        method: 'TIME_BASED',
+        confidence: 'LOW',
+        reason: `Pas de session ouverte, punch ${punchHour}h < ${DEFAULT_MIDDAY}h → IN (premier pointage de la journée)`,
+        debug: { punchHour, inCount, outCount },
+      };
+    } else {
+      // Après midi sans session ouverte - vérifier hier
+      const startOfYesterday = new Date(startOfToday);
+      startOfYesterday.setUTCDate(startOfYesterday.getUTCDate() - 1);
+
+      const lastInYesterday = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId: employee.id,
+          type: 'IN',
+          timestamp: {
+            gte: startOfYesterday,
+            lt: startOfToday,
+          },
+          OR: [
+            { anomalyType: null },
+            { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+          ],
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      // Vérifier s'il y a un OUT après ce IN
+      if (lastInYesterday) {
+        const matchingOut = await this.prisma.attendance.findFirst({
+          where: {
+            tenantId,
+            employeeId: employee.id,
+            type: 'OUT',
+            timestamp: { gt: lastInYesterday.timestamp },
+            OR: [
+              { anomalyType: null },
+              { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+            ],
+          },
+        });
+
+        if (!matchingOut) {
+          return {
+            type: 'OUT',
+            method: 'TIME_BASED',
+            confidence: 'LOW',
+            reason: `Session ouverte depuis hier ${lastInYesterday.timestamp.toISOString()} → OUT`,
+            debug: { lastInYesterday },
+          };
+        }
+      }
+
+      // Par défaut après midi = IN (l'employé a probablement oublié de pointer le matin)
+      return {
+        type: 'IN',
+        method: 'TIME_BASED',
+        confidence: 'LOW',
+        reason: `Pas de session ouverte, punch ${punchHour}h ≥ ${DEFAULT_MIDDAY}h mais pas de IN précédent → IN (oubli probable du matin)`,
+        debug: { punchHour, inCount, outCount },
+      };
+    }
+  }
+
+  /**
    * GET PUNCH COUNT FOR DAY - Utilisé par le script de sync pour déterminer IN/OUT
    * ═══════════════════════════════════════════════════════════════════════════════
    *
+   * @deprecated Utiliser determinePunchType() pour une détection plus fiable
    * Retourne le nombre de pointages pour un employé sur une date donnée.
    * Utilisé par le script de synchronisation ZKTeco pour déterminer automatiquement
    * si le prochain pointage doit être IN ou OUT (alternance).
@@ -752,6 +1309,22 @@ export class AttendanceService {
 
     const punchTime = new Date(webhookData.timestamp);
 
+    // FIX 18/01/2026: Auto-détection IN/OUT par ALTERNATION
+    // Quand le terminal n'envoie pas de type fiable (state=0 pour tout), utiliser l'alternance
+    // Cela garantit une séquence IN-OUT-IN-OUT correcte
+    // IMPORTANT: Passer le matricule (webhookData.employeeId) et NON l'UUID (employee.id)
+    const detectedType = await this.determinePunchType(
+      tenantId,
+      webhookData.employeeId, // matricule, pas UUID!
+      webhookData.timestamp,
+      deviceId,
+      apiKey,
+    );
+
+    // Utiliser le type détecté au lieu du type reçu
+    const effectiveType = detectedType.type as AttendanceType;
+    console.log(`🔄 [Webhook] Type détecté: ${effectiveType} (méthode: ${detectedType.method}, reçu: ${webhookData.type})`);
+
     // 2.5a DÉDUPLICATION - Vérifier si un pointage identique existe déjà (y compris DEBOUNCE_BLOCKED)
     // Cela gère le cas où le terminal push ET le script sync envoient le même pointage
     const existingPunch = await this.prisma.attendance.findFirst({
@@ -771,13 +1344,17 @@ export class AttendanceService {
       };
     }
 
-    // 2.5b ANTI-REBOND (Debounce) - Éviter les doubles badges par erreur
-    // Récupérer le paramètre configurable depuis TenantSettings
+    // 2.5b ANTI-REBOND (Debounce) INTELLIGENT - Éviter les doubles badges par erreur
+    // FIX 17/01/2026: Debounce adaptatif selon le type de pointage
+    // - MÊME TYPE (IN-IN ou OUT-OUT): Debounce strict (configurable, défaut 2 min)
+    // - TYPES DIFFÉRENTS (IN-OUT ou OUT-IN): Debounce minimal (5 secondes)
     const settings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
       select: { doublePunchToleranceMinutes: true },
     });
-    const DEBOUNCE_MINUTES = settings?.doublePunchToleranceMinutes ?? 2;
+    const DEBOUNCE_SAME_TYPE_MINUTES = settings?.doublePunchToleranceMinutes ?? 2;
+    // FIX 18/01/2026: Utiliser le même paramètre pour les types différents (était hardcodé à 5 secondes)
+    const DEBOUNCE_DIFFERENT_TYPE_MINUTES = settings?.doublePunchToleranceMinutes ?? 2;
 
     // Exclure les enregistrements DEBOUNCE_BLOCKED de la recherche du dernier pointage
     // pour éviter les doublons en cascade
@@ -785,7 +1362,10 @@ export class AttendanceService {
       where: {
         tenantId,
         employeeId: employee.id,
-        NOT: { anomalyType: 'DEBOUNCE_BLOCKED' },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
       },
       orderBy: { timestamp: 'desc' },
       select: { timestamp: true, type: true },
@@ -793,8 +1373,20 @@ export class AttendanceService {
 
     if (lastPunch) {
       const diffMinutes = (punchTime.getTime() - lastPunch.timestamp.getTime()) / 60000;
-      if (diffMinutes >= 0 && diffMinutes < DEBOUNCE_MINUTES) {
-        console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${diffMinutes.toFixed(1)} min depuis le dernier (< ${DEBOUNCE_MINUTES} min) [Config: ${DEBOUNCE_MINUTES} min]`);
+      const diffSeconds = diffMinutes * 60;
+      const isSameType = lastPunch.type === effectiveType;
+
+      // Appliquer le debounce approprié selon le type
+      // FIX 18/01/2026: Utiliser des minutes pour les deux cas (était en secondes pour types différents)
+      const shouldBlock = isSameType
+        ? (diffMinutes >= 0 && diffMinutes < DEBOUNCE_SAME_TYPE_MINUTES)
+        : (diffMinutes >= 0 && diffMinutes < DEBOUNCE_DIFFERENT_TYPE_MINUTES);
+
+      if (shouldBlock) {
+        // FIX 18/01/2026: Affichage unifié en minutes
+        const threshold = `${isSameType ? DEBOUNCE_SAME_TYPE_MINUTES : DEBOUNCE_DIFFERENT_TYPE_MINUTES} min`;
+        const timeDisplay = `${diffMinutes.toFixed(1)} min`;
+        console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${timeDisplay} depuis le dernier ${lastPunch.type} (seuil ${isSameType ? 'même type' : 'type différent'}: ${threshold})`);
 
         // Créer un enregistrement informatif (non-bloquant) pour traçabilité
         const debounceRecord = await this.prisma.attendance.create({
@@ -804,19 +1396,21 @@ export class AttendanceService {
             deviceId: device.id,
             siteId: device.siteId,
             timestamp: punchTime,
-            type: webhookData.type,
+            type: effectiveType,
             method: webhookData.method,
             hasAnomaly: true,
             anomalyType: 'DEBOUNCE_BLOCKED',
-            anomalyNote: `Badge ignoré (anti-rebond): ${diffMinutes.toFixed(1)} min depuis le dernier pointage (seuil: ${DEBOUNCE_MINUTES} min)`,
+            anomalyNote: `Badge ignoré (anti-rebond ${isSameType ? 'même type' : 'type différent'}): ${timeDisplay} depuis le dernier pointage (seuil: ${threshold})`,
             needsApproval: false, // Informatif seulement, pas d'action requise
             rawData: {
               source: 'DEBOUNCE_LOG',
               blockedReason: 'DEBOUNCE',
               timeSinceLastPunch: diffMinutes,
-              threshold: DEBOUNCE_MINUTES,
+              thresholdType: isSameType ? 'SAME_TYPE' : 'DIFFERENT_TYPE',
+              threshold: isSameType ? DEBOUNCE_SAME_TYPE_MINUTES : DEBOUNCE_DIFFERENT_TYPE_MINUTES,
               lastPunchTime: lastPunch.timestamp,
               lastPunchType: lastPunch.type,
+              newPunchType: effectiveType,
             },
           },
         });
@@ -826,11 +1420,11 @@ export class AttendanceService {
         return {
           status: 'logged_info',
           reason: 'DEBOUNCE',
-          message: `Pointage enregistré comme informatif: trop proche du précédent (${diffMinutes.toFixed(1)} min < ${DEBOUNCE_MINUTES} min)`,
+          message: `Pointage enregistré comme informatif: trop proche du précédent (${timeDisplay} < ${threshold})`,
           attendanceId: debounceRecord.id,
           lastPunchTime: lastPunch.timestamp,
           lastPunchType: lastPunch.type,
-          configuredTolerance: DEBOUNCE_MINUTES,
+          configuredTolerance: isSameType ? DEBOUNCE_SAME_TYPE_MINUTES : DEBOUNCE_DIFFERENT_TYPE_MINUTES,
         };
       }
     }
@@ -882,9 +1476,17 @@ export class AttendanceService {
         deviceId: device.id,
         siteId: device.siteId,
         timestamp: new Date(webhookData.timestamp),
-        type: webhookData.type,
+        type: effectiveType,
         method: webhookData.method,
         rawData: standardizedRawData,
+        // Champs de validation pour pointages ambigus (shifts de nuit)
+        isAmbiguous: detectedType.isAmbiguous || false,
+        validationStatus: detectedType.validationStatus === 'PENDING_VALIDATION' ? 'PENDING_VALIDATION' : 'NONE',
+        ambiguityReason: detectedType.ambiguityReason || null,
+        // Si ambigu, marquer aussi comme anomalie pour apparaître dans le dashboard
+        hasAnomaly: detectedType.isAmbiguous || false,
+        anomalyType: detectedType.isAmbiguous ? 'PENDING_VALIDATION' : null,
+        anomalyNote: detectedType.isAmbiguous ? detectedType.ambiguityReason : null,
       },
     });
 
@@ -901,14 +1503,14 @@ export class AttendanceService {
           tenantId,
           employee.id,
           new Date(webhookData.timestamp),
-          webhookData.type,
+          effectiveType,
         );
 
         const anomaly = await this.detectAnomalies(
           tenantId,
           employee.id,
           new Date(webhookData.timestamp),
-          webhookData.type,
+          effectiveType,
         );
 
         // Mettre à jour l'attendance avec les métriques
@@ -932,7 +1534,7 @@ export class AttendanceService {
         // FIX 14/01/2026: TOUJOURS nettoyer MISSING_OUT quand un OUT arrive
         // (ne plus dépendre de hoursWorked qui peut être undefined)
         // ═══════════════════════════════════════════════════════════════════════════════
-        if (webhookData.type === AttendanceType.OUT) {
+        if (effectiveType === AttendanceType.OUT) {
           const timestamp = new Date(webhookData.timestamp);
           const startOfDay = new Date(timestamp);
           startOfDay.setHours(0, 0, 0, 0);
@@ -979,7 +1581,8 @@ export class AttendanceService {
         name: `${employee.firstName} ${employee.lastName}`,
       },
       timestamp: webhookData.timestamp,
-      type: webhookData.type,
+      type: effectiveType,
+      detectionMethod: detectedType.method,
     };
   }
 
@@ -1083,6 +1686,19 @@ export class AttendanceService {
 
     const punchTime = new Date(webhookData.timestamp);
 
+    // FIX 18/01/2026: Auto-détection IN/OUT par ALTERNATION pour handleWebhook
+    // IMPORTANT: Passer le matricule (webhookData.employeeId) et NON l'UUID (employee.id)
+    // car determinePunchType utilise findEmployeeByMatriculeFlexible qui cherche par matricule
+    const detectedType2 = await this.determinePunchType(
+      tenantId,
+      webhookData.employeeId, // matricule, pas UUID!
+      webhookData.timestamp,
+      deviceId,
+      apiKey,
+    );
+    const effectiveType2 = detectedType2.type as AttendanceType;
+    console.log(`🔄 [handleWebhook] Type détecté: ${effectiveType2} (méthode: ${detectedType2.method}, reçu: ${webhookData.type})`);
+
     // DÉDUPLICATION - Vérifier si un pointage identique existe déjà (y compris DEBOUNCE_BLOCKED)
     // Cela gère le cas où le terminal push ET le script sync envoient le même pointage
     const existingPunch = await this.prisma.attendance.findFirst({
@@ -1102,13 +1718,15 @@ export class AttendanceService {
       };
     }
 
-    // ANTI-REBOND (Debounce) - Éviter les doubles badges par erreur
-    // Récupérer le paramètre configurable depuis TenantSettings
+    // ANTI-REBOND (Debounce) INTELLIGENT - Éviter les doubles badges par erreur
+    // FIX 17/01/2026: Debounce adaptatif selon le type de pointage
     const debounceSettings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
       select: { doublePunchToleranceMinutes: true },
     });
-    const DEBOUNCE_MINUTES = debounceSettings?.doublePunchToleranceMinutes ?? 2;
+    const DEBOUNCE_SAME_TYPE_MINUTES_2 = debounceSettings?.doublePunchToleranceMinutes ?? 2;
+    // FIX 18/01/2026: Utiliser le même paramètre pour les types différents (était hardcodé à 5 secondes)
+    const DEBOUNCE_DIFFERENT_TYPE_MINUTES_2 = debounceSettings?.doublePunchToleranceMinutes ?? 2;
 
     // Exclure les enregistrements DEBOUNCE_BLOCKED de la recherche du dernier pointage
     // pour éviter les doublons en cascade (un DEBOUNCE_BLOCKED ne doit pas bloquer le suivant)
@@ -1116,7 +1734,10 @@ export class AttendanceService {
       where: {
         tenantId,
         employeeId: employee.id,
-        NOT: { anomalyType: 'DEBOUNCE_BLOCKED' },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
       },
       orderBy: { timestamp: 'desc' },
       select: { timestamp: true, type: true },
@@ -1124,8 +1745,19 @@ export class AttendanceService {
 
     if (lastPunch) {
       const diffMinutes = (punchTime.getTime() - lastPunch.timestamp.getTime()) / 60000;
-      if (diffMinutes >= 0 && diffMinutes < DEBOUNCE_MINUTES) {
-        console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${diffMinutes.toFixed(1)} min depuis le dernier (< ${DEBOUNCE_MINUTES} min) [Config: ${DEBOUNCE_MINUTES} min]`);
+      const diffSeconds = diffMinutes * 60;
+      const isSameType = lastPunch.type === effectiveType2;
+
+      // FIX 18/01/2026: Utiliser des minutes pour les deux cas
+      const shouldBlock = isSameType
+        ? (diffMinutes >= 0 && diffMinutes < DEBOUNCE_SAME_TYPE_MINUTES_2)
+        : (diffMinutes >= 0 && diffMinutes < DEBOUNCE_DIFFERENT_TYPE_MINUTES_2);
+
+      if (shouldBlock) {
+        // FIX 18/01/2026: Affichage unifié en minutes
+        const threshold = `${isSameType ? DEBOUNCE_SAME_TYPE_MINUTES_2 : DEBOUNCE_DIFFERENT_TYPE_MINUTES_2} min`;
+        const timeDisplay = `${diffMinutes.toFixed(1)} min`;
+        console.log(`⚠️ [DEBOUNCE] Badge ignoré pour ${employee.matricule}: ${timeDisplay} depuis le dernier ${lastPunch.type} (seuil: ${threshold})`);
 
         // Créer un enregistrement informatif (non-bloquant) pour traçabilité
         const debounceRecord = await this.prisma.attendance.create({
@@ -1135,19 +1767,21 @@ export class AttendanceService {
             deviceId: device.id,
             siteId: device.siteId,
             timestamp: punchTime,
-            type: webhookData.type,
+            type: effectiveType2,
             method: webhookData.method,
             hasAnomaly: true,
             anomalyType: 'DEBOUNCE_BLOCKED',
-            anomalyNote: `Badge ignoré (anti-rebond): ${diffMinutes.toFixed(1)} min depuis le dernier pointage (seuil: ${DEBOUNCE_MINUTES} min)`,
+            anomalyNote: `Badge ignoré (anti-rebond ${isSameType ? 'même type' : 'type différent'}): ${timeDisplay} depuis le dernier pointage (seuil: ${threshold})`,
             needsApproval: false, // Informatif seulement, pas d'action requise
             rawData: {
               source: 'DEBOUNCE_LOG',
               blockedReason: 'DEBOUNCE',
               timeSinceLastPunch: diffMinutes,
-              threshold: DEBOUNCE_MINUTES,
+              thresholdType: isSameType ? 'SAME_TYPE' : 'DIFFERENT_TYPE',
+              threshold: isSameType ? DEBOUNCE_SAME_TYPE_MINUTES_2 : DEBOUNCE_DIFFERENT_TYPE_MINUTES_2,
               lastPunchTime: lastPunch.timestamp,
               lastPunchType: lastPunch.type,
+              newPunchType: effectiveType2,
             },
           },
         });
@@ -1157,24 +1791,24 @@ export class AttendanceService {
         return {
           status: 'logged_info',
           reason: 'DEBOUNCE',
-          message: `Pointage enregistré comme informatif: trop proche du précédent (${diffMinutes.toFixed(1)} min < ${DEBOUNCE_MINUTES} min)`,
+          message: `Pointage enregistré comme informatif: trop proche du précédent (${timeDisplay} < ${threshold})`,
           attendanceId: debounceRecord.id,
           lastPunchTime: lastPunch.timestamp,
           lastPunchType: lastPunch.type,
-          configuredTolerance: DEBOUNCE_MINUTES,
+          configuredTolerance: isSameType ? DEBOUNCE_SAME_TYPE_MINUTES_2 : DEBOUNCE_DIFFERENT_TYPE_MINUTES_2,
         };
       }
     }
 
     // Vérifier la configuration du pointage des repos
-    await this.validateBreakPunch(tenantId, webhookData.type);
+    await this.validateBreakPunch(tenantId, effectiveType2);
 
     // Détecter les anomalies
     const anomaly = await this.detectAnomalies(
       tenantId,
       employee.id,
       new Date(webhookData.timestamp),
-      webhookData.type,
+      effectiveType2,
     );
 
     // Log informatif pour double badgeage rapide (pas une anomalie bloquante)
@@ -1187,7 +1821,7 @@ export class AttendanceService {
       tenantId,
       employee.id,
       new Date(webhookData.timestamp),
-      webhookData.type,
+      effectiveType2,
     );
 
     // Mettre à jour lastSync du terminal pour indiquer qu'il est connecté
@@ -1242,16 +1876,20 @@ export class AttendanceService {
         deviceId: device.id,
         siteId: device.siteId,
         timestamp: new Date(webhookData.timestamp),
-        type: webhookData.type,
+        type: effectiveType2, // FIX 18/01/2026: Utiliser le type auto-détecté
         method: webhookData.method,
         rawData: standardizedRawDataWebhook,
-        hasAnomaly: anomaly.hasAnomaly,
-        anomalyType: anomaly.type,
-        anomalyNote: anomaly.note,
+        hasAnomaly: anomaly.hasAnomaly || webhookData.isAmbiguous || false,
+        anomalyType: webhookData.isAmbiguous ? 'PENDING_VALIDATION' : anomaly.type,
+        anomalyNote: webhookData.ambiguityReason || anomaly.note,
         hoursWorked: metrics.hoursWorked ? new Decimal(metrics.hoursWorked) : null,
         lateMinutes: metrics.lateMinutes,
         earlyLeaveMinutes: metrics.earlyLeaveMinutes,
         overtimeMinutes: metrics.overtimeMinutes,
+        // Champs PENDING_VALIDATION pour shifts de nuit
+        isAmbiguous: webhookData.isAmbiguous || false,
+        validationStatus: webhookData.validationStatus || 'NONE',
+        ambiguityReason: webhookData.ambiguityReason || null,
       },
       include: {
         employee: {
@@ -1288,7 +1926,7 @@ export class AttendanceService {
     }
 
     // Création automatique d'Overtime en temps réel (Modèle hybride - Niveau 1)
-    if (webhookData.type === AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
+    if (effectiveType2 === AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
       await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
     }
 
@@ -1296,7 +1934,7 @@ export class AttendanceService {
     // FIX 14/01/2026: TOUJOURS nettoyer MISSING_OUT quand un OUT arrive
     // (ne plus dépendre de hoursWorked qui peut être undefined)
     // ═══════════════════════════════════════════════════════════════════════════════
-    if (webhookData.type === AttendanceType.OUT) {
+    if (effectiveType2 === AttendanceType.OUT) {
       const timestamp = new Date(webhookData.timestamp);
       const startOfDay = new Date(timestamp);
       startOfDay.setHours(0, 0, 0, 0);
@@ -1507,6 +2145,14 @@ export class AttendanceService {
               firstName: true,
               lastName: true,
               photo: true,
+              departmentId: true,
+              siteId: true,
+              department: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
               currentShift: {
                 select: {
                   id: true,
@@ -1545,11 +2191,61 @@ export class AttendanceService {
       console.log('🔍 [findAll] ⚠️ AUCUN RÉSULTAT - Vérifiez la clause WHERE');
     }
 
-    // Convertir les valeurs Decimal en nombres pour une sérialisation JSON correcte
-    const transformedData = data.map(record => ({
-      ...record,
-      hoursWorked: record.hoursWorked ? Number(record.hoursWorked) : null,
-    }));
+    // FIX 17/01/2026: Enrichir les données avec le planning effectif (personnalisé ou par défaut)
+    // Récupérer tous les schedules nécessaires en une seule requête pour optimiser les performances
+    const employeeDatePairs = new Map<string, Set<string>>();
+    for (const record of data) {
+      const dateStr = record.timestamp.toISOString().split('T')[0];
+      if (!employeeDatePairs.has(record.employeeId)) {
+        employeeDatePairs.set(record.employeeId, new Set());
+      }
+      employeeDatePairs.get(record.employeeId)!.add(dateStr);
+    }
+
+    // Récupérer les schedules pour toutes les combinaisons employé-date
+    const scheduleMap = new Map<string, any>();
+    for (const [employeeId, dates] of employeeDatePairs.entries()) {
+      for (const dateStr of dates) {
+        const dateOnly = new Date(dateStr + 'T00:00:00.000Z');
+        const schedule = await this.prisma.schedule.findFirst({
+          where: {
+            tenantId,
+            employeeId,
+            date: dateOnly,
+            status: 'PUBLISHED',
+          },
+          include: {
+            shift: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                startTime: true,
+                endTime: true,
+              },
+            },
+          },
+        });
+        if (schedule?.shift) {
+          scheduleMap.set(`${employeeId}_${dateStr}`, schedule.shift);
+        }
+      }
+    }
+
+    // Convertir les valeurs Decimal en nombres et ajouter effectiveShift
+    const transformedData = data.map(record => {
+      const dateStr = record.timestamp.toISOString().split('T')[0];
+      const scheduleShift = scheduleMap.get(`${record.employeeId}_${dateStr}`);
+
+      // Utiliser le planning personnalisé s'il existe, sinon le shift par défaut
+      const effectiveShift = scheduleShift || record.employee?.currentShift || null;
+
+      return {
+        ...record,
+        hoursWorked: record.hoursWorked ? Number(record.hoursWorked) : null,
+        effectiveShift, // Le shift réellement utilisé pour cette date
+      };
+    });
 
     // Si pagination demandée, retourner avec métadonnées
     if (shouldPaginate) {
@@ -2508,20 +3204,31 @@ export class AttendanceService {
     // Si l'employé n'est pas éligible, ne pas calculer les heures sup
     const isEligibleForOvertime = employee?.isEligibleForOvertime ?? true; // Par défaut éligible pour rétrocompatibilité
 
-    const startOfDay = new Date(timestamp);
-    startOfDay.setHours(0, 0, 0, 0);
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // FIX 16/01/2026: Pour les shifts de nuit, le IN peut être du jour précédent
+    // Étendre la fenêtre de recherche à 24h avant le timestamp actuel
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const startOfSearchWindow = new Date(timestamp);
+    startOfSearchWindow.setHours(startOfSearchWindow.getHours() - 24); // 24h avant
     const endOfDay = new Date(timestamp);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Récupérer les pointages du jour
+    // Récupérer les pointages des dernières 24h + jour actuel (pour shifts de nuit)
+    // FIX 18/01/2026: Exclure les DEBOUNCE_BLOCKED du calcul des métriques
     const todayRecords = await this.prisma.attendance.findMany({
       where: {
         tenantId,
         employeeId,
-        timestamp: { gte: startOfDay, lte: endOfDay },
+        timestamp: { gte: startOfSearchWindow, lte: endOfDay },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
       },
       orderBy: { timestamp: 'asc' },
     });
+
+    console.log(`[calculateMetrics] Fenêtre de recherche: ${startOfSearchWindow.toISOString()} → ${endOfDay.toISOString()}, ${todayRecords.length} records trouvés`);
 
     const metrics: {
       hoursWorked?: number;
@@ -3062,10 +3769,12 @@ export class AttendanceService {
         shift: {
           select: {
             id: true,
+            name: true,
             startTime: true,
             endTime: true,
             breakDuration: true,
             breakStartTime: true,
+            isNightShift: true,
           },
         },
       },
@@ -3150,10 +3859,12 @@ export class AttendanceService {
           shift: {
             select: {
               id: true,
+              name: true,
               startTime: true,
               endTime: true,
               breakDuration: true,
               breakStartTime: true,
+              isNightShift: true,
             },
           },
         },
@@ -3186,10 +3897,12 @@ export class AttendanceService {
         currentShift: {
           select: {
             id: true,
+            name: true,
             startTime: true,
             endTime: true,
             breakDuration: true,
             breakStartTime: true,
+            isNightShift: true,
           },
         },
       },
@@ -3546,14 +4259,19 @@ export class AttendanceService {
 
     // 1.1 Fenêtre Temporelle Intelligente - Vérifier les IN orphelins
     const detectionWindowStart = new Date(timestamp.getTime() - detectionWindowHours * 60 * 60 * 1000);
-    
+
     // Récupérer tous les IN dans la fenêtre de détection
+    // FIX 18/01/2026: Exclure les DEBOUNCE_BLOCKED - ils ne comptent pas comme de vrais IN
     const recentInRecords = await this.prisma.attendance.findMany({
       where: {
         tenantId,
         employeeId,
         type: AttendanceType.IN,
         timestamp: { gte: detectionWindowStart, lt: timestamp },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
       },
       orderBy: { timestamp: 'desc' },
     });
@@ -4775,17 +5493,26 @@ export class AttendanceService {
     timestamp: Date,
     type: AttendanceType,
   ): Promise<{ hasAnomaly: boolean; type?: string; note?: string }> {
-    const startOfDay = new Date(timestamp);
-    startOfDay.setHours(0, 0, 0, 0);
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // FIX 16/01/2026: Pour les shifts de nuit, étendre la fenêtre de recherche
+    // ═══════════════════════════════════════════════════════════════════════════════
+    const startOfSearchWindow = new Date(timestamp);
+    startOfSearchWindow.setHours(startOfSearchWindow.getHours() - 24); // 24h avant
     const endOfDay = new Date(timestamp);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Récupérer les pointages du jour
+    // Récupérer les pointages des dernières 24h + jour actuel (pour shifts de nuit)
+    // FIX 18/01/2026: Exclure les DEBOUNCE_BLOCKED de l'analyse d'anomalies
+    // Un pointage bloqué par anti-rebond ne doit pas être compté pour DOUBLE_IN/MISSING_IN/etc.
     const todayRecords = await this.prisma.attendance.findMany({
       where: {
         tenantId,
         employeeId,
-        timestamp: { gte: startOfDay, lte: endOfDay },
+        timestamp: { gte: startOfSearchWindow, lte: endOfDay },
+        OR: [
+          { anomalyType: null },
+          { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+        ],
       },
       orderBy: { timestamp: 'asc' },
     });
@@ -6123,6 +6850,172 @@ export class AttendanceService {
   }
 
   /**
+   * Exporte tous les pointages dans un format CSV ou Excel
+   */
+  async exportAttendance(
+    tenantId: string,
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      employeeId?: string;
+      departmentId?: string;
+      siteId?: string;
+      type?: string;
+    },
+    format: 'csv' | 'excel',
+    userId?: string,
+    userPermissions?: string[],
+  ): Promise<string | Buffer> {
+    const where: any = {
+      tenantId,
+    };
+
+    // Filtre par employé
+    if (filters.employeeId) {
+      where.employeeId = filters.employeeId;
+    }
+
+    // Filtre par type (IN/OUT)
+    if (filters.type) {
+      where.type = filters.type;
+    }
+
+    // Filtre par département ou site via l'employé
+    if (filters.departmentId || filters.siteId) {
+      where.employee = {};
+      if (filters.departmentId) {
+        where.employee.departmentId = filters.departmentId;
+      }
+      if (filters.siteId) {
+        where.employee.siteId = filters.siteId;
+      }
+    }
+
+    // Filtre par date
+    if (filters.startDate || filters.endDate) {
+      where.timestamp = {};
+      if (filters.startDate) {
+        where.timestamp.gte = new Date(filters.startDate + 'T00:00:00.000Z');
+      }
+      if (filters.endDate) {
+        where.timestamp.lte = new Date(filters.endDate + 'T23:59:59.999Z');
+      }
+    }
+
+    // Filtrer par manager si nécessaire
+    const hasViewAll = userPermissions?.includes('attendance.view_all');
+    if (userId && !hasViewAll) {
+      const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+      const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+      if (managedEmployeeIds.length > 0) {
+        where.employeeId = { in: managedEmployeeIds };
+      }
+    }
+
+    const attendances = await this.prisma.attendance.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            matricule: true,
+            firstName: true,
+            lastName: true,
+            position: true,
+            department: {
+              select: { name: true },
+            },
+            site: {
+              select: { name: true },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { timestamp: 'desc' },
+      ],
+      take: 10000, // Limite pour éviter les exports trop volumineux
+    });
+
+    // Générer le CSV
+    if (format === 'csv') {
+      const BOM = '\uFEFF'; // Pour l'encodage UTF-8 dans Excel
+      const csvRows = [
+        [
+          'Date',
+          'Heure',
+          'Nom',
+          'Prénom',
+          'Matricule',
+          'Département',
+          'Fonction',
+          'Type',
+          'Anomalie',
+          'Retard (min)',
+          'Départ anticipé (min)',
+          'Heures sup (min)',
+          'Statut validation',
+        ].join(';'), // Utiliser ; pour compatibilité Excel FR
+      ];
+
+      attendances.forEach((att) => {
+        const date = new Date(att.timestamp);
+        const localDate = date.toLocaleDateString('fr-FR');
+        const localTime = date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+        csvRows.push(
+          [
+            localDate,
+            localTime,
+            att.employee.lastName || '',
+            att.employee.firstName || '',
+            att.employee.matricule || '',
+            att.employee.department?.name || '',
+            att.employee.position || '',
+            att.type === 'IN' ? 'Entrée' : 'Sortie',
+            att.anomalyType || '',
+            att.lateMinutes || '',
+            att.earlyLeaveMinutes || '',
+            att.overtimeMinutes || '',
+            att.validationStatus || 'NONE',
+          ].join(';'),
+        );
+      });
+
+      return BOM + csvRows.join('\n');
+    } else {
+      // Format Excel - retourner JSON structuré (le frontend peut utiliser une librairie xlsx)
+      const data = attendances.map((att) => {
+        const date = new Date(att.timestamp);
+        return {
+          Date: date.toLocaleDateString('fr-FR'),
+          Heure: date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          Nom: att.employee.lastName || '',
+          Prénom: att.employee.firstName || '',
+          Matricule: att.employee.matricule || '',
+          Département: att.employee.department?.name || '',
+          Fonction: att.employee.position || '',
+          Type: att.type === 'IN' ? 'Entrée' : 'Sortie',
+          Anomalie: att.anomalyType || '',
+          'Retard (min)': att.lateMinutes || '',
+          'Départ anticipé (min)': att.earlyLeaveMinutes || '',
+          'Heures sup (min)': att.overtimeMinutes || '',
+          'Statut validation': att.validationStatus || 'NONE',
+        };
+      });
+
+      // Pour Excel, on retourne du CSV pour l'instant (simple et fonctionne)
+      const BOM = '\uFEFF';
+      const headers = Object.keys(data[0] || {});
+      const csvRows = [headers.join(';')];
+      data.forEach((row) => {
+        csvRows.push(headers.map((h) => row[h] || '').join(';'));
+      });
+      return BOM + csvRows.join('\n');
+    }
+  }
+
+  /**
    * Récupère un dashboard de synthèse des anomalies
    */
   async getAnomaliesDashboard(
@@ -7129,5 +8022,949 @@ export class AttendanceService {
       ],
       take: filters?.limit || 100,
     });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // VALIDATION DES POINTAGES AMBIGUS (SHIFTS DE NUIT)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Récupère les pointages en attente de validation
+   */
+  async getPendingValidations(
+    tenantId: string,
+    userId: string,
+    filters?: {
+      employeeId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      limit?: number;
+    },
+  ) {
+    // Vérifier les permissions (manager ou RH)
+    const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+    const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+
+    const where: any = {
+      tenantId,
+      validationStatus: 'PENDING_VALIDATION',
+      isAmbiguous: true,
+    };
+
+    // Si pas admin global, filtrer sur les employés managés
+    if (managedEmployeeIds.length > 0) {
+      where.employeeId = { in: managedEmployeeIds };
+    }
+
+    if (filters?.employeeId) {
+      where.employeeId = filters.employeeId;
+    }
+
+    if (filters?.dateFrom || filters?.dateTo) {
+      where.timestamp = {};
+      if (filters.dateFrom) where.timestamp.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) where.timestamp.lte = new Date(filters.dateTo + 'T23:59:59.999Z');
+    }
+
+    return this.prisma.attendance.findMany({
+      where,
+      include: {
+        employee: {
+          select: {
+            id: true,
+            matricule: true,
+            firstName: true,
+            lastName: true,
+            currentShift: { select: { name: true, startTime: true, endTime: true, isNightShift: true } },
+          },
+        },
+        site: { select: { name: true } },
+        device: { select: { name: true } },
+      },
+      orderBy: [
+        { escalationLevel: 'desc' },
+        { timestamp: 'asc' },
+      ],
+      take: filters?.limit || 50,
+    });
+  }
+
+  /**
+   * Valide un pointage ambigu (Manager/RH)
+   */
+  async validateAmbiguousPunch(
+    tenantId: string,
+    userId: string,
+    dto: ValidateAttendanceDto,
+  ) {
+    // 1. Récupérer le pointage
+    const attendance = await this.prisma.attendance.findFirst({
+      where: { id: dto.attendanceId, tenantId },
+      include: { employee: true },
+    });
+
+    if (!attendance) {
+      throw new NotFoundException('Pointage non trouvé');
+    }
+
+    if (attendance.validationStatus !== 'PENDING_VALIDATION') {
+      throw new BadRequestException('Ce pointage n\'est pas en attente de validation');
+    }
+
+    // 2. Vérifier les permissions (manager direct ou RH)
+    const managerLevel = await getManagerLevel(this.prisma, userId, tenantId);
+    const managedEmployeeIds = await getManagedEmployeeIds(this.prisma, managerLevel, tenantId);
+    const canValidate = managedEmployeeIds.includes(attendance.employeeId) || !managerLevel.type;
+
+    if (!canValidate) {
+      throw new ForbiddenException('Vous n\'avez pas la permission de valider ce pointage');
+    }
+
+    // 3. Effectuer la validation selon l'action
+    const now = new Date();
+    let updateData: any = {
+      validatedBy: userId,
+      validatedAt: now,
+    };
+
+    switch (dto.action) {
+      case ValidationAction.VALIDATE:
+        // Garder le type actuel, marquer comme validé
+        updateData.validationStatus = 'VALIDATED';
+        updateData.isAmbiguous = false;
+        updateData.hasAnomaly = false;
+        updateData.anomalyType = null;
+        updateData.anomalyNote = `Validé par manager/RH: ${dto.validationNote || 'Aucune note'}`;
+        break;
+
+      case ValidationAction.REJECT:
+        // Marquer comme rejeté (pointage erroné)
+        updateData.validationStatus = 'REJECTED';
+        updateData.hasAnomaly = true;
+        updateData.anomalyType = 'REJECTED_PUNCH';
+        updateData.anomalyNote = `Rejeté: ${dto.validationNote || 'Pointage invalide'}`;
+        break;
+
+      case ValidationAction.CORRECT:
+        // Corriger le type et valider
+        if (!dto.correctedType) {
+          throw new BadRequestException('Type corrigé requis pour l\'action CORRECT');
+        }
+        updateData.validationStatus = 'VALIDATED';
+        updateData.isAmbiguous = false;
+        updateData.hasAnomaly = false;
+        updateData.anomalyType = null;
+        updateData.type = dto.correctedType;
+        updateData.isCorrected = true;
+        updateData.correctedBy = userId;
+        updateData.correctedAt = now;
+        updateData.correctionNote = `Corrigé de ${attendance.type} vers ${dto.correctedType}: ${dto.validationNote || ''}`;
+        break;
+    }
+
+    // 4. Mettre à jour le pointage
+    const updated = await this.prisma.attendance.update({
+      where: { id: dto.attendanceId },
+      data: updateData,
+      include: {
+        employee: { select: { matricule: true, firstName: true, lastName: true } },
+      },
+    });
+
+    console.log(`✅ [VALIDATION] Pointage ${dto.attendanceId} ${dto.action} par ${userId}`);
+
+    return {
+      success: true,
+      attendance: updated,
+      action: dto.action,
+      message: `Pointage ${dto.action === ValidationAction.VALIDATE ? 'validé' : dto.action === ValidationAction.REJECT ? 'rejeté' : 'corrigé'} avec succès`,
+    };
+  }
+
+  /**
+   * Validation en masse de pointages ambigus
+   */
+  async bulkValidateAmbiguousPunches(
+    tenantId: string,
+    userId: string,
+    dtos: ValidateAttendanceDto[],
+  ) {
+    const results = [];
+    const errors = [];
+
+    for (const dto of dtos) {
+      try {
+        const result = await this.validateAmbiguousPunch(tenantId, userId, dto);
+        results.push(result);
+      } catch (error) {
+        errors.push({
+          attendanceId: dto.attendanceId,
+          error: error.message,
+        });
+      }
+    }
+
+    return {
+      success: errors.length === 0,
+      validated: results.length,
+      errors: errors.length,
+      results,
+      errorDetails: errors,
+    };
+  }
+
+  /**
+   * Escalade des pointages non validés après délai
+   * Appelé par un job CRON - Utilise les paramètres configurables
+   */
+  async escalatePendingValidations(tenantId: string) {
+    // Récupérer les paramètres d'escalade configurables
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: {
+        ambiguousPunchEscalationEnabled: true,
+        ambiguousPunchEscalationLevel1Hours: true,
+        ambiguousPunchEscalationLevel2Hours: true,
+        ambiguousPunchEscalationLevel3Hours: true,
+        ambiguousPunchNotifyManager: true,
+        ambiguousPunchNotifyHR: true,
+        ambiguousPunchNotifyEmployee: true,
+      },
+    });
+
+    // Vérifier si l'escalade est activée
+    if (settings?.ambiguousPunchEscalationEnabled === false) {
+      console.log(`⚠️ [ESCALADE] Escalade désactivée pour tenant ${tenantId}`);
+      return {
+        processed: 0,
+        escalated: 0,
+        escalations: [],
+        message: 'Escalade désactivée dans les paramètres',
+      };
+    }
+
+    const now = new Date();
+
+    // Utiliser les paramètres configurables (avec valeurs par défaut)
+    const HOURS_LEVEL1 = (settings?.ambiguousPunchEscalationLevel1Hours ?? 24) * 60 * 60 * 1000;
+    const HOURS_LEVEL2 = (settings?.ambiguousPunchEscalationLevel2Hours ?? 48) * 60 * 60 * 1000;
+    const HOURS_LEVEL3 = (settings?.ambiguousPunchEscalationLevel3Hours ?? 72) * 60 * 60 * 1000;
+
+    // Récupérer les pointages en attente
+    const pendingPunches = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        validationStatus: 'PENDING_VALIDATION',
+        isAmbiguous: true,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            matricule: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            department: {
+              select: {
+                managerId: true,
+                manager: { select: { user: { select: { email: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const escalations = [];
+
+    for (const punch of pendingPunches) {
+      const ageMs = now.getTime() - punch.createdAt.getTime();
+      let newLevel = punch.escalationLevel;
+
+      // Déterminer le niveau d'escalade selon les paramètres configurés
+      if (ageMs >= HOURS_LEVEL3 && punch.escalationLevel < 3) {
+        newLevel = 3; // Escalade finale à direction
+      } else if (ageMs >= HOURS_LEVEL2 && punch.escalationLevel < 2) {
+        newLevel = 2; // Escalade à RH
+      } else if (ageMs >= HOURS_LEVEL1 && punch.escalationLevel < 1) {
+        newLevel = 1; // Rappel au manager
+      }
+
+      if (newLevel > punch.escalationLevel) {
+        await this.prisma.attendance.update({
+          where: { id: punch.id },
+          data: { escalationLevel: newLevel },
+        });
+
+        const escalation = {
+          attendanceId: punch.id,
+          employeeId: punch.employeeId,
+          employee: `${punch.employee.firstName} ${punch.employee.lastName}`,
+          employeeEmail: punch.employee.email,
+          managerEmail: punch.employee.department?.manager?.user?.email,
+          oldLevel: punch.escalationLevel,
+          newLevel,
+          ageHours: Math.round(ageMs / (60 * 60 * 1000)),
+          timestamp: punch.timestamp,
+          ambiguityReason: punch.ambiguityReason,
+          notifySettings: {
+            notifyManager: settings?.ambiguousPunchNotifyManager ?? true,
+            notifyHR: settings?.ambiguousPunchNotifyHR ?? true,
+            notifyEmployee: settings?.ambiguousPunchNotifyEmployee ?? false,
+          },
+        };
+
+        escalations.push(escalation);
+
+        console.log(`⏫ [ESCALADE] Pointage ${punch.id} escaladé de niveau ${punch.escalationLevel} à ${newLevel} (${escalation.employee})`);
+      }
+    }
+
+    return {
+      processed: pendingPunches.length,
+      escalated: escalations.length,
+      escalations,
+      settings: {
+        level1Hours: settings?.ambiguousPunchEscalationLevel1Hours ?? 24,
+        level2Hours: settings?.ambiguousPunchEscalationLevel2Hours ?? 48,
+        level3Hours: settings?.ambiguousPunchEscalationLevel3Hours ?? 72,
+      },
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // NOUVEAU: TRAITEMENT AVEC STATE DU TERMINAL (19/01/2026)
+  // SOLUTION FINALE - AUCUNE DÉDUCTION
+  // Le type IN/OUT vient DIRECTEMENT du terminal via le champ state
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Traite un pointage avec STATE du terminal ZKTeco
+   *
+   * PHILOSOPHIE: Le terminal envoie le type IN/OUT via le champ state.
+   * Le backend NE DÉDUIT PLUS le type - il le reçoit et l'utilise directement.
+   *
+   * Mapping STATE → TYPE (standard ZKTeco):
+   * - state 0 = IN  (Check-In)
+   * - state 1 = OUT (Check-Out)
+   * - state 2 = OUT (Break-Out)
+   * - state 3 = IN  (Break-In)
+   * - state 4 = IN  (OT-In)
+   * - state 5 = OUT (OT-Out)
+   *
+   * @param tenantId ID du tenant
+   * @param deviceId ID du terminal
+   * @param webhookData Données avec state du terminal
+   * @param apiKey Clé API optionnelle
+   */
+  async processTerminalPunch(
+    tenantId: string,
+    deviceId: string,
+    webhookData: WebhookStateDto,
+    apiKey?: string,
+  ): Promise<WebhookStateResponseDto> {
+    const startTime = Date.now();
+
+    console.log(`\n═══════════════════════════════════════════════════════════════`);
+    console.log(`📥 [TERMINAL-STATE] Pointage reçu avec STATE natif`);
+    console.log(`   Matricule: ${webhookData.employeeId}`);
+    console.log(`   Type: ${webhookData.type} (state=${webhookData.terminalState})`);
+    console.log(`   Timestamp: ${webhookData.timestamp}`);
+    console.log(`═══════════════════════════════════════════════════════════════\n`);
+
+    try {
+      // 1. VÉRIFIER LE TERMINAL
+      const device = await this.prisma.attendanceDevice.findFirst({
+        where: { deviceId, tenantId },
+        select: { id: true, apiKey: true, siteId: true, isActive: true },
+      });
+
+      if (!device) {
+        console.log(`❌ [TERMINAL-STATE] Terminal non trouvé: ${deviceId}`);
+        return {
+          status: 'ERROR',
+          error: `Terminal non trouvé: ${deviceId}`,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      if (!device.isActive) {
+        console.log(`❌ [TERMINAL-STATE] Terminal inactif: ${deviceId}`);
+        return {
+          status: 'ERROR',
+          error: `Terminal inactif: ${deviceId}`,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      // Validation API Key si configurée
+      if (device.apiKey && apiKey && device.apiKey !== apiKey) {
+        console.log(`❌ [TERMINAL-STATE] API Key invalide`);
+        return {
+          status: 'ERROR',
+          error: 'API Key invalide',
+          duration: Date.now() - startTime,
+        };
+      }
+
+      // 2. TROUVER L'EMPLOYÉ (par matricule)
+      let employee = await findEmployeeByMatriculeFlexible(
+        this.prisma,
+        tenantId,
+        webhookData.employeeId,
+      );
+
+      // Chercher aussi dans le mapping terminal si non trouvé
+      if (!employee) {
+        const mapping = await this.prisma.terminalMatriculeMapping.findFirst({
+          where: {
+            tenantId,
+            terminalMatricule: webhookData.employeeId,
+            isActive: true,
+          },
+          include: { employee: true },
+        });
+        if (mapping) {
+          employee = mapping.employee;
+          console.log(`   ✅ Employé trouvé via mapping: ${mapping.terminalMatricule} → ${employee.matricule}`);
+        }
+      }
+
+      if (!employee) {
+        console.log(`❌ [TERMINAL-STATE] Employé non trouvé: ${webhookData.employeeId}`);
+        return {
+          status: 'ERROR',
+          error: `Employé non trouvé: ${webhookData.employeeId}`,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      console.log(`   ✅ Employé: ${employee.firstName} ${employee.lastName} (${employee.matricule})`);
+
+      const punchTime = new Date(webhookData.timestamp);
+
+      // Récupérer les settings du tenant pour la tolérance anti-doublon et les jours ouvrables
+      const tenantSettings = await this.prisma.tenantSettings.findUnique({
+        where: { tenantId },
+        select: { doublePunchToleranceMinutes: true, workingDays: true },
+      });
+      const toleranceMinutes = tenantSettings?.doublePunchToleranceMinutes ?? 2; // Défaut: 2 minutes
+      const workingDays = (tenantSettings?.workingDays as number[]) || [1, 2, 3, 4, 5]; // Défaut: Lundi-Vendredi
+      const toleranceMs = toleranceMinutes * 60 * 1000;
+
+      // 3. ANTI-DOUBLON (même employé, même timestamp ± tolérance configurée)
+      const existingPunch = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId: employee.id,
+          timestamp: {
+            gte: new Date(punchTime.getTime() - toleranceMs),
+            lte: new Date(punchTime.getTime() + toleranceMs),
+          },
+          type: webhookData.type,
+        },
+        select: { id: true },
+      });
+
+      if (existingPunch) {
+        console.log(`⚠️ [TERMINAL-STATE] Doublon détecté: ${existingPunch.id} (tolérance: ${toleranceMinutes} min)`);
+
+        // Créer un enregistrement informatif DEBOUNCE_BLOCKED (visible dans l'interface anomalies)
+        const debounceRecord = await this.prisma.attendance.create({
+          data: {
+            tenantId,
+            employeeId: employee.id,
+            deviceId: device.id,
+            siteId: device.siteId,
+            timestamp: punchTime,
+            type: webhookData.type,
+            terminalState: webhookData.terminalState,
+            method: webhookData.method || 'FINGERPRINT',
+            source: webhookData.source || 'TERMINAL',
+            detectionMethod: 'TERMINAL_STATE',
+            hasAnomaly: true,
+            anomalyType: 'DEBOUNCE_BLOCKED',
+            isCorrected: true, // Marqué comme traité (informatif, pas de correction nécessaire)
+            correctionNote: `Doublon du pointage ${existingPunch.id} (tolérance: ${toleranceMinutes} min)`,
+            validationStatus: 'NONE',
+            rawData: {
+              terminalState: webhookData.terminalState,
+              source: 'TERMINAL_STATE_WEBHOOK',
+              processedAt: new Date().toISOString(),
+              duplicateOf: existingPunch.id,
+              toleranceMinutes,
+            },
+          },
+        });
+
+        console.log(`   📝 Enregistré comme DEBOUNCE_BLOCKED: ${debounceRecord.id}`);
+
+        return {
+          status: 'DEBOUNCE_BLOCKED',
+          id: debounceRecord.id,
+          existingId: existingPunch.id,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      // 4. ENRICHISSEMENT MÉTIER
+      const schedule = await this.getScheduleWithFallback(tenantId, employee.id, punchTime);
+      const shift = schedule?.shift as {
+        id: string;
+        name: string;
+        startTime: string;
+        endTime: string;
+        isNightShift?: boolean;
+        breakDuration?: number;
+      } | null;
+
+      // Vérifier jour férié
+      const punchDate = punchTime.toISOString().split('T')[0];
+      const holiday = await this.prisma.holiday.findFirst({
+        where: {
+          tenantId,
+          date: new Date(punchDate),
+        },
+      });
+      const isHoliday = !!holiday;
+
+      // Vérifier congé
+      const leave = await this.prisma.leave.findFirst({
+        where: {
+          tenantId,
+          employeeId: employee.id,
+          status: { in: ['APPROVED', 'MANAGER_APPROVED', 'HR_APPROVED'] },
+          startDate: { lte: new Date(punchDate) },
+          endDate: { gte: new Date(punchDate) },
+        },
+      });
+      const isOnLeave = !!leave;
+
+      console.log(`   📋 Shift: ${shift?.name || 'Aucun'} (${shift?.startTime || '-'} → ${shift?.endTime || '-'})`);
+      console.log(`   📅 Jour férié: ${isHoliday ? 'OUI' : 'Non'}, En congé: ${isOnLeave ? 'OUI' : 'Non'}`);
+
+      // 4.1. VÉRIFICATION JOUR OUVRABLE (WEEKEND CHECK)
+      // Si c'est un jour non ouvrable ET que le schedule est virtuel (pas de planning explicite)
+      const dayOfWeek = punchTime.getDay(); // 0 = Dimanche, 1 = Lundi, etc.
+      const normalizedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek; // Normaliser dimanche à 7
+      const isWorkingDay = workingDays.includes(normalizedDayOfWeek);
+      const isVirtualSchedule = schedule?.id === 'virtual';
+      const dayNames = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+      const dayName = dayNames[dayOfWeek];
+
+      console.log(`   📆 Jour: ${dayName} (${normalizedDayOfWeek}), Ouvrable: ${isWorkingDay ? 'OUI' : 'NON'}, Planning explicite: ${!isVirtualSchedule ? 'OUI' : 'NON (virtuel)'}`);
+
+      // 5. CALCUL ANOMALIE (basé sur le type RÉEL du terminal)
+      let anomalyType: string | null = null;
+      let anomalyMinutes: number | null = null;
+      let lateMinutes: number | null = null;
+      let earlyLeaveMinutes: number | null = null;
+      let overtimeMinutes: number | null = null;
+
+      // Variables pour DOUBLE_IN (déclarées ici pour être accessibles dans la persistance)
+      let isDoubleIn = false;
+      let firstInTime: Date | null = null;
+
+      // Variable pour MISSING_IN (OUT sans IN préalable)
+      let isMissingIn = false;
+
+      if (isHoliday && !isOnLeave) {
+        anomalyType = 'HOLIDAY_WORKED';
+      } else if (isOnLeave) {
+        anomalyType = 'LEAVE_BUT_PRESENT';
+      } else if (!isWorkingDay && isVirtualSchedule) {
+        // Jour non ouvrable (weekend) sans planning explicite → Anomalie WEEKEND_WORK
+        anomalyType = 'WEEKEND_WORK';
+        console.log(`   ⚠️ Anomalie WEEKEND_WORK: pointage le ${dayName} sans planning explicite`);
+      } else if (shift) {
+        const punchMinutes = punchTime.getHours() * 60 + punchTime.getMinutes();
+        const [startH, startM] = shift.startTime.split(':').map(Number);
+        const [endH, endM] = shift.endTime.split(':').map(Number);
+        const shiftStartMinutes = startH * 60 + startM;
+        let shiftEndMinutes = endH * 60 + endM;
+
+        // Ajustement shift nuit
+        if (shift.isNightShift && shiftEndMinutes < shiftStartMinutes) {
+          shiftEndMinutes += 1440; // +24h
+        }
+
+        // Récupérer les seuils du tenant
+        const settings = await this.prisma.tenantSettings.findUnique({
+          where: { tenantId },
+          select: {
+            lateToleranceEntry: true,
+            earlyToleranceExit: true,
+            overtimeMinimumThreshold: true,
+          },
+        });
+
+        const lateThreshold = settings?.lateToleranceEntry ?? 10;
+        const earlyThreshold = settings?.earlyToleranceExit ?? 5;
+        const overtimeThreshold = settings?.overtimeMinimumThreshold ?? 30;
+
+        if (webhookData.type === 'IN') {
+          const punchDate = punchTime.toISOString().split('T')[0];
+
+          // ═══════════════════════════════════════════════════════════════
+          // MISSING_OUT: Vérifier s'il y a un IN précédent (jours passés) sans OUT
+          // ═══════════════════════════════════════════════════════════════
+          const threeDaysAgo = new Date(punchTime);
+          threeDaysAgo.setDate(threeDaysAgo.getDate() - 3); // Chercher sur 3 jours max
+
+          const unclosedPreviousIn = await this.prisma.attendance.findFirst({
+            where: {
+              tenantId,
+              employeeId: employee.id,
+              type: 'IN',
+              timestamp: {
+                gte: threeDaysAgo,
+                lt: new Date(punchDate + 'T00:00:00Z'), // Avant aujourd'hui
+              },
+              OR: [
+                { anomalyType: null },
+                { anomalyType: { notIn: ['MISSING_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+              ],
+            },
+            orderBy: { timestamp: 'desc' }, // Le plus récent d'abord
+          });
+
+          if (unclosedPreviousIn) {
+            // Vérifier s'il y a un OUT correspondant après ce IN
+            const hasOutAfter = await this.prisma.attendance.findFirst({
+              where: {
+                tenantId,
+                employeeId: employee.id,
+                type: 'OUT',
+                timestamp: {
+                  gt: unclosedPreviousIn.timestamp,
+                },
+                OR: [
+                  { anomalyType: null },
+                  { anomalyType: { notIn: ['MISSING_IN', 'DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
+                ],
+              },
+            });
+
+            if (!hasOutAfter) {
+              // Pas de OUT après ce IN → MISSING_OUT
+              // Vérifier que le shift de ce jour-là est bien terminé
+              const inDate = unclosedPreviousIn.timestamp;
+              const inDateStr = inDate.toISOString().split('T')[0];
+
+              // Récupérer le shift de l'ancien IN
+              const oldSchedule = await this.getScheduleWithFallback(tenantId, employee.id, inDate);
+              const oldShift = oldSchedule?.shift as { endTime: string; isNightShift?: boolean } | null;
+
+              let shiftEnded = true; // Par défaut, considérer que le shift est terminé
+
+              if (oldShift) {
+                const [endH, endM] = oldShift.endTime.split(':').map(Number);
+                let expectedEndTime = new Date(inDateStr + 'T00:00:00Z');
+                expectedEndTime.setUTCHours(endH, endM, 0, 0);
+
+                // Pour shift nuit, la fin est le lendemain
+                if (oldShift.isNightShift) {
+                  expectedEndTime.setDate(expectedEndTime.getDate() + 1);
+                }
+
+                // Ajouter 2h de buffer après la fin du shift
+                const bufferMs = 2 * 60 * 60 * 1000; // 2 heures
+                shiftEnded = punchTime.getTime() > (expectedEndTime.getTime() + bufferMs);
+              }
+
+              if (shiftEnded) {
+                // Marquer l'ancien IN comme MISSING_OUT
+                await this.prisma.attendance.update({
+                  where: { id: unclosedPreviousIn.id },
+                  data: {
+                    hasAnomaly: true,
+                    anomalyType: 'MISSING_OUT',
+                    isCorrected: false, // À corriger manuellement
+                    anomalyNote: `Entrée du ${inDate.toLocaleDateString('fr-FR')} sans sortie. Veuillez ajouter l'heure de sortie manuellement.`,
+                  },
+                });
+                console.log(`   ⚠️ MISSING_OUT détecté: IN du ${inDate.toLocaleDateString('fr-FR')} à ${inDate.toLocaleTimeString('fr-FR')} sans OUT`);
+              }
+            }
+          }
+
+          // ═══════════════════════════════════════════════════════════════
+          // DOUBLE_IN: Vérifier s'il existe déjà une entrée aujourd'hui
+          // ═══════════════════════════════════════════════════════════════
+          const existingIn = await this.prisma.attendance.findFirst({
+            where: {
+              tenantId,
+              employeeId: employee.id,
+              type: 'IN',
+              timestamp: {
+                gte: new Date(punchDate + 'T00:00:00Z'),
+                lt: new Date(punchDate + 'T23:59:59Z'),
+              },
+              OR: [
+                { anomalyType: null },
+                { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+              ],
+            },
+            orderBy: { timestamp: 'asc' }, // Premier IN (le plus ancien)
+          });
+
+          if (existingIn) {
+            // Vérifier s'il y a un OUT entre l'ancien IN et le nouveau IN
+            const hasOutBetween = await this.prisma.attendance.findFirst({
+              where: {
+                tenantId,
+                employeeId: employee.id,
+                type: 'OUT',
+                timestamp: {
+                  gt: existingIn.timestamp,
+                  lt: punchTime,
+                },
+                OR: [
+                  { anomalyType: null },
+                  { anomalyType: { notIn: ['DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
+                ],
+              },
+            });
+
+            if (!hasOutBetween) {
+              // Pas de OUT entre les deux IN → le NOUVEAU IN est un DOUBLE_IN
+              // On garde le PREMIER IN comme valide (heure d'arrivée réelle)
+              isDoubleIn = true;
+              firstInTime = existingIn.timestamp;
+              console.log(`   📝 Nouveau pointage sera marqué comme DOUBLE_IN (première entrée: ${existingIn.timestamp.toLocaleTimeString('fr-FR')})`);
+            }
+          }
+
+          // RETARD = IN après début shift + tolérance
+          const late = punchMinutes - shiftStartMinutes;
+          if (late > lateThreshold) {
+            anomalyType = 'LATE';
+            lateMinutes = late;
+            anomalyMinutes = late;
+            console.log(`   ⚠️ Anomalie: RETARD de ${late} min`);
+          }
+        }
+
+        if (webhookData.type === 'OUT') {
+          const punchDate = punchTime.toISOString().split('T')[0];
+
+          // MISSING_IN: Vérifier s'il existe une entrée pour cet employé aujourd'hui
+          const existingIn = await this.prisma.attendance.findFirst({
+            where: {
+              tenantId,
+              employeeId: employee.id,
+              type: 'IN',
+              timestamp: {
+                gte: new Date(punchDate + 'T00:00:00Z'),
+                lt: new Date(punchDate + 'T23:59:59Z'),
+              },
+              OR: [
+                { anomalyType: null },
+                { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+              ],
+            },
+          });
+
+          if (!existingIn) {
+            // Pas de IN aujourd'hui → MISSING_IN (à corriger manuellement)
+            isMissingIn = true;
+            console.log(`   ⚠️ MISSING_IN détecté: Aucune entrée trouvée pour aujourd'hui`);
+
+            // ═══════════════════════════════════════════════════════════════
+            // MISSING_OUT: Aussi vérifier s'il y a un IN précédent sans OUT
+            // (cas où l'employé pointe OUT au lieu de IN par erreur)
+            // ═══════════════════════════════════════════════════════════════
+            const threeDaysAgo = new Date(punchTime);
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+            const unclosedPreviousIn = await this.prisma.attendance.findFirst({
+              where: {
+                tenantId,
+                employeeId: employee.id,
+                type: 'IN',
+                timestamp: {
+                  gte: threeDaysAgo,
+                  lt: new Date(punchDate + 'T00:00:00Z'),
+                },
+                OR: [
+                  { anomalyType: null },
+                  { anomalyType: { notIn: ['MISSING_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                ],
+              },
+              orderBy: { timestamp: 'desc' },
+            });
+
+            if (unclosedPreviousIn) {
+              // Vérifier s'il y a un OUT correspondant
+              const hasOutAfter = await this.prisma.attendance.findFirst({
+                where: {
+                  tenantId,
+                  employeeId: employee.id,
+                  type: 'OUT',
+                  timestamp: { gt: unclosedPreviousIn.timestamp },
+                  OR: [
+                    { anomalyType: null },
+                    { anomalyType: { notIn: ['MISSING_IN', 'DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
+                  ],
+                },
+              });
+
+              if (!hasOutAfter) {
+                const inDate = unclosedPreviousIn.timestamp;
+                await this.prisma.attendance.update({
+                  where: { id: unclosedPreviousIn.id },
+                  data: {
+                    hasAnomaly: true,
+                    anomalyType: 'MISSING_OUT',
+                    isCorrected: false,
+                    anomalyNote: `Entrée du ${inDate.toLocaleDateString('fr-FR')} sans sortie. Veuillez ajouter l'heure de sortie manuellement.`,
+                  },
+                });
+                console.log(`   ⚠️ MISSING_OUT détecté: IN du ${inDate.toLocaleDateString('fr-FR')} à ${inDate.toLocaleTimeString('fr-FR')} sans OUT`);
+              }
+            }
+          }
+
+          // Vérifier s'il existe déjà une sortie pour cet employé aujourd'hui (DOUBLE_OUT)
+          const existingOut = await this.prisma.attendance.findFirst({
+            where: {
+              tenantId,
+              employeeId: employee.id,
+              type: 'OUT',
+              timestamp: {
+                gte: new Date(punchDate + 'T00:00:00'),
+                lt: new Date(punchDate + 'T23:59:59'),
+              },
+            },
+            orderBy: { timestamp: 'desc' },
+          });
+
+          if (existingOut) {
+            // Marquer l'ancienne sortie comme DOUBLE_OUT (informatif)
+            await this.prisma.attendance.update({
+              where: { id: existingOut.id },
+              data: {
+                hasAnomaly: true,
+                anomalyType: 'DOUBLE_OUT',
+                isCorrected: true, // Informatif, pas de correction nécessaire
+                correctionNote: `Remplacé par sortie ultérieure à ${punchTime.toLocaleTimeString('fr-FR')}`,
+                overtimeMinutes: null, // Retirer les heures sup de l'ancienne sortie
+              },
+            });
+            console.log(`   📝 Ancienne sortie ${existingOut.id} marquée comme DOUBLE_OUT`);
+
+            // Supprimer l'overtime associé à l'ancienne sortie (sera recréé avec la nouvelle)
+            await this.prisma.overtime.deleteMany({
+              where: {
+                tenantId,
+                employeeId: employee.id,
+                date: new Date(punchDate),
+              },
+            });
+            console.log(`   🗑️ Ancien overtime supprimé pour recalcul`);
+          }
+
+          // Ajuster pour shift nuit si le punch est après minuit
+          let adjustedPunchMinutes = punchMinutes;
+          if (shift.isNightShift && punchMinutes < shiftStartMinutes) {
+            adjustedPunchMinutes += 1440;
+          }
+
+          const diff = shiftEndMinutes - adjustedPunchMinutes;
+
+          if (diff > earlyThreshold) {
+            // Départ anticipé
+            anomalyType = 'EARLY_LEAVE';
+            earlyLeaveMinutes = diff;
+            anomalyMinutes = diff;
+            console.log(`   ⚠️ Anomalie: DÉPART ANTICIPÉ de ${diff} min`);
+          } else if (diff < -overtimeThreshold) {
+            // Heures supplémentaires (PAS une anomalie, juste du travail en plus)
+            // Vérifier d'abord si l'employé est éligible aux heures sup
+            if (employee.isEligibleForOvertime !== false) {
+              overtimeMinutes = Math.abs(diff);
+              console.log(`   ⏱️ HEURES SUP détectées: ${Math.abs(diff)} min`);
+            } else {
+              console.log(`   ℹ️ Heures sup ignorées (employé non éligible): ${Math.abs(diff)} min`);
+            }
+          }
+        }
+      }
+
+      // 6. PERSISTANCE (type = CELUI DU TERMINAL, JAMAIS MODIFIÉ)
+      // Priorité des anomalies: MISSING_IN > DOUBLE_IN > autres
+      let finalAnomalyType = anomalyType;
+      if (isMissingIn) {
+        finalAnomalyType = 'MISSING_IN';
+      } else if (isDoubleIn) {
+        finalAnomalyType = 'DOUBLE_IN';
+      }
+      const finalHasAnomaly = isMissingIn || isDoubleIn || !!anomalyType;
+
+      const attendance = await this.prisma.attendance.create({
+        data: {
+          tenantId,
+          employeeId: employee.id,
+          deviceId: device.id,
+          siteId: device.siteId,
+          timestamp: punchTime,
+          type: webhookData.type,              // ← DU TERMINAL DIRECTEMENT
+          terminalState: webhookData.terminalState, // ← STATE BRUT CONSERVÉ
+          method: webhookData.method || 'FINGERPRINT',
+          source: webhookData.source || 'TERMINAL',
+          detectionMethod: 'TERMINAL_STATE',   // ← TOUJOURS
+          hasAnomaly: finalHasAnomaly,
+          anomalyType: finalAnomalyType,
+          lateMinutes,
+          earlyLeaveMinutes,
+          overtimeMinutes,
+          validationStatus: 'NONE',
+          // MISSING_IN: à corriger manuellement (pas auto-corrigé)
+          ...(isMissingIn && {
+            isCorrected: false,
+            anomalyNote: `Sortie enregistrée sans entrée préalable. Veuillez ajouter l'heure d'entrée manuellement.`,
+          }),
+          // DOUBLE_IN: marquer comme auto-corrigé (informatif)
+          ...(isDoubleIn && !isMissingIn && {
+            isCorrected: true,
+            correctionNote: `Entrée en double - première entrée à ${firstInTime?.toLocaleTimeString('fr-FR')} conservée`,
+          }),
+          rawData: webhookData.rawData || {
+            terminalState: webhookData.terminalState,
+            source: 'TERMINAL_STATE_WEBHOOK',
+            processedAt: new Date().toISOString(),
+          },
+        },
+      });
+
+      console.log(`   ✅ CRÉÉ: ${attendance.id}`);
+      console.log(`   📊 Type: ${attendance.type}, Anomalie: ${finalAnomalyType || 'Aucune'}`);
+
+      // 7. CRÉATION AUTO OVERTIME si applicable
+      if (overtimeMinutes && overtimeMinutes > 0) {
+        await this.createAutoOvertime(tenantId, attendance, overtimeMinutes);
+      }
+
+      const duration = Date.now() - startTime;
+      console.log(`   ⏱️ Traitement: ${duration}ms`);
+      console.log(`═══════════════════════════════════════════════════════════════\n`);
+
+      return {
+        status: 'CREATED',
+        id: attendance.id,
+        type: attendance.type,
+        anomaly: finalAnomalyType || undefined,
+        duration,
+      };
+
+    } catch (error) {
+      console.error(`❌ [TERMINAL-STATE] Erreur:`, error);
+      return {
+        status: 'ERROR',
+        error: error.message || 'Erreur inconnue',
+        duration: Date.now() - startTime,
+      };
+    }
   }
 }

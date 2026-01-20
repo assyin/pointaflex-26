@@ -5,4 +5,7 @@ export declare class WebhookAttendanceDto {
     method: DeviceType;
     timestamp: string;
     rawData?: any;
+    isAmbiguous?: boolean;
+    validationStatus?: 'NONE' | 'PENDING_VALIDATION';
+    ambiguityReason?: string;
 }

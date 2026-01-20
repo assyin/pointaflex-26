@@ -320,7 +320,8 @@ export function useExportAttendance() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `attendance_${new Date().toISOString().split('T')[0]}.${format === 'csv' ? 'csv' : 'xlsx'}`;
+      // Toujours utiliser .csv car le backend génère du CSV (compatible Excel et Google Sheets)
+      link.download = `attendance_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

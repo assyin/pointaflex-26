@@ -94,6 +94,16 @@ export declare class TenantsService {
             overtimePendingNotificationTime: string;
             overtimeAutoApprove: boolean;
             overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+            enableAmbiguousPunchDetection: boolean;
+            ambiguousPunchWindowHours: number;
+            ambiguousPunchEscalationEnabled: boolean;
+            ambiguousPunchEscalationLevel1Hours: number;
+            ambiguousPunchEscalationLevel2Hours: number;
+            ambiguousPunchEscalationLevel3Hours: number;
+            ambiguousPunchEscalationCheckTime: string;
+            ambiguousPunchNotifyManager: boolean;
+            ambiguousPunchNotifyHR: boolean;
+            ambiguousPunchNotifyEmployee: boolean;
         };
     } & {
         id: string;
@@ -203,6 +213,16 @@ export declare class TenantsService {
                 overtimePendingNotificationTime: string;
                 overtimeAutoApprove: boolean;
                 overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+                enableAmbiguousPunchDetection: boolean;
+                ambiguousPunchWindowHours: number;
+                ambiguousPunchEscalationEnabled: boolean;
+                ambiguousPunchEscalationLevel1Hours: number;
+                ambiguousPunchEscalationLevel2Hours: number;
+                ambiguousPunchEscalationLevel3Hours: number;
+                ambiguousPunchEscalationCheckTime: string;
+                ambiguousPunchNotifyManager: boolean;
+                ambiguousPunchNotifyHR: boolean;
+                ambiguousPunchNotifyEmployee: boolean;
             };
             _count: {
                 employees: number;
@@ -322,6 +342,16 @@ export declare class TenantsService {
             overtimePendingNotificationTime: string;
             overtimeAutoApprove: boolean;
             overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+            enableAmbiguousPunchDetection: boolean;
+            ambiguousPunchWindowHours: number;
+            ambiguousPunchEscalationEnabled: boolean;
+            ambiguousPunchEscalationLevel1Hours: number;
+            ambiguousPunchEscalationLevel2Hours: number;
+            ambiguousPunchEscalationLevel3Hours: number;
+            ambiguousPunchEscalationCheckTime: string;
+            ambiguousPunchNotifyManager: boolean;
+            ambiguousPunchNotifyHR: boolean;
+            ambiguousPunchNotifyEmployee: boolean;
         };
         _count: {
             employees: number;
@@ -435,6 +465,16 @@ export declare class TenantsService {
             overtimePendingNotificationTime: string;
             overtimeAutoApprove: boolean;
             overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+            enableAmbiguousPunchDetection: boolean;
+            ambiguousPunchWindowHours: number;
+            ambiguousPunchEscalationEnabled: boolean;
+            ambiguousPunchEscalationLevel1Hours: number;
+            ambiguousPunchEscalationLevel2Hours: number;
+            ambiguousPunchEscalationLevel3Hours: number;
+            ambiguousPunchEscalationCheckTime: string;
+            ambiguousPunchNotifyManager: boolean;
+            ambiguousPunchNotifyHR: boolean;
+            ambiguousPunchNotifyEmployee: boolean;
         };
     } & {
         id: string;
@@ -560,6 +600,16 @@ export declare class TenantsService {
         overtimePendingNotificationTime?: string;
         overtimeAutoApprove?: boolean;
         overtimeAutoApproveMaxHours?: import("@prisma/client/runtime/library").Decimal | null;
+        enableAmbiguousPunchDetection?: boolean;
+        ambiguousPunchWindowHours?: number;
+        ambiguousPunchEscalationEnabled?: boolean;
+        ambiguousPunchEscalationLevel1Hours?: number;
+        ambiguousPunchEscalationLevel2Hours?: number;
+        ambiguousPunchEscalationLevel3Hours?: number;
+        ambiguousPunchEscalationCheckTime?: string;
+        ambiguousPunchNotifyManager?: boolean;
+        ambiguousPunchNotifyHR?: boolean;
+        ambiguousPunchNotifyEmployee?: boolean;
         legalName: any;
         displayName: any;
         country: any;
@@ -657,6 +707,16 @@ export declare class TenantsService {
             overtimePendingNotificationTime: string;
             overtimeAutoApprove: boolean;
             overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+            enableAmbiguousPunchDetection: boolean;
+            ambiguousPunchWindowHours: number;
+            ambiguousPunchEscalationEnabled: boolean;
+            ambiguousPunchEscalationLevel1Hours: number;
+            ambiguousPunchEscalationLevel2Hours: number;
+            ambiguousPunchEscalationLevel3Hours: number;
+            ambiguousPunchEscalationCheckTime: string;
+            ambiguousPunchNotifyManager: boolean;
+            ambiguousPunchNotifyHR: boolean;
+            ambiguousPunchNotifyEmployee: boolean;
         };
         id: string;
         createdAt: Date;
@@ -764,6 +824,16 @@ export declare class TenantsService {
             overtimePendingNotificationTime: string;
             overtimeAutoApprove: boolean;
             overtimeAutoApproveMaxHours: import("@prisma/client/runtime/library").Decimal | null;
+            enableAmbiguousPunchDetection: boolean;
+            ambiguousPunchWindowHours: number;
+            ambiguousPunchEscalationEnabled: boolean;
+            ambiguousPunchEscalationLevel1Hours: number;
+            ambiguousPunchEscalationLevel2Hours: number;
+            ambiguousPunchEscalationLevel3Hours: number;
+            ambiguousPunchEscalationCheckTime: string;
+            ambiguousPunchNotifyManager: boolean;
+            ambiguousPunchNotifyHR: boolean;
+            ambiguousPunchNotifyEmployee: boolean;
         };
     }>;
 }

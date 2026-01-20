@@ -42,4 +42,22 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     __metadata("design:type", Object)
 ], WebhookAttendanceDto.prototype, "rawData", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Indique si le pointage est ambigu et nécessite validation' }),
+    (0, class_validator_1.IsBoolean)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", Boolean)
+], WebhookAttendanceDto.prototype, "isAmbiguous", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Statut de validation', enum: ['NONE', 'PENDING_VALIDATION'] }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], WebhookAttendanceDto.prototype, "validationStatus", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Raison de l\'ambiguïté' }),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsOptional)(),
+    __metadata("design:type", String)
+], WebhookAttendanceDto.prototype, "ambiguityReason", void 0);
 //# sourceMappingURL=webhook-attendance.dto.js.map

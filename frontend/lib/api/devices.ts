@@ -45,6 +45,7 @@ export interface CreateDeviceDto {
   siteId?: string;
   isActive?: boolean;
   generateApiKey?: boolean;
+  heartbeatInterval?: number;
 }
 
 export interface UpdateIPWhitelistDto {

@@ -204,8 +204,8 @@ export declare class OvertimeController {
         updatedAt: Date;
         tenantId: string;
         employeeId: string;
-        hours: import("@prisma/client/runtime/library").Decimal;
         source: string | null;
+        hours: import("@prisma/client/runtime/library").Decimal;
         usedHours: import("@prisma/client/runtime/library").Decimal;
         remainingHours: import("@prisma/client/runtime/library").Decimal;
         expiryDate: Date | null;

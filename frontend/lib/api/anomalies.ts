@@ -89,7 +89,9 @@ export type AnomalyType =
   | 'JOUR_FERIE_TRAVAILLE'
   | 'INSUFFICIENT_REST'
   | 'UNPLANNED_PUNCH'
-  | 'DEBOUNCE_BLOCKED';
+  | 'DEBOUNCE_BLOCKED'
+  | 'PENDING_VALIDATION'
+  | 'REJECTED_PUNCH';
 
 // Types d'anomalies informatives (pas d'action requise)
 export const INFORMATIVE_ANOMALY_TYPES: AnomalyType[] = ['DEBOUNCE_BLOCKED'];
@@ -181,6 +183,8 @@ export const ANOMALY_COLORS: Record<AnomalyType, string> = {
   INSUFFICIENT_REST: '#DC3545',
   UNPLANNED_PUNCH: '#20C997',
   DEBOUNCE_BLOCKED: '#6B7280', // Gris - informatif
+  PENDING_VALIDATION: '#8B5CF6', // Violet - validation requise
+  REJECTED_PUNCH: '#EF4444', // Rouge - pointage rejeté
 };
 
 // Labels français par type d'anomalie
@@ -197,6 +201,8 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   INSUFFICIENT_REST: 'Repos insuffisant',
   UNPLANNED_PUNCH: 'Pointage non planifié',
   DEBOUNCE_BLOCKED: 'Anti-rebond',
+  PENDING_VALIDATION: 'Validation requise',
+  REJECTED_PUNCH: 'Pointage rejeté',
 };
 
 // API Client

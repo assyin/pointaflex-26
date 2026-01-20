@@ -205,10 +205,15 @@ export default function OvertimePage() {
     return parseFloat(String(hours)) || 0;
   };
 
-  // Fonction pour formater les heures avec 2 décimales et virgule
+  // Fonction pour formater les heures en format "XhYYmin" (ex: 2.52 → 2h31min)
   const formatHours = (hours: number | string): string => {
     const numHours = getHoursAsNumber(hours);
-    return numHours.toFixed(2).replace('.', ',') + 'H';
+    const h = Math.floor(numHours);
+    const m = Math.round((numHours - h) * 60);
+    if (h === 0) {
+      return `${m}min`;
+    }
+    return `${h}h${m.toString().padStart(2, '0')}min`;
   };
 
   const handleApproveClick = (record: any) => {

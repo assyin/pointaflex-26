@@ -210,13 +210,17 @@ let DetectAbsencesJob = DetectAbsencesJob_1 = class DetectAbsencesJob {
             const expectedStartTime = this.parseTimeString(schedule.customStartTime || schedule.shift.startTime);
             const absenceTimestamp = new Date(schedule.date);
             absenceTimestamp.setHours(expectedStartTime.hours, expectedStartTime.minutes, 0, 0);
+            const startOfDay = new Date(schedule.date);
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(schedule.date);
+            endOfDay.setHours(23, 59, 59, 999);
             const existingAbsence = await this.prisma.attendance.findFirst({
                 where: {
                     tenantId,
                     employeeId: schedule.employeeId,
                     timestamp: {
-                        gte: new Date(schedule.date.setHours(0, 0, 0, 0)),
-                        lte: new Date(schedule.date.setHours(23, 59, 59, 999)),
+                        gte: startOfDay,
+                        lte: endOfDay,
                     },
                     anomalyType: 'ABSENCE',
                     isGenerated: true,
@@ -224,6 +228,51 @@ let DetectAbsencesJob = DetectAbsencesJob_1 = class DetectAbsencesJob {
                 },
             });
             if (existingAbsence) {
+                return;
+            }
+            const TOLERANCE_MINUTES = 30;
+            const toleranceStart = new Date(absenceTimestamp.getTime() - TOLERANCE_MINUTES * 60 * 1000);
+            const toleranceEnd = new Date(absenceTimestamp.getTime() + TOLERANCE_MINUTES * 60 * 1000);
+            const existingRealPunch = await this.prisma.attendance.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: schedule.employeeId,
+                    timestamp: {
+                        gte: toleranceStart,
+                        lte: toleranceEnd,
+                    },
+                    OR: [
+                        { isGenerated: false },
+                        { isGenerated: null },
+                    ],
+                    NOT: {
+                        anomalyType: 'DEBOUNCE_BLOCKED',
+                    },
+                },
+            });
+            if (existingRealPunch) {
+                this.logger.debug(`Pointage réel trouvé pour ${schedule.employee.firstName} ${schedule.employee.lastName} à ${existingRealPunch.timestamp.toISOString()} - Absence NON créée`);
+                return;
+            }
+            const anyRealPunchToday = await this.prisma.attendance.findFirst({
+                where: {
+                    tenantId,
+                    employeeId: schedule.employeeId,
+                    timestamp: {
+                        gte: startOfDay,
+                        lte: endOfDay,
+                    },
+                    OR: [
+                        { isGenerated: false },
+                        { isGenerated: null },
+                    ],
+                    NOT: {
+                        anomalyType: 'DEBOUNCE_BLOCKED',
+                    },
+                },
+            });
+            if (anyRealPunchToday) {
+                this.logger.debug(`Pointage réel trouvé ailleurs dans la journée pour ${schedule.employee.firstName} ${schedule.employee.lastName} - Absence NON créée`);
                 return;
             }
             await this.prisma.attendance.create({

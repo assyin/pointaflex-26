@@ -1,9 +1,11 @@
 import { AttendanceService } from './attendance.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { WebhookAttendanceDto } from './dto/webhook-attendance.dto';
+import { WebhookStateDto, WebhookStateResponseDto } from './dto/webhook-state.dto';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
 import { AttendanceStatsQueryDto } from './dto/attendance-stats.dto';
 import { BulkCorrectAttendanceDto } from './dto/bulk-correct.dto';
+import { ValidateAttendanceDto, BulkValidateAttendanceDto } from './dto/validate-attendance.dto';
 import { AttendanceType } from '@prisma/client';
 export declare class AttendanceController {
     private readonly attendanceService;
@@ -99,6 +101,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }) | {
         _debounced: boolean;
         _debounceInfo: {
@@ -186,6 +197,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }>;
     handleWebhook(deviceId: string, tenantId: string, apiKey: string, webhookData: WebhookAttendanceDto): Promise<({
         employee: {
@@ -236,6 +256,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }) | {
         status: string;
         reason: string;
@@ -268,6 +297,7 @@ export declare class AttendanceController {
         employee?: undefined;
         timestamp?: undefined;
         type?: undefined;
+        detectionMethod?: undefined;
     } | {
         status: string;
         reason: string;
@@ -281,6 +311,7 @@ export declare class AttendanceController {
         employee?: undefined;
         timestamp?: undefined;
         type?: undefined;
+        detectionMethod?: undefined;
     } | {
         success: boolean;
         attendanceId: string;
@@ -291,6 +322,7 @@ export declare class AttendanceController {
         };
         timestamp: string;
         type: import(".prisma/client").$Enums.AttendanceType;
+        detectionMethod: "ALTERNATION" | "SHIFT_BASED" | "TIME_BASED";
         status?: undefined;
         reason?: undefined;
         message?: undefined;
@@ -299,6 +331,7 @@ export declare class AttendanceController {
         lastPunchType?: undefined;
         configuredTolerance?: undefined;
     }>;
+    handleWebhookWithState(deviceId: string, tenantId: string, apiKey: string, webhookData: WebhookStateDto): Promise<WebhookStateResponseDto>;
     getPunchCount(deviceId: string, tenantId: string, apiKey: string, employeeId: string, date: string, punchTime?: string): Promise<{
         count: number;
         forceType: any;
@@ -315,6 +348,19 @@ export declare class AttendanceController {
             isNightShiftEmployee: boolean;
             inHour: number;
         };
+    }>;
+    determinePunchType(deviceId: string, tenantId: string, apiKey: string, body: {
+        employeeId: string;
+        punchTime: string;
+    }): Promise<{
+        type: "IN" | "OUT";
+        method: "ALTERNATION" | "SHIFT_BASED" | "TIME_BASED";
+        confidence: "HIGH" | "MEDIUM" | "LOW";
+        reason: string;
+        debug?: any;
+        isAmbiguous?: boolean;
+        validationStatus?: "NONE" | "PENDING_VALIDATION";
+        ambiguityReason?: string;
     }>;
     handlePushFromTerminal(body: any, headers: any): Promise<({
         employee: {
@@ -365,6 +411,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }) | {
         status: string;
         reason: string;
@@ -388,6 +443,7 @@ export declare class AttendanceController {
     private mapVerifyMode;
     findAll(user: any, tenantId: string, employeeId?: string, siteId?: string, startDate?: string, endDate?: string, hasAnomaly?: string, type?: AttendanceType): Promise<{
         hoursWorked: number;
+        effectiveShift: any;
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -398,12 +454,18 @@ export declare class AttendanceController {
             lastName: string;
             matricule: string;
             photo: string;
+            siteId: string;
+            departmentId: string;
             currentShift: {
                 id: string;
                 code: string;
                 name: string;
                 startTime: string;
                 endTime: string;
+            };
+            department: {
+                id: string;
+                name: string;
             };
         };
         siteId: string;
@@ -445,6 +507,7 @@ export declare class AttendanceController {
     }[] | {
         data: {
             hoursWorked: number;
+            effectiveShift: any;
             id: string;
             createdAt: Date;
             updatedAt: Date;
@@ -455,12 +518,18 @@ export declare class AttendanceController {
                 lastName: string;
                 matricule: string;
                 photo: string;
+                siteId: string;
+                departmentId: string;
                 currentShift: {
                     id: string;
                     code: string;
                     name: string;
                     startTime: string;
                     endTime: string;
+                };
+                department: {
+                    id: string;
+                    name: string;
                 };
             };
             siteId: string;
@@ -572,6 +641,15 @@ export declare class AttendanceController {
             rawData: import("@prisma/client/runtime/library").JsonValue | null;
             generatedBy: string | null;
             isGenerated: boolean;
+            isAmbiguous: boolean;
+            ambiguityReason: string | null;
+            validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+            validatedBy: string | null;
+            validatedAt: Date | null;
+            escalationLevel: number;
+            terminalState: number | null;
+            source: string;
+            detectionMethod: string | null;
         })[];
         meta: {
             total: number;
@@ -690,6 +768,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }>;
     delete(user: any, tenantId: string, id: string): Promise<{
         success: boolean;
@@ -734,6 +821,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }>;
     approveCorrection(user: any, tenantId: string, id: string, body: {
         approved: boolean;
@@ -776,6 +872,15 @@ export declare class AttendanceController {
         rawData: import("@prisma/client/runtime/library").JsonValue | null;
         generatedBy: string | null;
         isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
     }>;
     getPresenceRate(tenantId: string, query: AttendanceStatsQueryDto): Promise<{
         presenceRate: number;
@@ -835,6 +940,7 @@ export declare class AttendanceController {
         correctedBy: string;
         correctedAt: string;
     }[]>;
+    exportAttendance(tenantId: string, user: any, format: 'csv' | 'excel', startDate?: string, endDate?: string, employeeId?: string, departmentId?: string, siteId?: string, type?: string, res?: any): Promise<void>;
     getAnomaliesDashboard(user: any, tenantId: string, startDate: string, endDate: string): Promise<{
         summary: {
             total: number;
@@ -897,4 +1003,140 @@ export declare class AttendanceController {
         anomalyCount: number;
         recommendation: string;
     }[]>;
+    getPendingValidations(tenantId: string, userId: string, employeeId?: string, dateFrom?: string, dateTo?: string, limit?: string): Promise<({
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+            currentShift: {
+                name: string;
+                startTime: string;
+                endTime: string;
+                isNightShift: boolean;
+            };
+        };
+        site: {
+            name: string;
+        };
+        device: {
+            name: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        siteId: string | null;
+        latitude: import("@prisma/client/runtime/library").Decimal | null;
+        longitude: import("@prisma/client/runtime/library").Decimal | null;
+        employeeId: string;
+        deviceId: string | null;
+        timestamp: Date;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        method: import(".prisma/client").$Enums.DeviceType;
+        hasAnomaly: boolean;
+        anomalyType: string | null;
+        anomalyNote: string | null;
+        isCorrected: boolean;
+        correctedBy: string | null;
+        correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        generatedBy: string | null;
+        isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
+    })[]>;
+    validatePunch(tenantId: string, userId: string, dto: ValidateAttendanceDto): Promise<{
+        success: boolean;
+        attendance: {
+            employee: {
+                firstName: string;
+                lastName: string;
+                matricule: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            siteId: string | null;
+            latitude: import("@prisma/client/runtime/library").Decimal | null;
+            longitude: import("@prisma/client/runtime/library").Decimal | null;
+            employeeId: string;
+            deviceId: string | null;
+            timestamp: Date;
+            type: import(".prisma/client").$Enums.AttendanceType;
+            method: import(".prisma/client").$Enums.DeviceType;
+            hasAnomaly: boolean;
+            anomalyType: string | null;
+            anomalyNote: string | null;
+            isCorrected: boolean;
+            correctedBy: string | null;
+            correctedAt: Date | null;
+            correctionNote: string | null;
+            hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+            lateMinutes: number | null;
+            earlyLeaveMinutes: number | null;
+            overtimeMinutes: number | null;
+            needsApproval: boolean;
+            approvalStatus: string | null;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            rawData: import("@prisma/client/runtime/library").JsonValue | null;
+            generatedBy: string | null;
+            isGenerated: boolean;
+            isAmbiguous: boolean;
+            ambiguityReason: string | null;
+            validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+            validatedBy: string | null;
+            validatedAt: Date | null;
+            escalationLevel: number;
+            terminalState: number | null;
+            source: string;
+            detectionMethod: string | null;
+        };
+        action: import("./dto/validate-attendance.dto").ValidationAction;
+        message: string;
+    }>;
+    bulkValidatePunches(tenantId: string, userId: string, dto: BulkValidateAttendanceDto): Promise<{
+        success: boolean;
+        validated: number;
+        errors: number;
+        results: any[];
+        errorDetails: any[];
+    }>;
+    runEscalation(tenantId: string): Promise<{
+        processed: number;
+        escalated: number;
+        escalations: any[];
+        message: string;
+        settings?: undefined;
+    } | {
+        processed: number;
+        escalated: number;
+        escalations: any[];
+        settings: {
+            level1Hours: number;
+            level2Hours: number;
+            level3Hours: number;
+        };
+        message?: undefined;
+    }>;
 }

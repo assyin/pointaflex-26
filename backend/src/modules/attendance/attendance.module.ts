@@ -13,6 +13,7 @@ import { LateManagerNotificationJob } from './jobs/late-manager-notification.job
 import { AbsenceManagerNotificationJob } from './jobs/absence-manager-notification.job';
 import { AbsencePartialManagerNotificationJob } from './jobs/absence-partial-manager-notification.job';
 import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical-manager-notification.job';
+import { PendingValidationEscalationJob } from './jobs/pending-validation-escalation.job';
 
 @Module({
   imports: [PrismaModule, ScheduleModule, MailModule],
@@ -28,6 +29,7 @@ import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical
     AbsenceManagerNotificationJob,
     AbsencePartialManagerNotificationJob,
     AbsenceTechnicalManagerNotificationJob,
+    PendingValidationEscalationJob,
   ],
   exports: [AttendanceService],
 })

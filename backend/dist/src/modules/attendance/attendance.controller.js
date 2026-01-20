@@ -18,11 +18,14 @@ const swagger_1 = require("@nestjs/swagger");
 const attendance_service_1 = require("./attendance.service");
 const create_attendance_dto_1 = require("./dto/create-attendance.dto");
 const webhook_attendance_dto_1 = require("./dto/webhook-attendance.dto");
+const webhook_state_dto_1 = require("./dto/webhook-state.dto");
 const correct_attendance_dto_1 = require("./dto/correct-attendance.dto");
 const attendance_stats_dto_1 = require("./dto/attendance-stats.dto");
 const bulk_correct_dto_1 = require("./dto/bulk-correct.dto");
+const validate_attendance_dto_1 = require("./dto/validate-attendance.dto");
 const jwt_auth_guard_1 = require("../../common/guards/jwt-auth.guard");
 const roles_guard_1 = require("../../common/guards/roles.guard");
+const roles_decorator_1 = require("../../common/decorators/roles.decorator");
 const permissions_decorator_1 = require("../../common/decorators/permissions.decorator");
 const public_decorator_1 = require("../../common/decorators/public.decorator");
 const current_user_decorator_1 = require("../../common/decorators/current-user.decorator");
@@ -47,11 +50,23 @@ let AttendanceController = class AttendanceController {
         }
         return this.attendanceService.handleWebhookFast(tenantId, deviceId, webhookData, apiKey);
     }
+    async handleWebhookWithState(deviceId, tenantId, apiKey, webhookData) {
+        if (!deviceId || !tenantId) {
+            throw new common_1.UnauthorizedException('Missing device credentials');
+        }
+        return this.attendanceService.processTerminalPunch(tenantId, deviceId, webhookData, apiKey);
+    }
     async getPunchCount(deviceId, tenantId, apiKey, employeeId, date, punchTime) {
         if (!deviceId || !tenantId) {
             throw new common_1.UnauthorizedException('Missing device credentials');
         }
         return this.attendanceService.getPunchCountForDay(tenantId, employeeId, date, deviceId, apiKey, punchTime);
+    }
+    async determinePunchType(deviceId, tenantId, apiKey, body) {
+        if (!deviceId || !tenantId) {
+            throw new common_1.UnauthorizedException('Missing device credentials');
+        }
+        return this.attendanceService.determinePunchType(tenantId, body.employeeId, body.punchTime, deviceId, apiKey);
     }
     async handlePushFromTerminal(body, headers) {
         console.log('📥 [Push URL] Données reçues du terminal:', JSON.stringify(body, null, 2));
@@ -73,10 +88,11 @@ let AttendanceController = class AttendanceController {
             if (body.table === 'attendance' && body.data) {
                 attendanceData = body.data;
             }
+            const stateValue = attendanceData.state ?? attendanceData.status ?? attendanceData.checktype ?? attendanceData.type;
             const webhookData = {
                 employeeId: attendanceData.pin || attendanceData.userId || attendanceData.cardno || attendanceData.userCode || attendanceData.user_id,
                 timestamp: attendanceData.time || attendanceData.checktime || attendanceData.timestamp || new Date().toISOString(),
-                type: this.mapAttendanceType(attendanceData.state || attendanceData.status || attendanceData.checktype || attendanceData.type),
+                type: this.mapAttendanceType(stateValue),
                 method: this.mapVerifyMode(attendanceData.verifymode || attendanceData.verify || attendanceData.verifyMode || attendanceData.verify_mode),
                 rawData: body,
             };
@@ -197,6 +213,21 @@ let AttendanceController = class AttendanceController {
     exportAnomalies(tenantId, format, startDate, endDate, employeeId, anomalyType) {
         return this.attendanceService.exportAnomalies(tenantId, { startDate, endDate, employeeId, anomalyType }, format || 'csv');
     }
+    async exportAttendance(tenantId, user, format, startDate, endDate, employeeId, departmentId, siteId, type, res) {
+        const result = await this.attendanceService.exportAttendance(tenantId, {
+            startDate,
+            endDate,
+            employeeId,
+            departmentId,
+            siteId,
+            type,
+        }, format || 'csv', user.userId, user.permissions || []);
+        const filename = `attendance_${startDate || 'all'}_${endDate || 'all'}.${format === 'csv' ? 'csv' : 'xlsx'}`;
+        const contentType = format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(result);
+    }
     getAnomaliesDashboard(user, tenantId, startDate, endDate) {
         return this.attendanceService.getAnomaliesDashboard(tenantId, new Date(startDate), new Date(endDate), user.userId, user.permissions || []);
     }
@@ -213,6 +244,23 @@ let AttendanceController = class AttendanceController {
     }
     getHighAnomalyRateEmployees(tenantId, threshold, days) {
         return this.attendanceService.getHighAnomalyRateEmployees(tenantId, threshold ? parseInt(threshold, 10) : 5, days ? parseInt(days, 10) : 30);
+    }
+    getPendingValidations(tenantId, userId, employeeId, dateFrom, dateTo, limit) {
+        return this.attendanceService.getPendingValidations(tenantId, userId, {
+            employeeId,
+            dateFrom,
+            dateTo,
+            limit: limit ? parseInt(limit, 10) : undefined,
+        });
+    }
+    validatePunch(tenantId, userId, dto) {
+        return this.attendanceService.validateAmbiguousPunch(tenantId, userId, dto);
+    }
+    bulkValidatePunches(tenantId, userId, dto) {
+        return this.attendanceService.bulkValidateAmbiguousPunches(tenantId, userId, dto.validations);
+    }
+    runEscalation(tenantId) {
+        return this.attendanceService.escalatePendingValidations(tenantId);
     }
 };
 exports.AttendanceController = AttendanceController;
@@ -263,6 +311,40 @@ __decorate([
     __metadata("design:returntype", Promise)
 ], AttendanceController.prototype, "handleWebhookFast", null);
 __decorate([
+    (0, common_1.Post)('webhook/state'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Webhook avec STATE du terminal - SOLUTION FINALE',
+        description: `
+      Endpoint RECOMMANDÉ pour les terminaux ZKTeco avec zkteco-js.
+      Le type IN/OUT est fourni directement par le terminal via le champ state.
+      AUCUNE déduction n'est effectuée côté backend.
+
+      Mapping STATE → TYPE:
+      - state 0 = IN (Check-In)
+      - state 1 = OUT (Check-Out)
+      - state 2 = OUT (Break-Out)
+      - state 3 = IN (Break-In)
+      - state 4 = IN (OT-In)
+      - state 5 = OUT (OT-Out)
+    `,
+    }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Device-ID', required: true, description: 'Device unique ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: false, description: 'Device API Key' }),
+    (0, swagger_1.ApiResponse)({ status: 201, description: 'Attendance recorded with terminal state', type: webhook_state_dto_1.WebhookStateResponseDto }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid data' }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Employee not found' }),
+    (0, swagger_1.ApiResponse)({ status: 409, description: 'Duplicate punch' }),
+    __param(0, (0, common_1.Headers)('x-device-id')),
+    __param(1, (0, common_1.Headers)('x-tenant-id')),
+    __param(2, (0, common_1.Headers)('x-api-key')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, webhook_state_dto_1.WebhookStateDto]),
+    __metadata("design:returntype", Promise)
+], AttendanceController.prototype, "handleWebhookWithState", null);
+__decorate([
     (0, common_1.Get)('count'),
     (0, public_decorator_1.Public)(),
     (0, swagger_1.ApiOperation)({ summary: 'Get punch count for an employee on a specific date (for IN/OUT detection)' }),
@@ -283,6 +365,42 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String, String, String, String]),
     __metadata("design:returntype", Promise)
 ], AttendanceController.prototype, "getPunchCount", null);
+__decorate([
+    (0, common_1.Post)('determine-type'),
+    (0, public_decorator_1.Public)(),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Determine punch type (IN/OUT) intelligently',
+        description: `
+      Algorithme professionnel de détection IN/OUT avec 3 niveaux de priorité:
+      1. ALTERNATION: Basé sur le dernier pointage valide
+      2. SHIFT-BASED: Basé sur le shift assigné à l'employé
+      3. TIME-BASED: Fallback basé sur l'heure du jour
+    `
+    }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Device-ID', required: true, description: 'Device unique ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-Tenant-ID', required: true, description: 'Tenant ID' }),
+    (0, swagger_1.ApiHeader)({ name: 'X-API-Key', required: false, description: 'Device API Key' }),
+    (0, swagger_1.ApiResponse)({
+        status: 200,
+        description: 'Returns determined punch type with reasoning',
+        schema: {
+            properties: {
+                type: { type: 'string', enum: ['IN', 'OUT'] },
+                method: { type: 'string', enum: ['ALTERNATION', 'SHIFT_BASED', 'TIME_BASED'] },
+                confidence: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+                reason: { type: 'string' },
+                debug: { type: 'object' }
+            }
+        }
+    }),
+    __param(0, (0, common_1.Headers)('x-device-id')),
+    __param(1, (0, common_1.Headers)('x-tenant-id')),
+    __param(2, (0, common_1.Headers)('x-api-key')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, Object]),
+    __metadata("design:returntype", Promise)
+], AttendanceController.prototype, "determinePunchType", null);
 __decorate([
     (0, common_1.Post)('push'),
     (0, public_decorator_1.Public)(),
@@ -511,6 +629,28 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "exportAnomalies", null);
 __decorate([
+    (0, common_1.Get)('export/:format'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.export', 'attendance.view_all'),
+    (0, swagger_1.ApiOperation)({ summary: 'Export attendance data (CSV/Excel)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Attendance export file' }),
+    (0, common_1.Header)('Content-Type', 'application/octet-stream'),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)()),
+    __param(2, (0, common_1.Param)('format')),
+    __param(3, (0, common_1.Query)('startDate')),
+    __param(4, (0, common_1.Query)('endDate')),
+    __param(5, (0, common_1.Query)('employeeId')),
+    __param(6, (0, common_1.Query)('departmentId')),
+    __param(7, (0, common_1.Query)('siteId')),
+    __param(8, (0, common_1.Query)('type')),
+    __param(9, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object, String, String, String, String, String, String, String, Object]),
+    __metadata("design:returntype", Promise)
+], AttendanceController.prototype, "exportAttendance", null);
+__decorate([
     (0, common_1.Get)('dashboard/anomalies'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     (0, swagger_1.ApiBearerAuth)(),
@@ -571,6 +711,82 @@ __decorate([
     __metadata("design:paramtypes", [String, String, String]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "getHighAnomalyRateEmployees", null);
+__decorate([
+    (0, common_1.Get)('pending-validations'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, roles_decorator_1.Roles)(client_1.LegacyRole.SUPER_ADMIN, client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Get pending validation punches',
+        description: 'Récupère les pointages ambigus (shifts de nuit) en attente de validation',
+    }),
+    (0, swagger_1.ApiQuery)({ name: 'employeeId', required: false, description: 'Filter by employee ID' }),
+    (0, swagger_1.ApiQuery)({ name: 'dateFrom', required: false, description: 'Start date (YYYY-MM-DD)' }),
+    (0, swagger_1.ApiQuery)({ name: 'dateTo', required: false, description: 'End date (YYYY-MM-DD)' }),
+    (0, swagger_1.ApiQuery)({ name: 'limit', required: false, description: 'Max results (default 50)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'List of pending validation punches' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(2, (0, common_1.Query)('employeeId')),
+    __param(3, (0, common_1.Query)('dateFrom')),
+    __param(4, (0, common_1.Query)('dateTo')),
+    __param(5, (0, common_1.Query)('limit')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String, String, String, String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "getPendingValidations", null);
+__decorate([
+    (0, common_1.Post)('validate'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, roles_decorator_1.Roles)(client_1.LegacyRole.SUPER_ADMIN, client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Validate an ambiguous punch',
+        description: 'Valide, rejette ou corrige un pointage ambigu (shift de nuit)',
+    }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Punch validated successfully' }),
+    (0, swagger_1.ApiResponse)({ status: 400, description: 'Invalid validation request' }),
+    (0, swagger_1.ApiResponse)({ status: 403, description: 'Not authorized to validate this punch' }),
+    (0, swagger_1.ApiResponse)({ status: 404, description: 'Punch not found' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, validate_attendance_dto_1.ValidateAttendanceDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "validatePunch", null);
+__decorate([
+    (0, common_1.Post)('validate/bulk'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, roles_decorator_1.Roles)(client_1.LegacyRole.SUPER_ADMIN, client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Bulk validate ambiguous punches',
+        description: 'Validation en masse de plusieurs pointages ambigus',
+    }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Punches validated' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(1, (0, current_user_decorator_1.CurrentUser)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, validate_attendance_dto_1.BulkValidateAttendanceDto]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "bulkValidatePunches", null);
+__decorate([
+    (0, common_1.Post)('escalate'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, roles_decorator_1.Roles)(client_1.LegacyRole.SUPER_ADMIN, client_1.LegacyRole.ADMIN_RH),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Run escalation process',
+        description: 'Escalade les pointages non validés selon les délais (24h→48h→72h)',
+    }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Escalation process completed' }),
+    __param(0, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "runEscalation", null);
 exports.AttendanceController = AttendanceController = __decorate([
     (0, swagger_1.ApiTags)('Attendance'),
     (0, common_1.Controller)('attendance'),

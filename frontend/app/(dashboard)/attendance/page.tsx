@@ -14,6 +14,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import Link from 'next/link';
 import {
   Search,
   Download,
@@ -23,17 +24,14 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  Edit,
   Filter,
   Plus,
-  UserPlus,
   Trash2,
 } from 'lucide-react';
 import {
   useAttendance,
   useAttendanceAnomalies,
   useExportAttendance,
-  useCorrectAttendance,
   useApproveAttendanceCorrection,
   useCreateAttendance,
   useDeleteAttendance,
@@ -42,15 +40,26 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEmployees } from '@/lib/hooks/useEmployees';
 import { useSites } from '@/lib/hooks/useSites';
 import { useDepartments } from '@/lib/hooks/useDepartments';
+import { useShifts } from '@/lib/hooks/useShifts';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
-import { ChevronDown, ChevronUp, X, Calendar } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Calendar, ArrowUpDown, Users } from 'lucide-react';
 
 // Helper pour formater les heures décimales en format "Xh Ymin"
 const formatHoursToHM = (decimalHours: number): string => {
   const hours = Math.floor(decimalHours);
   const minutes = Math.round((decimalHours - hours) * 60);
+  return `${hours}h${minutes.toString().padStart(2, '0')}min`;
+};
+
+// Helper pour formater les minutes en format "XhYYmin" (ex: 151min → 2h31min)
+const formatMinutesToHM = (totalMinutes: number): string => {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) {
+    return `${minutes}min`;
+  }
   return `${hours}h${minutes.toString().padStart(2, '0')}min`;
 };
 
@@ -64,10 +73,6 @@ export default function AttendancePage() {
     format(new Date(), 'yyyy-MM-dd')
   );
   const [showAnomaliesOnly, setShowAnomaliesOnly] = useState(false);
-  const [selectedRecord, setSelectedRecord] = useState<any>(null);
-  const [showCorrectionModal, setShowCorrectionModal] = useState(false);
-  const [correctionNote, setCorrectionNote] = useState('');
-  const [correctedTimestamp, setCorrectedTimestamp] = useState('');
   
   // Modal création pointage manuel
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -88,8 +93,10 @@ export default function AttendancePage() {
   const [selectedAnomalyType, setSelectedAnomalyType] = useState<string>('all');
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedShift, setSelectedShift] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'timestamp' | 'matricule'>('timestamp');
+  const [groupByMatricule, setGroupByMatricule] = useState<boolean>(false);
 
-  const correctMutation = useCorrectAttendance();
   const approveMutation = useApproveAttendanceCorrection();
   const createMutation = useCreateAttendance();
   const deleteMutation = useDeleteAttendance();
@@ -99,6 +106,7 @@ export default function AttendancePage() {
   const { data: employeesData, isLoading: isLoadingEmployees } = useEmployees({ isActive: true });
   const { data: sitesData } = useSites();
   const { data: departmentsData } = useDepartments();
+  const { data: shiftsData } = useShifts();
   
   // Filtrer les employés selon les permissions (managers voient seulement leurs employés)
   const availableEmployees = useMemo(() => {
@@ -279,55 +287,36 @@ export default function AttendancePage() {
   const getAnomalyTypeBadge = (type?: string) => {
     if (!type) return null;
     const anomalyLabels: Record<string, { label: string; color: string }> = {
-      DOUBLE_IN: { label: 'Double entrée', color: 'bg-red-100 text-red-800' },
+      // Anomalies informatives (auto-corrigées)
+      DOUBLE_IN: { label: 'Double entrée', color: 'bg-sky-100 text-sky-700' },
+      DOUBLE_OUT: { label: 'Double sortie', color: 'bg-sky-100 text-sky-700' },
+      DEBOUNCE_BLOCKED: { label: 'Anti-rebond', color: 'bg-sky-100 text-sky-700' },
+      // Anomalies de séquence
       MISSING_IN: { label: 'Sortie sans entrée', color: 'bg-orange-100 text-orange-800' },
       MISSING_OUT: { label: 'Entrée sans sortie', color: 'bg-yellow-100 text-yellow-800' },
+      // Anomalies de temps
       LATE: { label: 'Retard', color: 'bg-purple-100 text-purple-800' },
       EARLY_LEAVE: { label: 'Départ anticipé', color: 'bg-pink-100 text-pink-800' },
+      OVERTIME: { label: 'Heures supplémentaires', color: 'bg-green-100 text-green-800' },
+      // Absences
       ABSENCE: { label: 'Absence', color: 'bg-red-100 text-red-800' },
       ABSENCE_PARTIAL: { label: 'Absence partielle', color: 'bg-orange-100 text-orange-800' },
       ABSENCE_TECHNICAL: { label: 'Absence technique', color: 'bg-blue-100 text-blue-800' },
       UNPLANNED_PUNCH: { label: 'Pointage non planifié', color: 'bg-slate-100 text-slate-800' },
       INSUFFICIENT_REST: { label: 'Repos insuffisant', color: 'bg-amber-100 text-amber-800' },
+      // Jours spéciaux
       JOUR_FERIE_TRAVAILLE: { label: 'Jour férié travaillé', color: 'bg-blue-100 text-blue-800' },
+      HOLIDAY_WORKED: { label: 'Jour férié travaillé', color: 'bg-blue-100 text-blue-800' },
       WEEKEND_WORK_UNAUTHORIZED: { label: 'Travail weekend non autorisé', color: 'bg-red-100 text-red-800' },
+      // Congés
       LEAVE_CONFLICT: { label: 'Pointage pendant congé', color: 'bg-red-100 text-red-800' },
+      LEAVE_BUT_PRESENT: { label: 'Présent malgré congé', color: 'bg-orange-100 text-orange-800' },
     };
     const anomalyInfo = anomalyLabels[type] || { label: type, color: 'bg-gray-100 text-gray-800' };
     return (
       <Badge className={`${anomalyInfo.color} text-xs`}>
         {anomalyInfo.label}
       </Badge>
-    );
-  };
-
-  const handleCorrect = (record: any) => {
-    setSelectedRecord(record);
-    setCorrectionNote('');
-    setCorrectedTimestamp(format(new Date(record.timestamp), "yyyy-MM-dd'T'HH:mm"));
-    setShowCorrectionModal(true);
-  };
-
-  const handleSubmitCorrection = () => {
-    if (!selectedRecord || !correctionNote.trim() || !user?.id) return;
-
-    correctMutation.mutate(
-      {
-        id: selectedRecord.id,
-        data: {
-          correctionNote: correctionNote.trim(),
-          correctedBy: user.id,
-          correctedTimestamp: correctedTimestamp || undefined,
-        },
-      },
-      {
-        onSuccess: () => {
-          setShowCorrectionModal(false);
-          setSelectedRecord(null);
-          setCorrectionNote('');
-          setCorrectedTimestamp('');
-        },
-      }
     );
   };
 
@@ -395,6 +384,12 @@ export default function AttendancePage() {
         selectedDepartment === 'all' ||
         record.employee?.departmentId === selectedDepartment;
 
+      // Filtre par site (côté client - vérifie aussi employee.siteId)
+      const matchesSite =
+        selectedSite === 'all' ||
+        record.siteId === selectedSite ||
+        record.employee?.siteId === selectedSite;
+
       // Filtre par type d'anomalie (côté client)
       // Si un type spécifique est sélectionné, ne montrer QUE les records avec ce type d'anomalie
       const matchesAnomalyType =
@@ -415,9 +410,41 @@ export default function AttendancePage() {
         (selectedStatus === 'CORRECTED' && record.isCorrected) ||
         (selectedStatus === 'PENDING_APPROVAL' && record.approvalStatus === 'PENDING_APPROVAL');
 
-      return matchesSearch && matchesDepartment && matchesAnomalyType && matchesSource && matchesStatus;
+      // Filtre par shift (côté client) - FIX 17/01/2026: Utiliser effectiveShift
+      const matchesShift =
+        selectedShift === 'all' ||
+        record.effectiveShift?.id === selectedShift ||
+        record.employee?.currentShift?.id === selectedShift;
+
+      return matchesSearch && matchesDepartment && matchesSite && matchesAnomalyType && matchesSource && matchesStatus && matchesShift;
     });
-  }, [attendanceData, searchQuery, selectedDepartment, selectedAnomalyType, selectedSource, selectedStatus]);
+  }, [attendanceData, searchQuery, selectedDepartment, selectedSite, selectedAnomalyType, selectedSource, selectedStatus, selectedShift]);
+
+  // Tri et groupement des records
+  const sortedRecords = useMemo(() => {
+    if (!filteredRecords.length) return [];
+
+    const records = [...filteredRecords];
+
+    if (groupByMatricule || sortBy === 'matricule') {
+      // Trier par matricule puis par timestamp
+      return records.sort((a: any, b: any) => {
+        const matriculeA = a.employee?.matricule || '';
+        const matriculeB = b.employee?.matricule || '';
+        const matriculeCompare = matriculeA.localeCompare(matriculeB);
+
+        if (matriculeCompare !== 0) return matriculeCompare;
+
+        // Si même matricule, trier par timestamp
+        return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      });
+    } else {
+      // Tri par timestamp (par défaut)
+      return records.sort((a: any, b: any) =>
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+    }
+  }, [filteredRecords, sortBy, groupByMatricule]);
 
   const resetFilters = () => {
     setSelectedEmployee('all');
@@ -427,6 +454,9 @@ export default function AttendancePage() {
     setSelectedAnomalyType('all');
     setSelectedSource('all');
     setSelectedStatus('all');
+    setSelectedShift('all');
+    setSortBy('timestamp');
+    setGroupByMatricule(false);
     setSearchQuery('');
     setShowAnomaliesOnly(false);
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -436,8 +466,8 @@ export default function AttendancePage() {
 
   const hasActiveFilters = selectedEmployee !== 'all' || selectedSite !== 'all' ||
     selectedDepartment !== 'all' || selectedType !== 'all' || selectedAnomalyType !== 'all' ||
-    selectedSource !== 'all' || selectedStatus !== 'all' || searchQuery !== '' ||
-    showAnomaliesOnly;
+    selectedSource !== 'all' || selectedStatus !== 'all' || selectedShift !== 'all' ||
+    sortBy !== 'timestamp' || groupByMatricule || searchQuery !== '' || showAnomaliesOnly;
 
   return (
     <ProtectedRoute permissions={['attendance.view_all', 'attendance.view_own', 'attendance.view_team']}>
@@ -565,6 +595,21 @@ export default function AttendancePage() {
                   </Button>
                 </PermissionGate>
 
+                <Button
+                  variant={groupByMatricule ? 'primary' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setGroupByMatricule(!groupByMatricule);
+                    if (!groupByMatricule) {
+                      setSortBy('matricule');
+                    }
+                  }}
+                  title="Grouper les pointages par matricule"
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Grouper par matricule
+                </Button>
+
                 <div className="flex gap-2 ml-auto">
                   <PermissionGate permissions={['attendance.create']}>
                     <Button
@@ -584,18 +629,7 @@ export default function AttendancePage() {
                       disabled={exportMutation.isPending}
                     >
                       <Download className="h-4 w-4 mr-2" />
-                      CSV
-                    </Button>
-                  </PermissionGate>
-                  <PermissionGate permissions={['attendance.export', 'attendance.view_all']}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleExport('excel')}
-                      disabled={exportMutation.isPending}
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Excel
+                      {exportMutation.isPending ? 'Export...' : 'Export CSV'}
                     </Button>
                   </PermissionGate>
                   <Button
@@ -757,6 +791,23 @@ export default function AttendancePage() {
                         </SelectContent>
                       </Select>
                     </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="shift-filter">Shift</Label>
+                      <Select value={selectedShift} onValueChange={setSelectedShift}>
+                        <SelectTrigger id="shift-filter">
+                          <SelectValue placeholder="Tous les shifts" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Tous les shifts</SelectItem>
+                          {(Array.isArray(shiftsData) ? shiftsData : shiftsData?.data || []).map((shift: any) => (
+                            <SelectItem key={shift.id} value={shift.id}>
+                              {shift.name} ({shift.startTime} - {shift.endTime})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
 
                   <div className="flex gap-2 mt-4">
@@ -907,6 +958,7 @@ export default function AttendancePage() {
                   <thead>
                     <tr className="bg-table-header text-left text-sm font-semibold text-text-primary border-b-2 border-table-border">
                       <th className="p-4">Employé</th>
+                      <th className="p-4">Shift</th>
                       <th className="p-4">Type</th>
                       <th className="p-4">Date & Heure</th>
                       <th className="p-4">Métriques</th>
@@ -917,8 +969,16 @@ export default function AttendancePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-table-border">
-                    {filteredRecords.map((record: any) => (
-                      <tr key={record.id} className="hover:bg-table-hover transition-colors">
+                    {sortedRecords.map((record: any, index: number) => {
+                      // Déterminer si c'est un nouveau groupe de matricule
+                      const isNewGroup = groupByMatricule && index > 0 &&
+                        record.employee?.matricule !== sortedRecords[index - 1]?.employee?.matricule;
+
+                      return (
+                      <tr
+                        key={record.id}
+                        className={`hover:bg-table-hover transition-colors ${isNewGroup ? 'border-t-4 border-primary/30' : ''}`}
+                      >
                         <td className="p-4">
                           <div className="flex items-center gap-3">
                             <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -935,6 +995,35 @@ export default function AttendancePage() {
                               </div>
                             </div>
                           </div>
+                        </td>
+                        <td className="p-4">
+                          {/* FIX 17/01/2026: Utiliser effectiveShift (planning personnalisé) au lieu de currentShift (défaut) */}
+                          {record.effectiveShift ? (
+                            <div className="text-sm">
+                              <div className="font-medium text-primary">
+                                {record.effectiveShift.name}
+                              </div>
+                              <div className="text-xs text-text-secondary">
+                                {record.effectiveShift.startTime} - {record.effectiveShift.endTime}
+                              </div>
+                              {record.effectiveShift.code && (
+                                <div className="text-xs text-text-secondary font-mono">
+                                  ({record.effectiveShift.code})
+                                </div>
+                              )}
+                            </div>
+                          ) : record.employee?.currentShift ? (
+                            <div className="text-sm">
+                              <div className="font-medium text-primary">
+                                {record.employee.currentShift.name}
+                              </div>
+                              <div className="text-xs text-text-secondary">
+                                {record.employee.currentShift.startTime} - {record.employee.currentShift.endTime}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-text-secondary italic">Aucun shift</span>
+                          )}
                         </td>
                         <td className="p-4">
                           {getTypeBadge(record.type)}
@@ -956,17 +1045,17 @@ export default function AttendancePage() {
                             )}
                             {record.lateMinutes && record.lateMinutes > 0 && (
                               <div className="text-xs text-danger">
-                                <span className="font-medium">Retard:</span> {record.lateMinutes}min
+                                <span className="font-medium">Retard:</span> {formatMinutesToHM(record.lateMinutes)}
                               </div>
                             )}
                             {record.earlyLeaveMinutes && record.earlyLeaveMinutes > 0 && (
                               <div className="text-xs text-warning">
-                                <span className="font-medium">Départ anticipé:</span> {record.earlyLeaveMinutes}min
+                                <span className="font-medium">Départ anticipé:</span> {formatMinutesToHM(record.earlyLeaveMinutes)}
                               </div>
                             )}
                             {record.overtimeMinutes && record.overtimeMinutes > 0 && (
                               <div className="text-xs text-success">
-                                <span className="font-medium">Heures sup:</span> {record.overtimeMinutes}min
+                                <span className="font-medium">Heures sup:</span> {formatMinutesToHM(record.overtimeMinutes)}
                               </div>
                             )}
                             {!record.hoursWorked && !record.lateMinutes && !record.earlyLeaveMinutes && !record.overtimeMinutes && (
@@ -995,16 +1084,20 @@ export default function AttendancePage() {
                                 </Badge>
                                 <Badge variant="info" className="flex items-center gap-1 w-fit mt-1">
                                   <CheckCircle className="h-3 w-3" />
-                                  Corrigé
+                                  {['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType)
+                                    ? 'Auto correction'
+                                    : 'Corrigé'}
                                 </Badge>
-                                <Badge variant="success" className="flex items-center gap-1 w-fit mt-1">
-                                  <CheckCircle className="h-3 w-3" />
-                                  Approuvé
-                                </Badge>
+                                {!['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) && (
+                                  <Badge variant="success" className="flex items-center gap-1 w-fit mt-1">
+                                    <CheckCircle className="h-3 w-3" />
+                                    Approuvé
+                                  </Badge>
+                                )}
                               </>
                             ) : record.hasAnomaly ? (
                               <>
-                                {record.anomalyType === 'JOUR_FERIE_TRAVAILLE' ? (
+                                {['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) ? (
                                   <Badge variant="info" className="flex items-center gap-1 w-fit">
                                     <AlertCircle className="h-3 w-3" />
                                     Info
@@ -1029,7 +1122,9 @@ export default function AttendancePage() {
                                 {record.isCorrected && (
                                   <Badge variant="info" className="flex items-center gap-1 w-fit mt-1">
                                     <CheckCircle className="h-3 w-3" />
-                                    Corrigé
+                                    {['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType)
+                                      ? 'Auto correction'
+                                      : 'Corrigé'}
                                   </Badge>
                                 )}
                                 {record.needsApproval && record.approvalStatus === 'PENDING_APPROVAL' && (
@@ -1055,20 +1150,20 @@ export default function AttendancePage() {
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2">
-                            {/* Bouton Corriger : Afficher si anomalie (sauf alerte info), pas encore corrigé, et pas en attente d'approbation */}
+                            {/* Lien vers page anomalies : si anomalie non corrigée (sauf info) */}
                             {record.hasAnomaly &&
-                             record.anomalyType !== 'JOUR_FERIE_TRAVAILLE' &&
-                             !record.isCorrected &&
-                             (!record.needsApproval || record.approvalStatus !== 'PENDING_APPROVAL') && (
-                              <PermissionGate permissions={['attendance.correct']}>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleCorrect(record)}
-                                >
-                                  <Edit className="h-4 w-4 mr-1" />
-                                  Corriger
-                                </Button>
+                             !['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) &&
+                             !record.isCorrected && (
+                              <PermissionGate permissions={['attendance.correct', 'attendance.view_anomalies']}>
+                                <Link href="/attendance/anomalies">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                  >
+                                    <AlertTriangle className="h-4 w-4 mr-1" />
+                                    Voir anomalies
+                                  </Button>
+                                </Link>
                               </PermissionGate>
                             )}
                             {/* Bouton Approuver : Afficher si correction en attente d'approbation */}
@@ -1119,12 +1214,17 @@ export default function AttendancePage() {
                             )}
                             {/* Afficher si déjà corrigé */}
                             {record.isCorrected && !record.needsApproval && (
-                              <span className="text-xs text-gray-500 italic">Corrigé</span>
+                              <span className="text-xs text-gray-500 italic">
+                                {['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType)
+                                  ? 'Auto correction'
+                                  : 'Corrigé'}
+                              </span>
                             )}
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1269,86 +1369,6 @@ export default function AttendancePage() {
           </DialogContent>
         </Dialog>
 
-        {/* Correction Modal */}
-        <Dialog open={showCorrectionModal} onOpenChange={setShowCorrectionModal}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Corriger le pointage</DialogTitle>
-            </DialogHeader>
-            {selectedRecord && (
-              <div className="space-y-4 py-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Employé</Label>
-                    <div className="text-sm font-medium">
-                      {selectedRecord.employee?.firstName} {selectedRecord.employee?.lastName}
-                    </div>
-                    <div className="text-xs text-text-secondary">
-                      {selectedRecord.employee?.matricule}
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Type d'anomalie</Label>
-                    <div className="mt-1">
-                      {getAnomalyTypeBadge(selectedRecord.anomalyType)}
-                    </div>
-                    {selectedRecord.anomalyNote && (
-                      <div className="text-xs text-text-secondary mt-1">
-                        {selectedRecord.anomalyNote}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="correctedTimestamp">Date & Heure corrigée</Label>
-                  <Input
-                    id="correctedTimestamp"
-                    type="datetime-local"
-                    value={correctedTimestamp}
-                    onChange={(e) => setCorrectedTimestamp(e.target.value)}
-                    className="mt-1"
-                  />
-                  <div className="text-xs text-text-secondary mt-1">
-                    Date & heure actuelle: {format(new Date(selectedRecord.timestamp), 'dd/MM/yyyy HH:mm:ss', { locale: fr })}
-                  </div>
-                </div>
-
-                <div>
-                  <Label htmlFor="correctionNote">Note de correction *</Label>
-                  <Textarea
-                    id="correctionNote"
-                    value={correctionNote}
-                    onChange={(e) => setCorrectionNote(e.target.value)}
-                    placeholder="Expliquez la correction apportée..."
-                    className="mt-1 min-h-[100px]"
-                    required
-                  />
-                </div>
-              </div>
-            )}
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowCorrectionModal(false);
-                  setSelectedRecord(null);
-                  setCorrectionNote('');
-                  setCorrectedTimestamp('');
-                }}
-              >
-                Annuler
-              </Button>
-              <Button
-                variant="primary"
-                onClick={handleSubmitCorrection}
-                disabled={!correctionNote.trim() || correctMutation.isPending}
-              >
-                {correctMutation.isPending ? 'Correction...' : 'Corriger'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </DashboardLayout>
     </ProtectedRoute>

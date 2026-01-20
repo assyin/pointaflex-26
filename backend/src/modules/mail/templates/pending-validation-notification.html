@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pointage en attente de validation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            border-bottom: 3px solid #8b5cf6;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0;
+            color: #1f2937;
+            font-size: 24px;
+        }
+        .alert-badge {
+            display: inline-block;
+            background-color: #ede9fe;
+            color: #5b21b6;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        .alert-badge.urgent {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .alert-badge.escalated {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+        .greeting {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .info-box {
+            background-color: #ede9fe;
+            border-left: 4px solid #8b5cf6;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-box.urgent {
+            background-color: #fee2e2;
+            border-left-color: #ef4444;
+        }
+        .info-box strong {
+            color: #5b21b6;
+        }
+        .info-box.urgent strong {
+            color: #991b1b;
+        }
+        .details {
+            margin: 20px 0;
+        }
+        .details ul {
+            list-style: none;
+            padding: 0;
+        }
+        .details li {
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .details li:last-child {
+            border-bottom: none;
+        }
+        .details li strong {
+            display: inline-block;
+            width: 180px;
+            color: #4b5563;
+        }
+        .reason-box {
+            background-color: #f3f4f6;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-style: italic;
+        }
+        .action-button {
+            display: inline-block;
+            background-color: #8b5cf6;
+            color: #ffffff;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+        .action-button:hover {
+            background-color: #7c3aed;
+        }
+        .escalation-info {
+            background-color: #fef3c7;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .escalation-info strong {
+            color: #92400e;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 14px;
+            color: #6b7280;
+            text-align: center;
+        }
+        .footer em {
+            display: block;
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{#if isEscalation}}{{#if (eq escalationLevel 3)}}🚨{{else}}⏰{{/if}}{{else}}🕐{{/if}} Pointage en attente de validation</h1>
+            <span class="alert-badge {{#if isEscalation}}{{#if (eq escalationLevel 3)}}urgent{{else}}escalated{{/if}}{{/if}}">
+                {{#if isEscalation}}
+                    {{#if (eq escalationLevel 1)}}RAPPEL - 24H{{/if}}
+                    {{#if (eq escalationLevel 2)}}ESCALADE RH - 48H{{/if}}
+                    {{#if (eq escalationLevel 3)}}URGENT - 72H{{/if}}
+                {{else}}
+                    VALIDATION REQUISE
+                {{/if}}
+            </span>
+        </div>
+
+        <div class="greeting">
+            Bonjour <strong>{{recipientName}}</strong>,
+        </div>
+
+        <div class="info-box {{#if (eq escalationLevel 3)}}urgent{{/if}}">
+            <strong>
+                {{#if isEscalation}}
+                    {{#if (eq escalationLevel 1)}}Un pointage nécessite toujours votre validation (rappel après 24h) :{{/if}}
+                    {{#if (eq escalationLevel 2)}}Ce pointage n'a pas été validé dans les délais et a été escaladé à la RH :{{/if}}
+                    {{#if (eq escalationLevel 3)}}ATTENTION : Ce pointage est en attente depuis plus de 72h et nécessite une action immédiate :{{/if}}
+                {{else}}
+                    Un pointage ambigu nécessite votre validation :
+                {{/if}}
+            </strong>
+        </div>
+
+        <div class="details">
+            <ul>
+                <li><strong>Employé :</strong> {{employeeName}} ({{matricule}})</li>
+                <li><strong>Date du pointage :</strong> {{punchDate}}</li>
+                <li><strong>Heure du pointage :</strong> {{punchTime}}</li>
+                <li><strong>Type détecté :</strong> {{punchType}}</li>
+                <li><strong>Shift assigné :</strong> {{shiftName}} ({{shiftHours}})</li>
+                {{#if siteName}}<li><strong>Site :</strong> {{siteName}}</li>{{/if}}
+            </ul>
+        </div>
+
+        <div class="reason-box">
+            <strong>Raison de l'ambiguïté :</strong><br>
+            {{ambiguityReason}}
+        </div>
+
+        {{#if isEscalation}}
+        <div class="escalation-info">
+            <strong>Historique d'escalade :</strong>
+            <ul style="margin: 10px 0 0 0; padding-left: 20px;">
+                <li>Pointage créé : {{createdAt}}</li>
+                <li>Temps écoulé : {{ageHours}} heures</li>
+                <li>Niveau d'escalade actuel : {{escalationLevel}}/3</li>
+            </ul>
+        </div>
+        {{/if}}
+
+        <p>
+            Ce pointage a été détecté comme <strong>ambigu</strong> car il est survenu en dehors de la fenêtre
+            normale d'entrée pour un shift de nuit. Veuillez vérifier les circonstances et choisir l'une
+            des actions suivantes :
+        </p>
+
+        <ul>
+            <li><strong>Valider</strong> : Confirmer le type détecté ({{punchType}})</li>
+            <li><strong>Corriger</strong> : Modifier le type de pointage</li>
+            <li><strong>Rejeter</strong> : Marquer comme pointage erroné</li>
+        </ul>
+
+        <div style="text-align: center;">
+            <a href="{{validationUrl}}" class="action-button">Valider le pointage</a>
+        </div>
+
+        <div class="footer">
+            <strong>Point important :</strong> Les pointages non validés peuvent affecter le calcul
+            des heures travaillées et des heures supplémentaires de l'employé.
+            <em>Ceci est une notification automatique. Merci de ne pas répondre à cet email.</em>
+        </div>
+    </div>
+</body>
+</html>

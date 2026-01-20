@@ -161,6 +161,15 @@ export declare class EmployeesController {
             rawData: import("@prisma/client/runtime/library").JsonValue | null;
             generatedBy: string | null;
             isGenerated: boolean;
+            isAmbiguous: boolean;
+            ambiguityReason: string | null;
+            validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+            validatedBy: string | null;
+            validatedAt: Date | null;
+            escalationLevel: number;
+            terminalState: number | null;
+            source: string;
+            detectionMethod: string | null;
         }[];
         leaves: ({
             leaveType: {

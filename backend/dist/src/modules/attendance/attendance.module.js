@@ -22,6 +22,7 @@ const late_manager_notification_job_1 = require("./jobs/late-manager-notificatio
 const absence_manager_notification_job_1 = require("./jobs/absence-manager-notification.job");
 const absence_partial_manager_notification_job_1 = require("./jobs/absence-partial-manager-notification.job");
 const absence_technical_manager_notification_job_1 = require("./jobs/absence-technical-manager-notification.job");
+const pending_validation_escalation_job_1 = require("./jobs/pending-validation-escalation.job");
 let AttendanceModule = class AttendanceModule {
 };
 exports.AttendanceModule = AttendanceModule;
@@ -40,6 +41,7 @@ exports.AttendanceModule = AttendanceModule = __decorate([
             absence_manager_notification_job_1.AbsenceManagerNotificationJob,
             absence_partial_manager_notification_job_1.AbsencePartialManagerNotificationJob,
             absence_technical_manager_notification_job_1.AbsenceTechnicalManagerNotificationJob,
+            pending_validation_escalation_job_1.PendingValidationEscalationJob,
         ],
         exports: [attendance_service_1.AttendanceService],
     })

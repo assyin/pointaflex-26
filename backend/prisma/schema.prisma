@@ -166,6 +166,33 @@ model TenantSettings {
   overtimePendingNotificationTime            String   @default("09:00")
   overtimeAutoApprove                        Boolean  @default(false)
   overtimeAutoApproveMaxHours                Decimal? @default(4.0)
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // VALIDATION DES POINTAGES AMBIGUS (SHIFTS DE NUIT) - Configuration
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Activer/désactiver la détection des pointages ambigus
+  enableAmbiguousPunchDetection              Boolean  @default(true)
+
+  // Fenêtre de tolérance autour du début du shift (en heures)
+  ambiguousPunchWindowHours                  Int      @default(3)
+
+  // Activer/désactiver les notifications d'escalade
+  ambiguousPunchEscalationEnabled            Boolean  @default(true)
+
+  // Délais d'escalade (en heures)
+  ambiguousPunchEscalationLevel1Hours        Int      @default(24)   // Rappel au manager
+  ambiguousPunchEscalationLevel2Hours        Int      @default(48)   // Escalade RH
+  ambiguousPunchEscalationLevel3Hours        Int      @default(72)   // Escalade direction
+
+  // Heure d'exécution du job d'escalade (format HH:MM)
+  ambiguousPunchEscalationCheckTime          String   @default("09:00")
+
+  // Destinataires des notifications d'escalade
+  ambiguousPunchNotifyManager                Boolean  @default(true)
+  ambiguousPunchNotifyHR                     Boolean  @default(true)
+  ambiguousPunchNotifyEmployee               Boolean  @default(false)
+
   tenant                                     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
@@ -605,6 +632,21 @@ model Attendance {
   rawData              Json?
   generatedBy          String?
   isGenerated          Boolean                @default(false)
+  // Champs pour validation des pointages ambigus (shifts de nuit)
+  isAmbiguous          Boolean                @default(false)
+  ambiguityReason      String?
+  validationStatus     ValidationStatus       @default(NONE)
+  validatedBy          String?
+  validatedAt          DateTime?
+  escalationLevel      Int                    @default(0)  // 0=none, 1=manager notified, 2=RH escalated
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // NOUVEAUX CHAMPS - STATE TERMINAL (19/01/2026)
+  // ═══════════════════════════════════════════════════════════════════════════════
+  terminalState        Int?                   // State brut du terminal (0=IN, 1=OUT, 2-5=autres)
+  source               String                 @default("TERMINAL") // TERMINAL, MANUAL, IMPORT, LEGACY
+  detectionMethod      String?                // TERMINAL_STATE, LEGACY_DEDUCTION, MANUAL
+
   device               AttendanceDevice?      @relation(fields: [deviceId], references: [id])
   employee             Employee               @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   site                 Site?                  @relation(fields: [siteId], references: [id])
@@ -616,7 +658,10 @@ model Attendance {
   @@index([timestamp])
   @@index([hasAnomaly])
   @@index([needsApproval])
+  @@index([validationStatus])
+  @@index([isAmbiguous])
   @@index([tenantId, employeeId, timestamp])
+  @@index([source])
 }
 
 model AttendanceAttempt {
@@ -1276,6 +1321,13 @@ enum AttendanceType {
   BREAK_END
   MISSION_START
   MISSION_END
+}
+
+enum ValidationStatus {
+  NONE               // Pas de validation requise
+  PENDING_VALIDATION // En attente de validation
+  VALIDATED          // Validé par manager/RH
+  REJECTED           // Rejeté (pointage erroné)
 }
 
 enum LeaveStatus {
