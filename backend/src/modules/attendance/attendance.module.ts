@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AttendanceService } from './attendance.service';
 import { AttendanceController } from './attendance.controller';
 import { PrismaModule } from '../../database/prisma.module';
 import { MailModule } from '../mail/mail.module';
+import { SupplementaryDaysModule } from '../supplementary-days/supplementary-days.module';
 import { DetectAbsencesJob } from './jobs/detect-absences.job';
 import { DetectMissingOutJob } from './jobs/detect-missing-out.job';
 import { AutoCloseSessionsJob } from './jobs/auto-close-sessions.job';
@@ -16,7 +17,7 @@ import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical
 import { PendingValidationEscalationJob } from './jobs/pending-validation-escalation.job';
 
 @Module({
-  imports: [PrismaModule, ScheduleModule, MailModule],
+  imports: [PrismaModule, ScheduleModule, MailModule, forwardRef(() => SupplementaryDaysModule)],
   controllers: [AttendanceController],
   providers: [
     AttendanceService,

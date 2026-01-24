@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const recovery_days_controller_1 = require("./recovery-days.controller");
 const recovery_days_service_1 = require("./recovery-days.service");
 const prisma_module_1 = require("../../database/prisma.module");
+const mark_used_recovery_days_job_1 = require("./jobs/mark-used-recovery-days.job");
 let RecoveryDaysModule = class RecoveryDaysModule {
 };
 exports.RecoveryDaysModule = RecoveryDaysModule;
@@ -18,8 +19,8 @@ exports.RecoveryDaysModule = RecoveryDaysModule = __decorate([
     (0, common_1.Module)({
         imports: [prisma_module_1.PrismaModule],
         controllers: [recovery_days_controller_1.RecoveryDaysController],
-        providers: [recovery_days_service_1.RecoveryDaysService],
-        exports: [recovery_days_service_1.RecoveryDaysService],
+        providers: [recovery_days_service_1.RecoveryDaysService, mark_used_recovery_days_job_1.MarkUsedRecoveryDaysJob],
+        exports: [recovery_days_service_1.RecoveryDaysService, mark_used_recovery_days_job_1.MarkUsedRecoveryDaysJob],
     })
 ], RecoveryDaysModule);
 //# sourceMappingURL=recovery-days.module.js.map

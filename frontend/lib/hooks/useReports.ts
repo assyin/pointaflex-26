@@ -38,11 +38,29 @@ export function useOvertimeReport(filters: ReportFilters) {
   });
 }
 
+// Fetch supplementary days report (weekend/holiday work)
+export function useSupplementaryDaysReport(filters: ReportFilters) {
+  return useQuery({
+    queryKey: ['supplementaryDaysReport', filters],
+    queryFn: () => reportsApi.getSupplementaryDaysReport(filters),
+    enabled: !!filters.startDate && !!filters.endDate,
+  });
+}
+
 // Fetch planning report
 export function usePlanningReport(filters: ReportFilters) {
   return useQuery({
     queryKey: ['planningReport', filters],
     queryFn: () => reportsApi.getPlanningReport(filters),
+    enabled: !!filters.startDate && !!filters.endDate,
+  });
+}
+
+// Fetch recovery days report
+export function useRecoveryDaysReport(filters: ReportFilters) {
+  return useQuery({
+    queryKey: ['recoveryDaysReport', filters],
+    queryFn: () => reportsApi.getRecoveryDaysReport(filters),
     enabled: !!filters.startDate && !!filters.endDate,
   });
 }

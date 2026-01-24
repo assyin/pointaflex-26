@@ -27,6 +27,7 @@ import {
   X,
   Search,
   Table,
+  RefreshCw,
 } from 'lucide-react';
 import {
   BarChart,
@@ -46,8 +47,10 @@ import {
 import {
   useAttendanceReport,
   useOvertimeReport,
+  useSupplementaryDaysReport,
   usePayrollReport,
   useAbsencesReport,
+  useRecoveryDaysReport,
   useExportReport,
   useReportHistory,
 } from '@/lib/hooks/useReports';
@@ -122,8 +125,10 @@ export default function ReportsPage() {
   // Fetch reports based on selection
   const { data: attendanceData, isLoading: attendanceLoading } = useAttendanceReport(apiFilters);
   const { data: overtimeData, isLoading: overtimeLoading } = useOvertimeReport(apiFilters);
+  const { data: supplementaryDaysData, isLoading: supplementaryDaysLoading } = useSupplementaryDaysReport(apiFilters);
   const { data: payrollData, isLoading: payrollLoading } = usePayrollReport(apiFilters);
   const { data: absencesData, isLoading: absencesLoading } = useAbsencesReport(apiFilters);
+  const { data: recoveryData, isLoading: recoveryLoading } = useRecoveryDaysReport(apiFilters);
 
   // Fetch previous period data for comparison
   const { data: previousAttendanceData } = useAttendanceReport(previousApiFilters);
@@ -148,6 +153,20 @@ export default function ReportsPage() {
       description: 'Récapitulatif des heures sup et récupérations',
       icon: Clock,
       color: 'text-purple-600',
+    },
+    {
+      id: 'supplementaryDays',
+      name: 'Jours supplémentaires',
+      description: 'Travail weekend et jours fériés',
+      icon: Calendar,
+      color: 'text-indigo-600',
+    },
+    {
+      id: 'recovery',
+      name: 'Jours de récupération',
+      description: 'Suivi des jours de récupération (conversion HS)',
+      icon: RefreshCw,
+      color: 'text-teal-600',
     },
     {
       id: 'absences',
@@ -232,6 +251,27 @@ export default function ReportsPage() {
           { id: 'department', label: 'Département', default: false },
           { id: 'site', label: 'Site', default: false },
         ];
+      case 'recovery':
+        return [
+          { id: 'employee', label: 'Employé', default: true },
+          { id: 'matricule', label: 'Matricule', default: true },
+          { id: 'startDate', label: 'Date début', default: true },
+          { id: 'endDate', label: 'Date fin', default: true },
+          { id: 'days', label: 'Jours', default: true },
+          { id: 'status', label: 'Statut', default: true },
+          { id: 'notes', label: 'Notes', default: false },
+          { id: 'department', label: 'Département', default: false },
+        ];
+      case 'supplementaryDays':
+        return [
+          { id: 'employee', label: 'Employé', default: true },
+          { id: 'date', label: 'Date', default: true },
+          { id: 'hours', label: 'Heures', default: true },
+          { id: 'type', label: 'Type', default: true },
+          { id: 'status', label: 'Statut', default: true },
+          { id: 'department', label: 'Département', default: false },
+          { id: 'site', label: 'Site', default: false },
+        ];
       default:
         return [];
     }
@@ -243,6 +283,10 @@ export default function ReportsPage() {
         return { data: attendanceData, loading: attendanceLoading };
       case 'overtime':
         return { data: overtimeData, loading: overtimeLoading };
+      case 'supplementaryDays':
+        return { data: supplementaryDaysData, loading: supplementaryDaysLoading };
+      case 'recovery':
+        return { data: recoveryData, loading: recoveryLoading };
       case 'payroll':
         return { data: payrollData, loading: payrollLoading };
       case 'absences':
@@ -459,7 +503,7 @@ export default function ReportsPage() {
           </Card>
 
           {/* Report Types */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {reportTypes.map((report) => {
               const Icon = report.icon;
               const isSelected = selectedReport === report.id;
@@ -581,7 +625,7 @@ export default function ReportsPage() {
                   )}
 
                   {selectedReport === 'overtime' && currentData.summary && (
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                       <div className="p-4 bg-blue-50 rounded-lg">
                         <p className="text-sm text-blue-600 font-medium">Total demandes</p>
                         <p className="text-2xl font-bold text-blue-700">
@@ -589,21 +633,73 @@ export default function ReportsPage() {
                         </p>
                       </div>
                       <div className="p-4 bg-green-50 rounded-lg">
-                        <p className="text-sm text-green-600 font-medium">Heures totales</p>
+                        <p className="text-sm text-green-600 font-medium">Heures approuvées</p>
                         <p className="text-2xl font-bold text-green-700">
-                          {currentData.summary.totalHours?.toFixed(1) || 0}h
+                          {currentData.summary.totalApprovedHours?.toFixed(1) || currentData.summary.totalHours?.toFixed(1) || 0}h
                         </p>
                       </div>
                       <div className="p-4 bg-purple-50 rounded-lg">
-                        <p className="text-sm text-purple-600 font-medium">Heures approuvées</p>
+                        <p className="text-sm text-purple-600 font-medium">Heures récupérées</p>
                         <p className="text-2xl font-bold text-purple-700">
-                          {currentData.summary.totalApprovedHours?.toFixed(1) || 0}h
+                          {currentData.summary.recoveredHours?.toFixed(1) ||
+                           (currentData.data?.filter((r: any) => r.status === 'RECOVERED')
+                             .reduce((sum: number, r: any) => sum + (parseFloat(r.approvedHours || r.hours) || 0), 0))?.toFixed(1) || 0}h
+                        </p>
+                      </div>
+                      <div className="p-4 bg-yellow-50 rounded-lg">
+                        <p className="text-sm text-yellow-600 font-medium">En attente</p>
+                        <p className="text-2xl font-bold text-yellow-700">
+                          {currentData.summary.byStatus?.PENDING ||
+                           currentData.data?.filter((r: any) => r.status === 'PENDING').length || 0}
                         </p>
                       </div>
                       <div className="p-4 bg-orange-50 rounded-lg">
                         <p className="text-sm text-orange-600 font-medium">Période</p>
                         <p className="text-sm font-bold text-orange-700">
                           {format(new Date(currentData.summary.period?.startDate || startDate), 'dd MMM', { locale: fr })} - {format(new Date(currentData.summary.period?.endDate || endDate), 'dd MMM yyyy', { locale: fr })}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedReport === 'supplementaryDays' && currentData.summary && (
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <div className="p-4 bg-indigo-50 rounded-lg">
+                        <p className="text-sm text-indigo-600 font-medium">Total jours supp.</p>
+                        <p className="text-2xl font-bold text-indigo-700">
+                          {currentData.summary.total || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-green-50 rounded-lg">
+                        <p className="text-sm text-green-600 font-medium">Jours approuvés</p>
+                        <p className="text-2xl font-bold text-green-700">
+                          {currentData.summary.byStatus?.APPROVED || 0}
+                        </p>
+                        <p className="text-xs text-green-600">
+                          ({currentData.summary.totalApprovedHours?.toFixed(1) || 0}h)
+                        </p>
+                      </div>
+                      <div className="p-4 bg-purple-50 rounded-lg">
+                        <p className="text-sm text-purple-600 font-medium">Jours récupérés</p>
+                        <p className="text-2xl font-bold text-purple-700">
+                          {currentData.summary.byStatus?.RECOVERED || 0}
+                        </p>
+                        <p className="text-xs text-purple-600">
+                          ({currentData.summary.recoveredHours?.toFixed(1) || 0}h)
+                        </p>
+                      </div>
+                      <div className="p-4 bg-yellow-50 rounded-lg">
+                        <p className="text-sm text-yellow-600 font-medium">En attente</p>
+                        <p className="text-2xl font-bold text-yellow-700">
+                          {currentData.summary.byStatus?.PENDING || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-orange-50 rounded-lg">
+                        <p className="text-sm text-orange-600 font-medium">Par type</p>
+                        <p className="text-xs font-medium text-orange-700">
+                          Sam: {currentData.summary.byType?.WEEKEND_SATURDAY || 0} |
+                          Dim: {currentData.summary.byType?.WEEKEND_SUNDAY || 0} |
+                          Férié: {currentData.summary.byType?.HOLIDAY || 0}
                         </p>
                       </div>
                     </div>
@@ -662,6 +758,41 @@ export default function ReportsPage() {
                         <p className="text-sm text-orange-600 font-medium">Heures sup</p>
                         <p className="text-2xl font-bold text-orange-700">
                           {currentData.summary.totalOvertimeHours?.toFixed(1) || 0}h
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedReport === 'recovery' && currentData.summary && (
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                      <div className="p-4 bg-teal-50 rounded-lg">
+                        <p className="text-sm text-teal-600 font-medium">Total demandes</p>
+                        <p className="text-2xl font-bold text-teal-700">
+                          {currentData.summary.total || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-blue-50 rounded-lg">
+                        <p className="text-sm text-blue-600 font-medium">Total jours</p>
+                        <p className="text-2xl font-bold text-blue-700">
+                          {currentData.summary.totalDays?.toFixed(1) || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-yellow-50 rounded-lg">
+                        <p className="text-sm text-yellow-600 font-medium">En attente</p>
+                        <p className="text-2xl font-bold text-yellow-700">
+                          {currentData.summary.pendingCount || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-green-50 rounded-lg">
+                        <p className="text-sm text-green-600 font-medium">Approuvés</p>
+                        <p className="text-2xl font-bold text-green-700">
+                          {currentData.summary.approvedCount || 0}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-purple-50 rounded-lg">
+                        <p className="text-sm text-purple-600 font-medium">Utilisés</p>
+                        <p className="text-2xl font-bold text-purple-700">
+                          {currentData.summary.usedCount || 0}
                         </p>
                       </div>
                     </div>
@@ -767,6 +898,15 @@ export default function ReportsPage() {
                                   <th className="px-4 py-2 text-left text-text-secondary font-medium">Statut</th>
                                 </>
                               )}
+                              {selectedReport === 'supplementaryDays' && (
+                                <>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Employé</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Date</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Heures</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Type</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Statut</th>
+                                </>
+                              )}
                               {selectedReport === 'absences' && (
                                 <>
                                   <th className="px-4 py-2 text-left text-text-secondary font-medium">Employé</th>
@@ -782,6 +922,15 @@ export default function ReportsPage() {
                                   <th className="px-4 py-2 text-left text-text-secondary font-medium">Heures normales</th>
                                   <th className="px-4 py-2 text-left text-text-secondary font-medium">Heures sup</th>
                                   <th className="px-4 py-2 text-left text-text-secondary font-medium">Congés</th>
+                                </>
+                              )}
+                              {selectedReport === 'recovery' && (
+                                <>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Employé</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Période</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Jours</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Statut</th>
+                                  <th className="px-4 py-2 text-left text-text-secondary font-medium">Notes</th>
                                 </>
                               )}
                             </tr>
@@ -828,9 +977,55 @@ export default function ReportsPage() {
                                       <Badge variant={
                                         item.status === 'APPROVED' ? 'success' :
                                         item.status === 'PENDING' ? 'warning' :
+                                        item.status === 'RECOVERED' ? 'info' :
+                                        item.status === 'PAID' ? 'default' :
                                         'danger'
                                       }>
-                                        {item.status}
+                                        {item.status === 'APPROVED' ? 'Approuvé' :
+                                         item.status === 'PENDING' ? 'En attente' :
+                                         item.status === 'RECOVERED' ? 'Récupéré' :
+                                         item.status === 'PAID' ? 'Payé' :
+                                         item.status === 'REJECTED' ? 'Rejeté' :
+                                         item.status}
+                                      </Badge>
+                                    </td>
+                                  </>
+                                )}
+                                {selectedReport === 'supplementaryDays' && (
+                                  <>
+                                    <td className="px-4 py-2">
+                                      {item.employee?.firstName} {item.employee?.lastName}
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      {format(new Date(item.date), 'dd/MM/yyyy', { locale: fr })}
+                                    </td>
+                                    <td className="px-4 py-2">{item.approvedHours || item.hours}h</td>
+                                    <td className="px-4 py-2">
+                                      <Badge variant={
+                                        item.type === 'WEEKEND_SATURDAY' ? 'outline' :
+                                        item.type === 'WEEKEND_SUNDAY' ? 'secondary' :
+                                        'default'
+                                      }>
+                                        {item.type === 'WEEKEND_SATURDAY' ? 'Samedi' :
+                                         item.type === 'WEEKEND_SUNDAY' ? 'Dimanche' :
+                                         item.type === 'HOLIDAY' ? 'Férié' :
+                                         item.type}
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <Badge variant={
+                                        item.status === 'APPROVED' ? 'success' :
+                                        item.status === 'PENDING' ? 'warning' :
+                                        item.status === 'RECOVERED' ? 'info' :
+                                        item.status === 'PAID' ? 'default' :
+                                        'danger'
+                                      }>
+                                        {item.status === 'APPROVED' ? 'Approuvé' :
+                                         item.status === 'PENDING' ? 'En attente' :
+                                         item.status === 'RECOVERED' ? 'Récupéré' :
+                                         item.status === 'PAID' ? 'Payé' :
+                                         item.status === 'REJECTED' ? 'Rejeté' :
+                                         item.status}
                                       </Badge>
                                     </td>
                                   </>
@@ -858,6 +1053,39 @@ export default function ReportsPage() {
                                     <td className="px-4 py-2">{item.normalHours}h</td>
                                     <td className="px-4 py-2">{item.overtimeHours?.toFixed(1) || 0}h</td>
                                     <td className="px-4 py-2">{item.leaveDays}</td>
+                                  </>
+                                )}
+                                {selectedReport === 'recovery' && (
+                                  <>
+                                    <td className="px-4 py-2">
+                                      {item.employee?.firstName} {item.employee?.lastName}
+                                      <div className="text-xs text-text-secondary">{item.employee?.matricule}</div>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      {format(new Date(item.startDate), 'dd/MM/yyyy', { locale: fr })}
+                                      {item.endDate !== item.startDate && (
+                                        <> - {format(new Date(item.endDate), 'dd/MM/yyyy', { locale: fr })}</>
+                                      )}
+                                    </td>
+                                    <td className="px-4 py-2 font-semibold">{parseFloat(item.days).toFixed(1)}</td>
+                                    <td className="px-4 py-2">
+                                      <Badge variant={
+                                        item.status === 'APPROVED' ? 'success' :
+                                        item.status === 'PENDING' ? 'warning' :
+                                        item.status === 'USED' ? 'info' :
+                                        item.status === 'CANCELLED' ? 'danger' :
+                                        'default'
+                                      }>
+                                        {item.status === 'APPROVED' ? 'Approuvé' :
+                                         item.status === 'PENDING' ? 'En attente' :
+                                         item.status === 'USED' ? 'Utilisé' :
+                                         item.status === 'CANCELLED' ? 'Annulé' :
+                                         item.status}
+                                      </Badge>
+                                    </td>
+                                    <td className="px-4 py-2 text-text-secondary text-sm">
+                                      {item.notes || '-'}
+                                    </td>
                                   </>
                                 )}
                               </tr>

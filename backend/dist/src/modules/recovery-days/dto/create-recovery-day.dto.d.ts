@@ -23,3 +23,13 @@ export declare class UpdateRecoveryDayDto {
     days?: number;
     notes?: string;
 }
+export declare class ConvertFlexibleDto {
+    employeeId: string;
+    overtimeIds: string[];
+    startDate: string;
+    endDate: string;
+    days: number;
+    autoApprove?: boolean;
+    allowPastDate?: boolean;
+    notes?: string;
+}

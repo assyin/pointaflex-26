@@ -40,6 +40,7 @@ model Tenant {
   positions                        Position[]
   recovery                         Recovery[]
   RecoveryDay                      RecoveryDay[]
+  supplementaryDays                SupplementaryDay[]
   reportHistory                    ReportHistory[]
   roles                            Role[]
   schedules                        Schedule[]
@@ -298,6 +299,7 @@ model Employee {
   overtime                  Overtime[]
   recovery                  Recovery[]
   recoveryDays              RecoveryDay[]
+  supplementaryDays         SupplementaryDay[]
   schedules                 Schedule[]
   replacementsAsOriginal    ShiftReplacement[]         @relation("OriginalEmployee")
   replacementsAsReplacement ShiftReplacement[]         @relation("ReplacementEmployee")
@@ -651,7 +653,8 @@ model Attendance {
   employee             Employee               @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   site                 Site?                  @relation(fields: [siteId], references: [id])
   tenant               Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  attendanceAnomalies AttendanceAnomaly[]
+  attendanceAnomalies  AttendanceAnomaly[]
+  supplementaryDays    SupplementaryDay[]
 
   @@index([tenantId])
   @@index([employeeId])
@@ -805,7 +808,8 @@ model RecoveryDay {
   approvedBy      String?
   approvedAt      DateTime?
   notes           String?
-  overtimeSources OvertimeRecoveryDay[]
+  overtimeSources         OvertimeRecoveryDay[]
+  supplementaryDaySources SupplementaryDayRecoveryDay[]
   employee        Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -826,6 +830,67 @@ model OvertimeRecoveryDay {
   @@unique([overtimeId, recoveryDayId])
   @@index([overtimeId])
   @@index([recoveryDayId])
+}
+
+model SupplementaryDayRecoveryDay {
+  id                  String          @id @default(uuid())
+  supplementaryDayId  String
+  recoveryDayId       String
+  hoursUsed           Decimal
+  supplementaryDay    SupplementaryDay @relation(fields: [supplementaryDayId], references: [id], onDelete: Cascade)
+  recoveryDay         RecoveryDay      @relation(fields: [recoveryDayId], references: [id], onDelete: Cascade)
+
+  @@unique([supplementaryDayId, recoveryDayId])
+  @@index([supplementaryDayId])
+  @@index([recoveryDayId])
+}
+
+// Jours Supplémentaires - Travail en dehors du planning (weekend, férié)
+model SupplementaryDay {
+  id              String                 @id @default(uuid())
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  tenantId        String
+  employeeId      String
+
+  date            DateTime               @db.Date
+  hours           Decimal                // Heures travaillées ce jour
+  approvedHours   Decimal?               // Heures approuvées par le manager
+
+  type            SupplementaryDayType   @default(WEEKEND_SATURDAY)
+  source          String                 @default("AUTO_DETECTED") // AUTO_DETECTED, MANUAL
+
+  // Informations de pointage
+  checkIn         DateTime?
+  checkOut        DateTime?
+  attendanceId    String?                // Lien vers le pointage OUT source
+
+  // Workflow d'approbation (même que Overtime)
+  status          OvertimeStatus         @default(PENDING)
+  approvedBy      String?
+  approvedAt      DateTime?
+  rejectionReason String?
+
+  // Conversion en récupération (même logique que Overtime)
+  convertedToRecovery          Boolean   @default(false)
+  convertedToRecoveryDays      Boolean   @default(false)
+  convertedHoursToRecoveryDays Decimal   @default(0)
+
+  notes           String?
+
+  // Relations
+  employee         Employee                      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  tenant           Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attendance       Attendance?                   @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+  recoveryDayLinks SupplementaryDayRecoveryDay[]
+
+  @@index([tenantId])
+  @@index([employeeId])
+  @@index([status])
+  @@index([type])
+  @@index([date])
+  @@index([tenantId, employeeId, date])
+  @@index([attendanceId])
 }
 
 model Holiday {
@@ -1352,6 +1417,12 @@ enum OvertimeType {
   NIGHT
   HOLIDAY
   EMERGENCY
+}
+
+enum SupplementaryDayType {
+  WEEKEND_SATURDAY  // Samedi
+  WEEKEND_SUNDAY    // Dimanche
+  HOLIDAY           // Jour férié (semaine ou weekend)
 }
 
 enum HolidayType {

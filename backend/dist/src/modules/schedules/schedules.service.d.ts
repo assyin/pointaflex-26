@@ -690,4 +690,6 @@ export declare class SchedulesService {
     }>;
     private parseDate;
     importFromExcel(tenantId: string, fileBuffer: Buffer): Promise<ImportScheduleResultDto>;
+    importFromWeeklyCalendar(tenantId: string, fileBuffer: Buffer): Promise<ImportScheduleResultDto>;
+    generateWeeklyCalendarTemplate(tenantId: string): Promise<Buffer>;
 }

@@ -9,7 +9,7 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpdateRecoveryDayDto = exports.ApproveRecoveryDayDto = exports.ConvertOvertimeToRecoveryDayDto = exports.CreateRecoveryDayDto = void 0;
+exports.ConvertFlexibleDto = exports.UpdateRecoveryDayDto = exports.ApproveRecoveryDayDto = exports.ConvertOvertimeToRecoveryDayDto = exports.CreateRecoveryDayDto = void 0;
 const class_validator_1 = require("class-validator");
 const swagger_1 = require("@nestjs/swagger");
 class CreateRecoveryDayDto {
@@ -121,4 +121,66 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], UpdateRecoveryDayDto.prototype, "notes", void 0);
+class ConvertFlexibleDto {
+}
+exports.ConvertFlexibleDto = ConvertFlexibleDto;
+__decorate([
+    (0, swagger_1.ApiProperty)({ description: 'ID de l\'employé' }),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], ConvertFlexibleDto.prototype, "employeeId", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({
+        description: 'Liste des IDs des heures supplémentaires à convertir',
+        type: [String],
+        example: ['overtime-id-1', 'overtime-id-2']
+    }),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ArrayMinSize)(1, { message: 'Au moins une heure supplémentaire doit être sélectionnée' }),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], ConvertFlexibleDto.prototype, "overtimeIds", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ description: 'Date de début de la récupération (YYYY-MM-DD)' }),
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], ConvertFlexibleDto.prototype, "startDate", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({ description: 'Date de fin de la récupération (YYYY-MM-DD)' }),
+    (0, class_validator_1.IsDateString)(),
+    __metadata("design:type", String)
+], ConvertFlexibleDto.prototype, "endDate", void 0);
+__decorate([
+    (0, swagger_1.ApiProperty)({
+        description: 'Nombre de jours de récupération à créer',
+        minimum: 0.5
+    }),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(0.5),
+    __metadata("design:type", Number)
+], ConvertFlexibleDto.prototype, "days", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Approuver automatiquement si le manager a l\'autorité directe',
+        default: false
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], ConvertFlexibleDto.prototype, "autoApprove", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Permettre les dates passées pour régularisation',
+        default: false
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], ConvertFlexibleDto.prototype, "allowPastDate", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({ description: 'Notes ou commentaires' }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], ConvertFlexibleDto.prototype, "notes", void 0);
 //# sourceMappingURL=create-recovery-day.dto.js.map

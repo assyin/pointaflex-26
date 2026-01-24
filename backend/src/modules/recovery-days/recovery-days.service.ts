@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto } from './dto/create-recovery-day.dto';
+import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto, ConvertFlexibleDto } from './dto/create-recovery-day.dto';
 import { RecoveryDayStatus, OvertimeStatus } from '@prisma/client';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
 
@@ -219,6 +219,233 @@ export class RecoveryDaysService {
     return {
       ...recoveryDay,
       overtimeSources: overtimeRecoveryDayLinks,
+    };
+  }
+
+  /**
+   * Conversion flexible des heures supplémentaires en journées de récupération
+   * Le manager sélectionne ligne par ligne quelles heures convertir
+   * Les heures non sélectionnées restent APPROVED (payables)
+   */
+  async convertFlexible(
+    tenantId: string,
+    userId: string,
+    dto: ConvertFlexibleDto,
+    userPermissions?: string[],
+  ) {
+    // 1. Vérifier que l'employé existe
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: dto.employeeId,
+        tenantId,
+      },
+      include: {
+        department: {
+          include: {
+            manager: true,
+          },
+        },
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // 2. Récupérer les paramètres du tenant
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+    });
+
+    const dailyWorkingHours = Number(settings?.dailyWorkingHours || 7.33);
+    const conversionRate = Number(settings?.recoveryConversionRate || 1.0);
+
+    // 3. Récupérer les heures supplémentaires sélectionnées
+    const selectedOvertimes = await this.prisma.overtime.findMany({
+      where: {
+        id: { in: dto.overtimeIds },
+        tenantId,
+        employeeId: dto.employeeId,
+        status: OvertimeStatus.APPROVED, // Seulement les heures approuvées
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // Vérifier que tous les IDs sont trouvés
+    if (selectedOvertimes.length !== dto.overtimeIds.length) {
+      const foundIds = selectedOvertimes.map(o => o.id);
+      const missingIds = dto.overtimeIds.filter(id => !foundIds.includes(id));
+      throw new BadRequestException(
+        `Certaines heures supplémentaires sont invalides ou non approuvées: ${missingIds.join(', ')}`,
+      );
+    }
+
+    // 4. Calculer les heures disponibles parmi les heures sélectionnées
+    let totalAvailableHours = 0;
+    const overtimeDetails = [];
+
+    for (const overtime of selectedOvertimes) {
+      const approvedHours = Number(overtime.approvedHours || overtime.hours || 0);
+      const convertedToRecovery = Number(overtime.convertedHoursToRecovery || 0);
+      const convertedToRecoveryDays = Number(overtime.convertedHoursToRecoveryDays || 0);
+      const availableHours = approvedHours - convertedToRecovery - convertedToRecoveryDays;
+
+      if (availableHours <= 0) {
+        throw new BadRequestException(
+          `L'heure supplémentaire du ${overtime.date.toISOString().split('T')[0]} n'a plus d'heures disponibles`,
+        );
+      }
+
+      totalAvailableHours += availableHours;
+      overtimeDetails.push({
+        overtime,
+        approvedHours,
+        availableHours,
+      });
+    }
+
+    // 5. Calculer le nombre maximum de jours possibles avec les heures sélectionnées
+    const maxPossibleDays = Math.floor((totalAvailableHours * conversionRate) / dailyWorkingHours);
+
+    if (dto.days > maxPossibleDays) {
+      throw new BadRequestException(
+        `Nombre de jours trop élevé. Maximum possible avec les heures sélectionnées: ${maxPossibleDays} jours (${totalAvailableHours.toFixed(2)}h disponibles)`,
+      );
+    }
+
+    if (dto.days < 1 && maxPossibleDays >= 1) {
+      throw new BadRequestException(
+        `Le minimum est de 1 jour de récupération`,
+      );
+    }
+
+    // 6. Valider les dates
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (startDate > endDate) {
+      throw new BadRequestException('La date de début doit être antérieure à la date de fin');
+    }
+
+    // Vérifier si dates passées sont autorisées
+    if (startDate < today && !dto.allowPastDate) {
+      throw new BadRequestException(
+        'Les dates passées ne sont pas autorisées. Activez allowPastDate pour la régularisation.',
+      );
+    }
+
+    // Vérifier les chevauchements (sauf si régularisation passée)
+    if (startDate >= today) {
+      await this.validateNoConflicts(tenantId, dto.employeeId, startDate, endDate);
+    }
+
+    // 7. Déterminer si autoApprove est possible
+    let canAutoApprove = false;
+
+    // Régularisation (date passée) = auto-approbation automatique
+    // Car la récupération a déjà été effectuée en pratique
+    const isPastDate = startDate < today;
+    if (isPastDate && dto.allowPastDate) {
+      canAutoApprove = true;
+    }
+
+    if (dto.autoApprove && !canAutoApprove) {
+      // Vérifier si l'utilisateur est le manager direct de l'employé
+      const currentUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { employee: true },
+      });
+
+      if (currentUser?.employee) {
+        // Vérifier si c'est le manager du département de l'employé
+        if (employee.department?.manager?.id === currentUser.employee.id) {
+          canAutoApprove = true;
+        }
+      }
+
+      // Vérifier si l'utilisateur a les permissions admin/RH
+      if (userPermissions && userPermissions.length > 0) {
+        const hasApproveAll = userPermissions.includes('overtime.approve_all');
+        const hasAdminAccess = userPermissions.includes('admin.full_access');
+        const hasOvertimeApprove = userPermissions.includes('overtime.approve');
+        if (hasApproveAll || hasAdminAccess || hasOvertimeApprove) {
+          canAutoApprove = true;
+        }
+      }
+    }
+
+    // 8. Calculer les heures à utiliser (TOUTES les heures sélectionnées)
+    const hoursToUse = totalAvailableHours;
+
+    // 9. Créer la journée de récupération dans une transaction
+    const result = await this.prisma.$transaction(async (prisma) => {
+      // Créer le RecoveryDay
+      const recoveryDay = await prisma.recoveryDay.create({
+        data: {
+          tenantId,
+          employeeId: dto.employeeId,
+          startDate,
+          endDate,
+          days: dto.days,
+          sourceHours: hoursToUse,
+          conversionRate,
+          status: canAutoApprove ? RecoveryDayStatus.APPROVED : RecoveryDayStatus.PENDING,
+          approvedBy: canAutoApprove ? userId : null,
+          approvedAt: canAutoApprove ? new Date() : null,
+          notes: dto.notes,
+        },
+      });
+
+      const overtimeRecoveryDayLinks = [];
+
+      // Créer les liens et mettre à jour les overtime sélectionnées
+      for (const { overtime, availableHours } of overtimeDetails) {
+        // Créer le lien
+        const link = await prisma.overtimeRecoveryDay.create({
+          data: {
+            overtimeId: overtime.id,
+            recoveryDayId: recoveryDay.id,
+            hoursUsed: availableHours,
+          },
+        });
+
+        overtimeRecoveryDayLinks.push(link);
+
+        // Mettre à jour l'overtime - marquer comme RECOVERED (non payable)
+        const approvedHours = Number(overtime.approvedHours || overtime.hours || 0);
+        const currentConverted = Number(overtime.convertedHoursToRecoveryDays || 0);
+        const newConvertedHours = currentConverted + availableHours;
+
+        await prisma.overtime.update({
+          where: { id: overtime.id },
+          data: {
+            convertedToRecoveryDays: true,
+            convertedHoursToRecoveryDays: newConvertedHours,
+            status: OvertimeStatus.RECOVERED, // Marqué comme converti, non payable
+          },
+        });
+      }
+
+      return {
+        ...recoveryDay,
+        overtimeSources: overtimeRecoveryDayLinks,
+      };
+    });
+
+    // 10. Retourner avec les détails complets
+    const fullResult = await this.findOne(tenantId, result.id);
+
+    return {
+      ...fullResult,
+      conversionSummary: {
+        selectedOvertimeCount: selectedOvertimes.length,
+        totalHoursConverted: hoursToUse,
+        daysGranted: dto.days,
+        autoApproved: canAutoApprove,
+        isRegularization: startDate < today,
+      },
     };
   }
 
@@ -719,6 +946,287 @@ export class RecoveryDaysService {
       pendingDays,
       availableDays: approvedDays - usedDays,
       recoveryDays,
+    };
+  }
+
+  // ============================================
+  // CONVERSION JOURS SUPPLÉMENTAIRES
+  // ============================================
+
+  /**
+   * Récupère le solde cumulé des jours supplémentaires approuvés et non convertis
+   */
+  async getCumulativeSupplementaryDaysBalance(tenantId: string, employeeId: string) {
+    // 1. Récupérer les paramètres du tenant
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+    });
+
+    const dailyWorkingHours = Number(settings?.dailyWorkingHours || 7.33);
+    const conversionRate = Number(settings?.recoveryConversionRate || 1.0);
+
+    // 2. Récupérer les jours supplémentaires approuvés et non entièrement convertis
+    const supplementaryDays = await this.prisma.supplementaryDay.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        status: OvertimeStatus.APPROVED, // Seulement les jours approuvés (pas RECOVERED)
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // 3. Calculer les heures disponibles pour chaque jour supplémentaire
+    let cumulativeHours = 0;
+    const supplementaryDayDetails = [];
+
+    for (const sd of supplementaryDays) {
+      const approvedHours = Number(sd.approvedHours || sd.hours || 0);
+      const convertedHours = Number(sd.convertedHoursToRecoveryDays || 0);
+      const availableHours = approvedHours - convertedHours;
+
+      if (availableHours > 0) {
+        cumulativeHours += availableHours;
+        supplementaryDayDetails.push({
+          id: sd.id,
+          date: sd.date,
+          type: sd.type,
+          approvedHours,
+          convertedHours,
+          availableHours,
+        });
+      }
+    }
+
+    // 4. Calculer le nombre de jours de récupération possibles
+    const possibleRecoveryDays = Math.floor((cumulativeHours * conversionRate) / dailyWorkingHours);
+
+    return {
+      employeeId,
+      cumulativeHours,
+      possibleRecoveryDays,
+      dailyWorkingHours,
+      conversionRate,
+      supplementaryDayDetails,
+    };
+  }
+
+  /**
+   * Convertit des jours supplémentaires en jours de récupération
+   */
+  async convertSupplementaryDaysFlexible(
+    tenantId: string,
+    userId: string,
+    dto: {
+      employeeId: string;
+      supplementaryDayIds: string[];
+      startDate: string;
+      endDate: string;
+      days: number;
+      autoApprove?: boolean;
+      allowPastDate?: boolean;
+      notes?: string;
+    },
+    userPermissions?: string[],
+  ) {
+    // 1. Vérifier que l'employé existe
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: dto.employeeId,
+        tenantId,
+      },
+      include: {
+        department: {
+          include: {
+            manager: true,
+          },
+        },
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    // 2. Récupérer les paramètres du tenant
+    const settings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+    });
+
+    const dailyWorkingHours = Number(settings?.dailyWorkingHours || 7.33);
+    const conversionRate = Number(settings?.recoveryConversionRate || 1.0);
+
+    // 3. Récupérer les jours supplémentaires sélectionnés
+    const selectedSupplementaryDays = await this.prisma.supplementaryDay.findMany({
+      where: {
+        id: { in: dto.supplementaryDayIds },
+        tenantId,
+        employeeId: dto.employeeId,
+        status: OvertimeStatus.APPROVED, // Seulement les jours approuvés
+      },
+      orderBy: { date: 'asc' },
+    });
+
+    // Vérifier que tous les IDs sont trouvés
+    if (selectedSupplementaryDays.length !== dto.supplementaryDayIds.length) {
+      const foundIds = selectedSupplementaryDays.map(s => s.id);
+      const missingIds = dto.supplementaryDayIds.filter(id => !foundIds.includes(id));
+      throw new BadRequestException(
+        `Certains jours supplémentaires sont invalides ou non approuvés: ${missingIds.join(', ')}`,
+      );
+    }
+
+    // 4. Calculer les heures disponibles
+    let totalAvailableHours = 0;
+    const supplementaryDayDetails = [];
+
+    for (const sd of selectedSupplementaryDays) {
+      const approvedHours = Number(sd.approvedHours || sd.hours || 0);
+      const convertedHours = Number(sd.convertedHoursToRecoveryDays || 0);
+      const availableHours = approvedHours - convertedHours;
+
+      if (availableHours <= 0) {
+        throw new BadRequestException(
+          `Le jour supplémentaire du ${sd.date.toISOString().split('T')[0]} n'a plus d'heures disponibles`,
+        );
+      }
+
+      totalAvailableHours += availableHours;
+      supplementaryDayDetails.push({
+        supplementaryDay: sd,
+        approvedHours,
+        availableHours,
+      });
+    }
+
+    // 5. Calculer le nombre maximum de jours possibles (arrondi à 0.5 près)
+    const rawDays = (totalAvailableHours * conversionRate) / dailyWorkingHours;
+    const maxPossibleDays = Math.round(rawDays * 2) / 2; // Arrondi à 0.5 près
+
+    if (dto.days > maxPossibleDays) {
+      throw new BadRequestException(
+        `Nombre de jours trop élevé. Maximum possible: ${maxPossibleDays} jour(s) (${totalAvailableHours.toFixed(2)}h disponibles)`,
+      );
+    }
+
+    // Permettre un minimum de 0.5 jour (demi-journée) si des heures sont disponibles
+    if (dto.days <= 0) {
+      throw new BadRequestException('Le nombre de jours doit être supérieur à 0');
+    }
+
+    // 6. Valider les dates
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (startDate > endDate) {
+      throw new BadRequestException('La date de début doit être antérieure à la date de fin');
+    }
+
+    if (startDate < today && !dto.allowPastDate) {
+      throw new BadRequestException(
+        'Les dates passées ne sont pas autorisées. Activez allowPastDate pour la régularisation.',
+      );
+    }
+
+    // 7. Déterminer si autoApprove est possible
+    let canAutoApprove = false;
+    const isPastDate = startDate < today;
+
+    if (isPastDate && dto.allowPastDate) {
+      canAutoApprove = true;
+    }
+
+    if (dto.autoApprove && !canAutoApprove) {
+      const currentUser = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { employee: true },
+      });
+
+      if (currentUser?.employee) {
+        if (employee.department?.manager?.id === currentUser.employee.id) {
+          canAutoApprove = true;
+        }
+      }
+
+      if (userPermissions && userPermissions.length > 0) {
+        const hasApproveAll = userPermissions.includes('overtime.approve_all');
+        const hasAdminAccess = userPermissions.includes('admin.full_access');
+        const hasOvertimeApprove = userPermissions.includes('overtime.approve');
+        if (hasApproveAll || hasAdminAccess || hasOvertimeApprove) {
+          canAutoApprove = true;
+        }
+      }
+    }
+
+    // 8. Créer la journée de récupération dans une transaction
+    const hoursToUse = totalAvailableHours;
+
+    const result = await this.prisma.$transaction(async (prisma) => {
+      // Créer le RecoveryDay
+      const recoveryDay = await prisma.recoveryDay.create({
+        data: {
+          tenantId,
+          employeeId: dto.employeeId,
+          startDate,
+          endDate,
+          days: dto.days,
+          sourceHours: hoursToUse,
+          conversionRate,
+          status: canAutoApprove ? RecoveryDayStatus.APPROVED : RecoveryDayStatus.PENDING,
+          approvedBy: canAutoApprove ? userId : null,
+          approvedAt: canAutoApprove ? new Date() : null,
+          notes: dto.notes ? `[Jours Supplémentaires] ${dto.notes}` : '[Conversion depuis Jours Supplémentaires]',
+        },
+      });
+
+      const supplementaryDayRecoveryDayLinks = [];
+
+      // Créer les liens et mettre à jour les jours supplémentaires
+      for (const { supplementaryDay, availableHours } of supplementaryDayDetails) {
+        // Créer le lien
+        const link = await prisma.supplementaryDayRecoveryDay.create({
+          data: {
+            supplementaryDayId: supplementaryDay.id,
+            recoveryDayId: recoveryDay.id,
+            hoursUsed: availableHours,
+          },
+        });
+
+        supplementaryDayRecoveryDayLinks.push(link);
+
+        // Mettre à jour le jour supplémentaire - marquer comme RECOVERED
+        const currentConverted = Number(supplementaryDay.convertedHoursToRecoveryDays || 0);
+        const newConvertedHours = currentConverted + availableHours;
+
+        await prisma.supplementaryDay.update({
+          where: { id: supplementaryDay.id },
+          data: {
+            convertedToRecoveryDays: true,
+            convertedHoursToRecoveryDays: newConvertedHours,
+            status: OvertimeStatus.RECOVERED,
+          },
+        });
+      }
+
+      return {
+        ...recoveryDay,
+        supplementaryDaySources: supplementaryDayRecoveryDayLinks,
+      };
+    });
+
+    // 9. Retourner avec les détails complets
+    const fullResult = await this.findOne(tenantId, result.id);
+
+    return {
+      ...fullResult,
+      conversionSummary: {
+        selectedSupplementaryDaysCount: selectedSupplementaryDays.length,
+        totalHoursConverted: hoursToUse,
+        daysGranted: dto.days,
+        autoApproved: canAutoApprove,
+        isRegularization: isPastDate,
+      },
     };
   }
 }

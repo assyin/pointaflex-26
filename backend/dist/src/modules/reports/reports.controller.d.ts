@@ -233,9 +233,9 @@ export declare class ReportsController {
                 };
             } & {
                 id: string;
-                hoursUsed: import("@prisma/client/runtime/library").Decimal;
                 overtimeId: string;
                 recoveryDayId: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
             })[];
         } & {
             id: string;
@@ -259,6 +259,59 @@ export declare class ReportsController {
             totalApprovedHours: number;
             totalHoursConvertedToRecovery: number;
             totalHoursPaid: number;
+            byStatus: Record<string, number>;
+            byType: Record<string, number>;
+            period: {
+                startDate: string;
+                endDate: string;
+            };
+        };
+    }>;
+    getSupplementaryDaysReport(user: any, dto: OvertimeReportDto): Promise<{
+        data: ({
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+                department: {
+                    name: string;
+                };
+                site: {
+                    name: string;
+                };
+                team: {
+                    name: string;
+                };
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            employeeId: string;
+            date: Date;
+            notes: string | null;
+            status: import(".prisma/client").$Enums.OvertimeStatus;
+            type: import(".prisma/client").$Enums.SupplementaryDayType;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            source: string;
+            hours: import("@prisma/client/runtime/library").Decimal;
+            attendanceId: string | null;
+            approvedHours: import("@prisma/client/runtime/library").Decimal | null;
+            convertedToRecovery: boolean;
+            convertedToRecoveryDays: boolean;
+            convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
+            rejectionReason: string | null;
+            checkIn: Date | null;
+            checkOut: Date | null;
+        })[];
+        summary: {
+            total: number;
+            totalHours: number;
+            totalApprovedHours: number;
+            recoveredHours: number;
             byStatus: Record<string, number>;
             byType: Record<string, number>;
             period: {

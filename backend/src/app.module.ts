@@ -14,6 +14,7 @@ import { TeamsModule } from './modules/teams/teams.module';
 import { SchedulesModule } from './modules/schedules/schedules.module';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { OvertimeModule } from './modules/overtime/overtime.module';
+import { SupplementaryDaysModule } from './modules/supplementary-days/supplementary-days.module';
 import { RecoveryDaysModule } from './modules/recovery-days/recovery-days.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -58,6 +59,7 @@ import { TenantResolverMiddleware } from './common/middleware/tenant-resolver.mi
     SchedulesModule,
     LeavesModule,
     OvertimeModule,
+    SupplementaryDaysModule,
     RecoveryDaysModule,
     ReportsModule,
     AuditModule,

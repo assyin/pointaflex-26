@@ -57,7 +57,23 @@ export const reportsApi = {
   },
 
   getOvertimeReport: async (filters: ReportFilters) => {
-    const response = await apiClient.get('/reports/overtime', { 
+    const response = await apiClient.get('/reports/overtime', {
+      params: {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        employeeId: filters.employeeId,
+        departmentId: filters.departmentId,
+        siteId: filters.siteId,
+        teamId: filters.teamId,
+        status: filters.status,
+        type: filters.type,
+      }
+    });
+    return response.data;
+  },
+
+  getSupplementaryDaysReport: async (filters: ReportFilters) => {
+    const response = await apiClient.get('/reports/supplementary-days', {
       params: {
         startDate: filters.startDate,
         endDate: filters.endDate,
@@ -73,7 +89,7 @@ export const reportsApi = {
   },
 
   getPlanningReport: async (filters: ReportFilters) => {
-    const response = await apiClient.get('/reports/planning', { 
+    const response = await apiClient.get('/reports/planning', {
       params: {
         startDate: filters.startDate,
         endDate: filters.endDate,
@@ -84,6 +100,43 @@ export const reportsApi = {
       }
     });
     return response.data;
+  },
+
+  getRecoveryDaysReport: async (filters: ReportFilters) => {
+    const response = await apiClient.get('/recovery-days', {
+      params: {
+        startDate: filters.startDate,
+        endDate: filters.endDate,
+        employeeId: filters.employeeId,
+        status: filters.status,
+      }
+    });
+    // Transform data to match report format
+    const data = Array.isArray(response.data) ? response.data : (response.data?.data || []);
+
+    // Calculate summary statistics
+    const totalDays = data.reduce((sum: number, r: any) => sum + (parseFloat(r.days) || 0), 0);
+    const byStatus = data.reduce((acc: Record<string, number>, r: any) => {
+      acc[r.status] = (acc[r.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      data,
+      summary: {
+        total: data.length,
+        totalDays,
+        byStatus,
+        pendingCount: byStatus['PENDING'] || 0,
+        approvedCount: byStatus['APPROVED'] || 0,
+        usedCount: byStatus['USED'] || 0,
+        cancelledCount: byStatus['CANCELLED'] || 0,
+        period: {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+        },
+      },
+    };
   },
 
   getPayrollReport: async (filters: ReportFilters) => {

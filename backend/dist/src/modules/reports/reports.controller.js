@@ -49,6 +49,9 @@ let ReportsController = class ReportsController {
     getOvertimeReport(user, dto) {
         return this.reportsService.getOvertimeReport(user.tenantId, dto);
     }
+    getSupplementaryDaysReport(user, dto) {
+        return this.reportsService.getSupplementaryDaysReport(user.tenantId, dto);
+    }
     getAbsencesReport(user, dto) {
         return this.reportsService.getAbsencesReport(user.tenantId, dto);
     }
@@ -123,6 +126,16 @@ __decorate([
     __metadata("design:paramtypes", [Object, overtime_report_dto_1.OvertimeReportDto]),
     __metadata("design:returntype", void 0)
 ], ReportsController.prototype, "getOvertimeReport", null);
+__decorate([
+    (0, common_1.Get)('supplementary-days'),
+    (0, roles_decorator_1.Roles)(client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),
+    (0, swagger_1.ApiOperation)({ summary: 'Get supplementary days report (weekend/holiday work)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Query)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, overtime_report_dto_1.OvertimeReportDto]),
+    __metadata("design:returntype", void 0)
+], ReportsController.prototype, "getSupplementaryDaysReport", null);
 __decorate([
     (0, common_1.Get)('absences'),
     (0, roles_decorator_1.Roles)(client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),

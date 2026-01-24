@@ -8,6 +8,9 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AttendanceService = void 0;
 const common_1 = require("@nestjs/common");
@@ -18,9 +21,11 @@ const client_2 = require("@prisma/client");
 const library_1 = require("@prisma/client/runtime/library");
 const matricule_util_1 = require("../../common/utils/matricule.util");
 const manager_level_util_1 = require("../../common/utils/manager-level.util");
+const supplementary_days_service_1 = require("../supplementary-days/supplementary-days.service");
 let AttendanceService = class AttendanceService {
-    constructor(prisma) {
+    constructor(prisma, supplementaryDaysService) {
         this.prisma = prisma;
+        this.supplementaryDaysService = supplementaryDaysService;
     }
     roundOvertimeHours(hours, roundingMinutes) {
         if (roundingMinutes <= 0)
@@ -184,6 +189,47 @@ let AttendanceService = class AttendanceService {
         }
         catch (error) {
             console.error(`[AutoOvertime] Erreur lors de la création automatique:`, error);
+        }
+    }
+    async createAutoSupplementaryDay(tenantId, attendance, hoursWorked, checkIn) {
+        try {
+            if (!hoursWorked || hoursWorked <= 0) {
+                return;
+            }
+            let checkInTime = checkIn;
+            if (!checkInTime) {
+                const attendanceDate = new Date(attendance.timestamp);
+                const startOfDay = new Date(attendanceDate);
+                startOfDay.setHours(0, 0, 0, 0);
+                const checkInAttendance = await this.prisma.attendance.findFirst({
+                    where: {
+                        tenantId,
+                        employeeId: attendance.employeeId,
+                        type: 'IN',
+                        timestamp: {
+                            gte: startOfDay,
+                            lt: attendance.timestamp,
+                        },
+                    },
+                    orderBy: { timestamp: 'desc' },
+                });
+                checkInTime = checkInAttendance?.timestamp || attendance.timestamp;
+            }
+            const result = await this.supplementaryDaysService.createAutoSupplementaryDay({
+                tenantId,
+                employeeId: attendance.employeeId,
+                attendanceId: attendance.id,
+                date: new Date(attendance.timestamp),
+                checkIn: checkInTime,
+                checkOut: attendance.timestamp,
+                hoursWorked,
+            });
+            if (result.created) {
+                console.log(`[AutoSupplementaryDay] ✅ Jour supplémentaire créé depuis pointage`);
+            }
+        }
+        catch (error) {
+            console.error(`[AutoSupplementaryDay] Erreur lors de la création automatique:`, error);
         }
     }
     async create(tenantId, createAttendanceDto) {
@@ -355,6 +401,9 @@ let AttendanceService = class AttendanceService {
             }
             if (createAttendanceDto.type === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
                 await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
+            }
+            if (createAttendanceDto.type === client_2.AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+                await this.createAutoSupplementaryDay(tenantId, attendance, metrics.hoursWorked);
             }
             if (createAttendanceDto.type === client_2.AttendanceType.OUT) {
                 const timestamp = new Date(createAttendanceDto.timestamp);
@@ -1329,6 +1378,9 @@ let AttendanceService = class AttendanceService {
         if (effectiveType2 === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
             await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
         }
+        if (effectiveType2 === client_2.AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+            await this.createAutoSupplementaryDay(tenantId, attendance, metrics.hoursWorked);
+        }
         if (effectiveType2 === client_2.AttendanceType.OUT) {
             const timestamp = new Date(webhookData.timestamp);
             const startOfDay = new Date(timestamp);
@@ -1815,6 +1867,9 @@ let AttendanceService = class AttendanceService {
         }
         if (attendance.type === client_2.AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
             await this.createAutoOvertime(tenantId, updatedAttendance, metrics.overtimeMinutes);
+        }
+        if (attendance.type === client_2.AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+            await this.createAutoSupplementaryDay(tenantId, updatedAttendance, metrics.hoursWorked);
         }
         return updatedAttendance;
     }
@@ -6144,6 +6199,31 @@ let AttendanceService = class AttendanceService {
             if (overtimeMinutes && overtimeMinutes > 0) {
                 await this.createAutoOvertime(tenantId, attendance, overtimeMinutes);
             }
+            if (webhookData.type === 'OUT') {
+                const punchDateStr = punchTime.toISOString().split('T')[0];
+                const matchingIn = await this.prisma.attendance.findFirst({
+                    where: {
+                        tenantId,
+                        employeeId: employee.id,
+                        type: 'IN',
+                        timestamp: {
+                            gte: new Date(punchDateStr + 'T00:00:00Z'),
+                            lt: punchTime,
+                        },
+                        OR: [
+                            { anomalyType: null },
+                            { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                        ],
+                    },
+                    orderBy: { timestamp: 'desc' },
+                });
+                if (matchingIn) {
+                    const hoursWorked = (punchTime.getTime() - matchingIn.timestamp.getTime()) / (1000 * 60 * 60);
+                    if (hoursWorked > 0) {
+                        await this.createAutoSupplementaryDay(tenantId, attendance, hoursWorked, matchingIn.timestamp);
+                    }
+                }
+            }
             const duration = Date.now() - startTime;
             console.log(`   ⏱️ Traitement: ${duration}ms`);
             console.log(`═══════════════════════════════════════════════════════════════\n`);
@@ -6168,6 +6248,8 @@ let AttendanceService = class AttendanceService {
 exports.AttendanceService = AttendanceService;
 exports.AttendanceService = AttendanceService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [prisma_service_1.PrismaService])
+    __param(1, (0, common_1.Inject)((0, common_1.forwardRef)(() => supplementary_days_service_1.SupplementaryDaysService))),
+    __metadata("design:paramtypes", [prisma_service_1.PrismaService,
+        supplementary_days_service_1.SupplementaryDaysService])
 ], AttendanceService);
 //# sourceMappingURL=attendance.service.js.map

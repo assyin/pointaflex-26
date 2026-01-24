@@ -259,9 +259,9 @@ export declare class EmployeesService {
                 tenantId: string;
                 userId: string;
                 format: string;
-                filePath: string | null;
-                fileName: string;
                 reportType: string;
+                fileName: string;
+                filePath: string | null;
                 fileSize: number | null;
                 filters: import("@prisma/client/runtime/library").JsonValue | null;
             } | {
@@ -270,9 +270,9 @@ export declare class EmployeesService {
                 tenantId: string;
                 userId: string;
                 format: string;
-                filePath: string | null;
-                fileName: string;
                 reportType: string;
+                fileName: string;
+                filePath: string | null;
                 fileSize: number | null;
                 filters: import("@prisma/client/runtime/library").JsonValue | null;
             })[] | ({
@@ -504,9 +504,9 @@ export declare class EmployeesService {
                 tenantId: string;
                 userId: string;
                 format: string;
-                filePath: string | null;
-                fileName: string;
                 reportType: string;
+                fileName: string;
+                filePath: string | null;
                 fileSize: number | null;
                 filters: import("@prisma/client/runtime/library").JsonValue | null;
             }[] | {

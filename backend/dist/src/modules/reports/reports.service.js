@@ -2323,6 +2323,110 @@ let ReportsService = class ReportsService {
         }
         return absenceCount;
     }
+    async getSupplementaryDaysReport(tenantId, dto) {
+        const startDate = new Date(dto.startDate);
+        const endDate = new Date(dto.endDate);
+        endDate.setHours(23, 59, 59, 999);
+        const where = {
+            tenantId,
+            date: {
+                gte: startDate,
+                lte: endDate,
+            },
+        };
+        if (dto.employeeId) {
+            where.employeeId = dto.employeeId;
+        }
+        if (dto.status) {
+            where.status = dto.status;
+        }
+        if (dto.type) {
+            where.type = dto.type;
+        }
+        if (dto.departmentId || dto.siteId || dto.teamId) {
+            where.employee = {};
+            if (dto.departmentId) {
+                where.employee.departmentId = dto.departmentId;
+            }
+            if (dto.siteId) {
+                where.employee.siteId = dto.siteId;
+            }
+            if (dto.teamId) {
+                where.employee.teamId = dto.teamId;
+            }
+        }
+        const supplementaryDaysRecords = await this.prisma.supplementaryDay.findMany({
+            where,
+            include: {
+                employee: {
+                    select: {
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        matricule: true,
+                        department: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                        site: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                        team: {
+                            select: {
+                                name: true,
+                            },
+                        },
+                    },
+                },
+            },
+            orderBy: [
+                { date: 'desc' },
+                { employee: { lastName: 'asc' } },
+            ],
+        });
+        const totalHours = supplementaryDaysRecords.reduce((sum, record) => {
+            const hours = record.approvedHours || record.hours;
+            return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
+        }, 0);
+        const totalApprovedHours = supplementaryDaysRecords
+            .filter(r => r.status === 'APPROVED' || r.status === 'RECOVERED')
+            .reduce((sum, record) => {
+            const hours = record.approvedHours || record.hours;
+            return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
+        }, 0);
+        const recoveredHours = supplementaryDaysRecords
+            .filter(r => r.status === 'RECOVERED')
+            .reduce((sum, record) => {
+            const hours = record.approvedHours || record.hours;
+            return sum + (typeof hours === 'number' ? hours : parseFloat(String(hours)) || 0);
+        }, 0);
+        const byStatus = supplementaryDaysRecords.reduce((acc, record) => {
+            acc[record.status] = (acc[record.status] || 0) + 1;
+            return acc;
+        }, {});
+        const byType = supplementaryDaysRecords.reduce((acc, record) => {
+            acc[record.type] = (acc[record.type] || 0) + 1;
+            return acc;
+        }, {});
+        return {
+            data: supplementaryDaysRecords,
+            summary: {
+                total: supplementaryDaysRecords.length,
+                totalHours,
+                totalApprovedHours,
+                recoveredHours,
+                byStatus,
+                byType,
+                period: {
+                    startDate: dto.startDate,
+                    endDate: dto.endDate,
+                },
+            },
+        };
+    }
 };
 exports.ReportsService = ReportsService;
 exports.ReportsService = ReportsService = __decorate([

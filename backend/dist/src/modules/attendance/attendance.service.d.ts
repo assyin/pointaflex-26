@@ -6,13 +6,16 @@ import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
 import { ValidateAttendanceDto, ValidationAction } from './dto/validate-attendance.dto';
 import { AttendanceType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { SupplementaryDaysService } from '../supplementary-days/supplementary-days.service';
 export declare class AttendanceService {
     private prisma;
-    constructor(prisma: PrismaService);
+    private supplementaryDaysService;
+    constructor(prisma: PrismaService, supplementaryDaysService: SupplementaryDaysService);
     private roundOvertimeHours;
     private getOvertimeRate;
     private isNightShiftTime;
     private createAutoOvertime;
+    private createAutoSupplementaryDay;
     create(tenantId: string, createAttendanceDto: CreateAttendanceDto): Promise<({
         employee: {
             id: string;

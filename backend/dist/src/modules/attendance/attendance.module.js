@@ -13,6 +13,7 @@ const attendance_service_1 = require("./attendance.service");
 const attendance_controller_1 = require("./attendance.controller");
 const prisma_module_1 = require("../../database/prisma.module");
 const mail_module_1 = require("../mail/mail.module");
+const supplementary_days_module_1 = require("../supplementary-days/supplementary-days.module");
 const detect_absences_job_1 = require("./jobs/detect-absences.job");
 const detect_missing_out_job_1 = require("./jobs/detect-missing-out.job");
 const auto_close_sessions_job_1 = require("./jobs/auto-close-sessions.job");
@@ -28,7 +29,7 @@ let AttendanceModule = class AttendanceModule {
 exports.AttendanceModule = AttendanceModule;
 exports.AttendanceModule = AttendanceModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule, schedule_1.ScheduleModule, mail_module_1.MailModule],
+        imports: [prisma_module_1.PrismaModule, schedule_1.ScheduleModule, mail_module_1.MailModule, (0, common_1.forwardRef)(() => supplementary_days_module_1.SupplementaryDaysModule)],
         controllers: [attendance_controller_1.AttendanceController],
         providers: [
             attendance_service_1.AttendanceService,

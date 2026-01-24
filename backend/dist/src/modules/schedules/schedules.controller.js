@@ -140,6 +140,36 @@ let SchedulesController = class SchedulesController {
         });
         res.send(buffer);
     }
+    async importWeeklyCalendar(user, file) {
+        if (!file) {
+            return {
+                statusCode: common_1.HttpStatus.BAD_REQUEST,
+                message: 'Aucun fichier téléchargé',
+            };
+        }
+        if (!file.originalname.match(/\.(xlsx|xls)$/)) {
+            return {
+                statusCode: common_1.HttpStatus.BAD_REQUEST,
+                message: 'Format de fichier invalide. Seuls les fichiers .xlsx et .xls sont acceptés.',
+            };
+        }
+        const result = await this.schedulesService.importFromWeeklyCalendar(user.tenantId, file.buffer);
+        return {
+            statusCode: common_1.HttpStatus.OK,
+            message: `Import terminé: ${result.success} planning(s) importé(s), ${result.failed} échec(s)`,
+            data: result,
+        };
+    }
+    async downloadWeeklyCalendarTemplate(user, res) {
+        const buffer = await this.schedulesService.generateWeeklyCalendarTemplate(user.tenantId);
+        const filename = `planning_calendrier_hebdomadaire_${new Date().toISOString().split('T')[0]}.xlsx`;
+        res.set({
+            'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Content-Length': buffer.length,
+        });
+        res.send(buffer);
+    }
 };
 exports.SchedulesController = SchedulesController;
 __decorate([
@@ -317,6 +347,28 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", Promise)
 ], SchedulesController.prototype, "downloadTemplate", null);
+__decorate([
+    (0, common_1.Post)('import/weekly-calendar'),
+    (0, permissions_decorator_1.RequirePermissions)('schedule.create', 'schedule.import'),
+    (0, common_1.UseInterceptors)((0, platform_express_1.FileInterceptor)('file')),
+    (0, swagger_1.ApiConsumes)('multipart/form-data'),
+    (0, swagger_1.ApiOperation)({ summary: 'Import schedules from Weekly Calendar Excel format' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.UploadedFile)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SchedulesController.prototype, "importWeeklyCalendar", null);
+__decorate([
+    (0, common_1.Get)('import/weekly-calendar/template'),
+    (0, permissions_decorator_1.RequirePermissions)('schedule.create'),
+    (0, swagger_1.ApiOperation)({ summary: 'Download Weekly Calendar Excel template with employees and shift codes' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Res)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], SchedulesController.prototype, "downloadWeeklyCalendarTemplate", null);
 exports.SchedulesController = SchedulesController = __decorate([
     (0, swagger_1.ApiTags)('Schedules'),
     (0, common_1.Controller)('schedules'),

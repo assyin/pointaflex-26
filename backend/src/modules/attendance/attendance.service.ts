@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
 import { RecoveryDayStatus, LeaveStatus, OvertimeStatus } from '@prisma/client';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
@@ -10,10 +10,15 @@ import { AttendanceType, NotificationType, DeviceType } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { findEmployeeByMatriculeFlexible } from '../../common/utils/matricule.util';
 import { getManagerLevel, getManagedEmployeeIds } from '../../common/utils/manager-level.util';
+import { SupplementaryDaysService } from '../supplementary-days/supplementary-days.service';
 
 @Injectable()
 export class AttendanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Inject(forwardRef(() => SupplementaryDaysService))
+    private supplementaryDaysService: SupplementaryDaysService,
+  ) {}
 
   /**
    * Arrondit les heures supplémentaires selon la configuration du tenant
@@ -235,6 +240,65 @@ export class AttendanceService {
     } catch (error) {
       // Ne pas bloquer le pointage si la création de l'overtime échoue
       console.error(`[AutoOvertime] Erreur lors de la création automatique:`, error);
+    }
+  }
+
+  /**
+   * Création automatique d'un jour supplémentaire en temps réel lors d'un pointage OUT
+   * sur un weekend ou jour férié (Modèle hybride - Niveau 1)
+   */
+  private async createAutoSupplementaryDay(
+    tenantId: string,
+    attendance: any,
+    hoursWorked: number,
+    checkIn?: Date,
+  ): Promise<void> {
+    try {
+      // Ne pas créer si pas d'heures travaillées
+      if (!hoursWorked || hoursWorked <= 0) {
+        return;
+      }
+
+      // Trouver le pointage IN correspondant si non fourni
+      let checkInTime = checkIn;
+      if (!checkInTime) {
+        const attendanceDate = new Date(attendance.timestamp);
+        const startOfDay = new Date(attendanceDate);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const checkInAttendance = await this.prisma.attendance.findFirst({
+          where: {
+            tenantId,
+            employeeId: attendance.employeeId,
+            type: 'IN',
+            timestamp: {
+              gte: startOfDay,
+              lt: attendance.timestamp,
+            },
+          },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        checkInTime = checkInAttendance?.timestamp || attendance.timestamp;
+      }
+
+      // Appeler le service de jours supplémentaires
+      const result = await this.supplementaryDaysService.createAutoSupplementaryDay({
+        tenantId,
+        employeeId: attendance.employeeId,
+        attendanceId: attendance.id,
+        date: new Date(attendance.timestamp),
+        checkIn: checkInTime,
+        checkOut: attendance.timestamp,
+        hoursWorked,
+      });
+
+      if (result.created) {
+        console.log(`[AutoSupplementaryDay] ✅ Jour supplémentaire créé depuis pointage`);
+      }
+    } catch (error) {
+      // Ne pas bloquer le pointage si la création du jour supplémentaire échoue
+      console.error(`[AutoSupplementaryDay] Erreur lors de la création automatique:`, error);
     }
   }
 
@@ -479,6 +543,11 @@ export class AttendanceService {
       // Création automatique d'Overtime en temps réel (Modèle hybride - Niveau 1)
       if (createAttendanceDto.type === AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
         await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
+      }
+
+      // Création automatique de Jour Supplémentaire si weekend/jour férié (Modèle hybride - Niveau 1)
+      if (createAttendanceDto.type === AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+        await this.createAutoSupplementaryDay(tenantId, attendance, metrics.hoursWorked);
       }
 
       // ═══════════════════════════════════════════════════════════════════════════════
@@ -1930,6 +1999,11 @@ export class AttendanceService {
       await this.createAutoOvertime(tenantId, attendance, metrics.overtimeMinutes);
     }
 
+    // Création automatique de Jour Supplémentaire si weekend/jour férié (Modèle hybride - Niveau 1)
+    if (effectiveType2 === AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+      await this.createAutoSupplementaryDay(tenantId, attendance, metrics.hoursWorked);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // FIX 14/01/2026: TOUJOURS nettoyer MISSING_OUT quand un OUT arrive
     // (ne plus dépendre de hoursWorked qui peut être undefined)
@@ -2599,6 +2673,11 @@ export class AttendanceService {
     // Création automatique d'Overtime lors de correction (Modèle hybride - Niveau 1)
     if (attendance.type === AttendanceType.OUT && metrics.overtimeMinutes && metrics.overtimeMinutes > 0) {
       await this.createAutoOvertime(tenantId, updatedAttendance, metrics.overtimeMinutes);
+    }
+
+    // Création automatique de Jour Supplémentaire lors de correction (Modèle hybride - Niveau 1)
+    if (attendance.type === AttendanceType.OUT && metrics.hoursWorked && metrics.hoursWorked > 0) {
+      await this.createAutoSupplementaryDay(tenantId, updatedAttendance, metrics.hoursWorked);
     }
 
     return updatedAttendance;
@@ -8944,6 +9023,35 @@ export class AttendanceService {
       // 7. CRÉATION AUTO OVERTIME si applicable
       if (overtimeMinutes && overtimeMinutes > 0) {
         await this.createAutoOvertime(tenantId, attendance, overtimeMinutes);
+      }
+
+      // 8. CRÉATION AUTO JOUR SUPPLÉMENTAIRE si weekend/jour férié
+      if (webhookData.type === 'OUT') {
+        // Trouver le IN correspondant pour calculer les heures travaillées
+        const punchDateStr = punchTime.toISOString().split('T')[0];
+        const matchingIn = await this.prisma.attendance.findFirst({
+          where: {
+            tenantId,
+            employeeId: employee.id,
+            type: 'IN',
+            timestamp: {
+              gte: new Date(punchDateStr + 'T00:00:00Z'),
+              lt: punchTime,
+            },
+            OR: [
+              { anomalyType: null },
+              { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+            ],
+          },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        if (matchingIn) {
+          const hoursWorked = (punchTime.getTime() - matchingIn.timestamp.getTime()) / (1000 * 60 * 60);
+          if (hoursWorked > 0) {
+            await this.createAutoSupplementaryDay(tenantId, attendance, hoursWorked, matchingIn.timestamp);
+          }
+        }
       }
 
       const duration = Date.now() - startTime;

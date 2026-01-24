@@ -216,4 +216,23 @@ export const schedulesApi = {
     });
     return response.data;
   },
+
+  // Weekly Calendar Import
+  importWeeklyCalendar: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post('/schedules/import/weekly-calendar', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  getWeeklyCalendarTemplate: async () => {
+    const response = await apiClient.get('/schedules/import/weekly-calendar/template', {
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };

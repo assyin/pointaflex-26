@@ -94,6 +94,16 @@ export class ReportsController {
     return this.reportsService.getOvertimeReport(user.tenantId, dto);
   }
 
+  @Get('supplementary-days')
+  @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
+  @ApiOperation({ summary: 'Get supplementary days report (weekend/holiday work)' })
+  getSupplementaryDaysReport(
+    @CurrentUser() user: any,
+    @Query() dto: OvertimeReportDto,
+  ) {
+    return this.reportsService.getSupplementaryDaysReport(user.tenantId, dto);
+  }
+
   @Get('absences')
   @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
   @ApiOperation({ summary: 'Get absences and lateness report' })

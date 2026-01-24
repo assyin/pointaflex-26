@@ -126,6 +126,81 @@ export class OvertimeController {
     return this.overtimeService.convertToRecovery(user.tenantId, id);
   }
 
+  @Post(':id/revoke-approval')
+  @RequirePermissions('overtime.approve')
+  @ApiOperation({
+    summary: 'Annuler l\'approbation d\'une heure supplémentaire',
+    description: 'Remet une HS approuvée en statut PENDING pour reconsidération'
+  })
+  revokeApproval(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.overtimeService.revokeApproval(user.tenantId, id, user.userId, body?.reason);
+  }
+
+  @Post(':id/revoke-rejection')
+  @RequirePermissions('overtime.approve')
+  @ApiOperation({
+    summary: 'Annuler le rejet d\'une heure supplémentaire',
+    description: 'Remet une HS rejetée en statut PENDING pour reconsidération'
+  })
+  revokeRejection(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.overtimeService.revokeRejection(user.tenantId, id, user.userId, body?.reason);
+  }
+
+  @Patch(':id/approved-hours')
+  @RequirePermissions('overtime.approve')
+  @ApiOperation({
+    summary: 'Modifier les heures approuvées',
+    description: 'Permet de corriger le nombre d\'heures approuvées'
+  })
+  updateApprovedHours(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { approvedHours: number; reason?: string },
+  ) {
+    return this.overtimeService.updateApprovedHours(
+      user.tenantId,
+      id,
+      user.userId,
+      body.approvedHours,
+      body.reason,
+    );
+  }
+
+  @Get(':id/recovery-info')
+  @RequirePermissions('overtime.view_all', 'overtime.view_own')
+  @ApiOperation({
+    summary: 'Récupérer les informations de récupération liées',
+    description: 'Retourne les jours de récupération liés à cet overtime et indique si des dates sont passées'
+  })
+  getRecoveryInfo(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    return this.overtimeService.getRecoveryInfo(user.tenantId, id);
+  }
+
+  @Post(':id/cancel-conversion')
+  @RequirePermissions('overtime.approve')
+  @ApiOperation({
+    summary: 'Annuler la conversion en récupération',
+    description: 'Annule les jours de récupération liés et remet l\'overtime en APPROVED. Justification obligatoire si date passée.'
+  })
+  cancelConversion(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    return this.overtimeService.cancelConversion(user.tenantId, id, user.userId, body?.reason);
+  }
+
   @Get('balance/:employeeId')
   @RequirePermissions('overtime.view_all', 'overtime.view_own')
   @ApiOperation({ summary: 'Get overtime balance for an employee' })

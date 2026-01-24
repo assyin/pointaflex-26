@@ -127,6 +127,7 @@ export declare class OvertimeService {
         rate: import("@prisma/client/runtime/library").Decimal;
         convertedToRecovery: boolean;
         recoveryId: string;
+        convertedToRecoveryDays: boolean;
         rejectionReason: string;
     }>;
     update(tenantId: string, id: string, dto: UpdateOvertimeDto): Promise<{
@@ -188,6 +189,146 @@ export declare class OvertimeService {
         usedHours: import("@prisma/client/runtime/library").Decimal;
         remainingHours: import("@prisma/client/runtime/library").Decimal;
         expiryDate: Date | null;
+    }>;
+    revokeApproval(tenantId: string, id: string, userId: string, reason?: string): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        isNightShift: boolean;
+        employeeId: string;
+        date: Date;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.OvertimeStatus;
+        type: import(".prisma/client").$Enums.OvertimeType;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        hours: import("@prisma/client/runtime/library").Decimal;
+        approvedHours: import("@prisma/client/runtime/library").Decimal | null;
+        rate: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecovery: boolean;
+        recoveryId: string | null;
+        convertedHoursToRecovery: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecoveryDays: boolean;
+        convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
+        rejectionReason: string | null;
+    }>;
+    revokeRejection(tenantId: string, id: string, userId: string, reason?: string): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        isNightShift: boolean;
+        employeeId: string;
+        date: Date;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.OvertimeStatus;
+        type: import(".prisma/client").$Enums.OvertimeType;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        hours: import("@prisma/client/runtime/library").Decimal;
+        approvedHours: import("@prisma/client/runtime/library").Decimal | null;
+        rate: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecovery: boolean;
+        recoveryId: string | null;
+        convertedHoursToRecovery: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecoveryDays: boolean;
+        convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
+        rejectionReason: string | null;
+    }>;
+    updateApprovedHours(tenantId: string, id: string, userId: string, newApprovedHours: number, reason?: string): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        isNightShift: boolean;
+        employeeId: string;
+        date: Date;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.OvertimeStatus;
+        type: import(".prisma/client").$Enums.OvertimeType;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        hours: import("@prisma/client/runtime/library").Decimal;
+        approvedHours: import("@prisma/client/runtime/library").Decimal | null;
+        rate: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecovery: boolean;
+        recoveryId: string | null;
+        convertedHoursToRecovery: import("@prisma/client/runtime/library").Decimal;
+        convertedToRecoveryDays: boolean;
+        convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
+        rejectionReason: string | null;
+    }>;
+    getRecoveryInfo(tenantId: string, id: string): Promise<{
+        hasRecoveryDays: boolean;
+        recoveryDays: {
+            id: string;
+            startDate: Date;
+            endDate: Date;
+            status: import(".prisma/client").$Enums.RecoveryDayStatus;
+            hoursUsed: number;
+            sourceHours: number;
+            isPast: boolean;
+        }[];
+        hasPastDates: boolean;
+    }>;
+    cancelConversion(tenantId: string, id: string, userId: string, reason?: string): Promise<{
+        overtime: {
+            employee: {
+                id: string;
+                firstName: string;
+                lastName: string;
+                matricule: string;
+            };
+        } & {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            tenantId: string;
+            isNightShift: boolean;
+            employeeId: string;
+            date: Date;
+            notes: string | null;
+            status: import(".prisma/client").$Enums.OvertimeStatus;
+            type: import(".prisma/client").$Enums.OvertimeType;
+            approvedBy: string | null;
+            approvedAt: Date | null;
+            hours: import("@prisma/client/runtime/library").Decimal;
+            approvedHours: import("@prisma/client/runtime/library").Decimal | null;
+            rate: import("@prisma/client/runtime/library").Decimal;
+            convertedToRecovery: boolean;
+            recoveryId: string | null;
+            convertedHoursToRecovery: import("@prisma/client/runtime/library").Decimal;
+            convertedToRecoveryDays: boolean;
+            convertedHoursToRecoveryDays: import("@prisma/client/runtime/library").Decimal;
+            rejectionReason: string | null;
+        };
+        cancelledRecoveryDays: number;
+        restoredOvertimes: number;
+        restoredOvertimeIds: string[];
+        hasPastDates: boolean;
+        pastDates: string[];
     }>;
     getBalance(tenantId: string, employeeId: string): Promise<{
         employeeId: string;

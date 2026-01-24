@@ -1442,6 +1442,338 @@ let SchedulesService = class SchedulesService {
         }
         return result;
     }
+    async importFromWeeklyCalendar(tenantId, fileBuffer) {
+        const result = {
+            success: 0,
+            failed: 0,
+            errors: [],
+            imported: [],
+        };
+        try {
+            const XLSX = require('xlsx');
+            const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
+            const planningSheetName = workbook.SheetNames.find((name) => name.toLowerCase().includes('planning') || name === workbook.SheetNames[0]);
+            if (!planningSheetName) {
+                throw new common_1.BadRequestException('Feuille "Planning" introuvable dans le fichier');
+            }
+            const worksheet = workbook.Sheets[planningSheetName];
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            let weekStartDate = null;
+            let dataStartRow = 0;
+            for (let i = 0; i < Math.min(5, rows.length); i++) {
+                const row = rows[i];
+                if (row && row[0]) {
+                    const firstCell = String(row[0]).toLowerCase();
+                    if (firstCell.includes('semaine du') || firstCell.includes('semaine')) {
+                        for (let j = 1; j < row.length; j++) {
+                            if (row[j]) {
+                                const dateVal = this.parseDate(String(row[j]));
+                                if (dateVal && !isNaN(dateVal.getTime())) {
+                                    weekStartDate = dateVal;
+                                    break;
+                                }
+                            }
+                        }
+                        dataStartRow = i + 1;
+                        break;
+                    }
+                }
+            }
+            if (!weekStartDate) {
+                for (let i = 0; i < Math.min(5, rows.length); i++) {
+                    const row = rows[i];
+                    if (row && row[0] && String(row[0]).toLowerCase().includes('matricule')) {
+                        dataStartRow = i + 1;
+                        const today = new Date();
+                        const dayOfWeek = today.getDay();
+                        const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                        weekStartDate = new Date(today);
+                        weekStartDate.setDate(today.getDate() + diff);
+                        weekStartDate.setHours(0, 0, 0, 0);
+                        result.errors.push({
+                            row: 0,
+                            error: `Date de semaine non trouvée, utilisation de la semaine courante: ${weekStartDate.toLocaleDateString('fr-FR')}`,
+                        });
+                        break;
+                    }
+                }
+            }
+            if (!weekStartDate) {
+                throw new common_1.BadRequestException('Impossible de déterminer la date de début de semaine. Ajoutez une ligne "Semaine du" avec la date.');
+            }
+            const weekDates = [];
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(weekStartDate);
+                date.setDate(weekStartDate.getDate() + i);
+                date.setHours(0, 0, 0, 0);
+                weekDates.push(date);
+            }
+            const [employees, shifts] = await Promise.all([
+                this.prisma.employee.findMany({
+                    where: { tenantId },
+                    select: { id: true, matricule: true, firstName: true, lastName: true },
+                }),
+                this.prisma.shift.findMany({
+                    where: { tenantId },
+                    select: { id: true, code: true, name: true },
+                }),
+            ]);
+            const employeeMap = new Map(employees.map((e) => [e.matricule.toUpperCase(), e.id]));
+            const shiftMap = new Map(shifts.map((s) => [s.code.toUpperCase(), s.id]));
+            const shiftNameMap = new Map(shifts.map((s) => [s.name.toUpperCase(), s.id]));
+            const skipCodes = new Set(['-', 'R', 'C', 'REPOS', 'CONGE', 'CONGÉ', 'REC', 'RECUP', 'RÉCUP', '']);
+            let headerRow = null;
+            for (let i = dataStartRow - 1; i >= 0; i--) {
+                const row = rows[i];
+                if (row && row[0] && String(row[0]).toLowerCase().includes('matricule')) {
+                    headerRow = row;
+                    break;
+                }
+            }
+            let dayStartCol = 3;
+            if (headerRow) {
+                for (let j = 0; j < headerRow.length; j++) {
+                    const header = String(headerRow[j] || '').toLowerCase();
+                    if (header.includes('lun') || header.includes('mon')) {
+                        dayStartCol = j;
+                        break;
+                    }
+                }
+            }
+            const dataRows = rows.slice(dataStartRow);
+            for (let i = 0; i < dataRows.length; i++) {
+                const row = dataRows[i];
+                const rowNumber = dataStartRow + i + 1;
+                if (!row || row.length === 0 || !row[0]) {
+                    continue;
+                }
+                const matricule = String(row[0] || '').trim().toUpperCase();
+                if (!matricule || matricule === 'TOTAL' || matricule.includes('TOTAL')) {
+                    continue;
+                }
+                const employeeId = employeeMap.get(matricule);
+                if (!employeeId) {
+                    result.errors.push({
+                        row: rowNumber,
+                        matricule,
+                        error: `Employé avec matricule ${matricule} introuvable`,
+                    });
+                    result.failed++;
+                    continue;
+                }
+                for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+                    const colIndex = dayStartCol + dayIndex;
+                    const cellValue = row[colIndex] ? String(row[colIndex]).trim().toUpperCase() : '';
+                    if (!cellValue || skipCodes.has(cellValue)) {
+                        continue;
+                    }
+                    let shiftCode = cellValue;
+                    let customStartTime = null;
+                    let customEndTime = null;
+                    const timeMatch = cellValue.match(/^([A-Z0-9-]+)\((\d{1,2}:\d{2})-(\d{1,2}:\d{2})\)$/);
+                    if (timeMatch) {
+                        shiftCode = timeMatch[1];
+                        customStartTime = timeMatch[2];
+                        customEndTime = timeMatch[3];
+                    }
+                    let shiftId = shiftMap.get(shiftCode);
+                    if (!shiftId) {
+                        shiftId = shiftNameMap.get(shiftCode);
+                    }
+                    if (!shiftId) {
+                        result.errors.push({
+                            row: rowNumber,
+                            matricule,
+                            error: `Shift "${cellValue}" non reconnu pour le jour ${dayIndex + 1}. Codes disponibles: ${Array.from(shiftMap.keys()).join(', ')}`,
+                        });
+                        result.failed++;
+                        continue;
+                    }
+                    const scheduleDate = weekDates[dayIndex];
+                    const existingSchedule = await this.prisma.schedule.findFirst({
+                        where: {
+                            tenantId,
+                            employeeId,
+                            shiftId,
+                            date: scheduleDate,
+                            status: 'PUBLISHED',
+                        },
+                    });
+                    if (existingSchedule) {
+                        continue;
+                    }
+                    try {
+                        await this.prisma.schedule.create({
+                            data: {
+                                tenantId,
+                                employeeId,
+                                shiftId,
+                                date: scheduleDate,
+                                customStartTime,
+                                customEndTime,
+                                status: 'PUBLISHED',
+                            },
+                        });
+                        result.success++;
+                    }
+                    catch (error) {
+                        if (!error.message?.includes('Unique constraint')) {
+                            result.errors.push({
+                                row: rowNumber,
+                                matricule,
+                                error: `Erreur création planning: ${error.message}`,
+                            });
+                            result.failed++;
+                        }
+                    }
+                }
+                result.imported.push({
+                    matricule,
+                    date: `Semaine du ${weekStartDate.toLocaleDateString('fr-FR')}`,
+                    shiftCode: 'Multiple',
+                });
+            }
+        }
+        catch (error) {
+            if (error instanceof common_1.BadRequestException) {
+                throw error;
+            }
+            throw new common_1.BadRequestException(`Erreur lors de la lecture du fichier: ${error.message}`);
+        }
+        return result;
+    }
+    async generateWeeklyCalendarTemplate(tenantId) {
+        const XLSX = require('xlsx');
+        const shifts = await this.prisma.shift.findMany({
+            where: { tenantId },
+            select: { code: true, name: true, startTime: true, endTime: true, isNightShift: true },
+            orderBy: { code: 'asc' },
+        });
+        const employees = await this.prisma.employee.findMany({
+            where: { tenantId, isActive: true },
+            include: {
+                department: { select: { name: true } },
+            },
+            orderBy: [
+                { department: { name: 'asc' } },
+                { lastName: 'asc' },
+            ],
+        });
+        const today = new Date();
+        const dayOfWeek = today.getDay();
+        const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        const monday = new Date(today);
+        monday.setDate(today.getDate() + diff);
+        const dayHeaders = [];
+        const dayNames = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+        for (let i = 0; i < 7; i++) {
+            const date = new Date(monday);
+            date.setDate(monday.getDate() + i);
+            dayHeaders.push(`${dayNames[i]} ${date.getDate().toString().padStart(2, '0')}/${(date.getMonth() + 1).toString().padStart(2, '0')}`);
+        }
+        const planningData = [
+            ['PLANNING HEBDOMADAIRE - CALENDRIER'],
+            [],
+            ['Semaine du', monday.toLocaleDateString('fr-FR'), '', '', '', '', '', '', '', ''],
+            [],
+            ['Matricule', 'Nom', 'Prénom', 'Département', ...dayHeaders],
+        ];
+        for (const emp of employees) {
+            planningData.push([
+                emp.matricule,
+                emp.lastName,
+                emp.firstName,
+                emp.department?.name || '-',
+                '', '', '', '', '', '', ''
+            ]);
+        }
+        planningData.push([]);
+        planningData.push(['', '', '', 'TOTAL', '', '', '', '', '', '', '']);
+        const workbook = XLSX.utils.book_new();
+        const planningSheet = XLSX.utils.aoa_to_sheet(planningData);
+        planningSheet['!cols'] = [
+            { wch: 12 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 15 },
+            { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+        ];
+        XLSX.utils.book_append_sheet(workbook, planningSheet, 'Planning');
+        const referenceData = [
+            ['CODES SHIFTS DISPONIBLES'],
+            [],
+            ['Code', 'Nom du Shift', 'Heure Début', 'Heure Fin', 'Shift Nuit'],
+        ];
+        for (const shift of shifts) {
+            referenceData.push([
+                shift.code,
+                shift.name,
+                shift.startTime,
+                shift.endTime,
+                shift.isNightShift ? 'Oui' : 'Non',
+            ]);
+        }
+        referenceData.push([]);
+        referenceData.push(['CODES SPECIAUX']);
+        referenceData.push(['Code', 'Signification']);
+        referenceData.push(['-', 'Repos (pas de planning)']);
+        referenceData.push(['R', 'Récupération']);
+        referenceData.push(['C', 'Congé']);
+        referenceData.push([]);
+        referenceData.push(['NOTES']);
+        referenceData.push(['- Remplissez le code shift dans chaque cellule jour']);
+        referenceData.push(['- Laissez vide ou mettez "-" pour les jours de repos']);
+        referenceData.push(['- Pour un horaire personnalisé: CODE(HH:mm-HH:mm)']);
+        referenceData.push(['  Exemple: MATIN(09:00-18:00)']);
+        const referenceSheet = XLSX.utils.aoa_to_sheet(referenceData);
+        referenceSheet['!cols'] = [
+            { wch: 15 },
+            { wch: 25 },
+            { wch: 12 },
+            { wch: 12 },
+            { wch: 12 },
+        ];
+        XLSX.utils.book_append_sheet(workbook, referenceSheet, 'Codes Shifts');
+        const instructionsData = [
+            ['INSTRUCTIONS D\'UTILISATION'],
+            [],
+            ['1. PREPARATION'],
+            ['   - Modifiez la date "Semaine du" dans la feuille Planning'],
+            ['   - La date doit être un LUNDI (début de semaine)'],
+            [],
+            ['2. REMPLISSAGE'],
+            ['   - Pour chaque employé, indiquez le code shift pour chaque jour'],
+            ['   - Utilisez les codes de la feuille "Codes Shifts"'],
+            ['   - Laissez vide ou mettez "-" pour les jours de repos'],
+            [],
+            ['3. CODES SHIFT'],
+            ['   - Consultez la feuille "Codes Shifts" pour les codes disponibles'],
+            ['   - Les codes sont sensibles à la casse (utilisez MAJUSCULES)'],
+            [],
+            ['4. HORAIRES PERSONNALISES'],
+            ['   - Format: CODE(HH:mm-HH:mm)'],
+            ['   - Exemple: MATIN(08:30-17:30)'],
+            [],
+            ['5. IMPORT'],
+            ['   - Sauvegardez le fichier au format .xlsx'],
+            ['   - Importez via l\'interface PointaFlex'],
+            ['   - Les plannings existants ne seront pas écrasés'],
+            [],
+            ['EXEMPLE:'],
+            [],
+            ['Matricule', 'Nom', 'Prénom', 'Département', 'Lun 13/01', 'Mar 14/01', 'Mer 15/01', 'Jeu 16/01', 'Ven 17/01', 'Sam 18/01', 'Dim 19/01'],
+            ['00994', 'EL KHAYATI', 'Mohamed', 'GAB', 'MATIN', 'MATIN', 'MATIN', 'MATIN', 'MATIN', '-', '-'],
+            ['01066', 'EL MEKKAOUI', 'Hamid', 'GAB', 'SOIR', 'SOIR', 'SOIR', 'SOIR', 'SOIR', '-', '-'],
+            ['00906', 'ARABI', 'Yassine', 'TF', 'NUIT', 'NUIT', 'NUIT', 'NUIT', 'NUIT', '-', '-'],
+        ];
+        const instructionsSheet = XLSX.utils.aoa_to_sheet(instructionsData);
+        instructionsSheet['!cols'] = [
+            { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+            { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 },
+        ];
+        XLSX.utils.book_append_sheet(workbook, instructionsSheet, 'Instructions');
+        return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    }
 };
 exports.SchedulesService = SchedulesService;
 exports.SchedulesService = SchedulesService = __decorate([

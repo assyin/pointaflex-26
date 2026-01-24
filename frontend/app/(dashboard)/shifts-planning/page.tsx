@@ -39,6 +39,7 @@ import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmplo
 import { formatErrorAlert } from '@/lib/utils/errorMessages';
 import { toast } from 'sonner';
 import { schedulesApi, type CreateScheduleDto } from '@/lib/api/schedules';
+import { recoveryDaysApi, type RecoveryDay } from '@/lib/api/recovery-days';
 import { canDeleteSchedule } from '@/lib/utils/auth';
 
 interface GroupedSchedule {
@@ -222,6 +223,44 @@ export default function ShiftsPlanningPage() {
     }
     return map;
   }, [holidaysData]);
+
+  // État pour les jours de récupération
+  const [recoveryDaysData, setRecoveryDaysData] = useState<RecoveryDay[]>([]);
+
+  // Récupérer les jours de récupération pour la période
+  useEffect(() => {
+    const fetchRecoveryDays = async () => {
+      try {
+        const response = await recoveryDaysApi.getAll({
+          startDate: filterDateStart,
+          endDate: filterDateEnd,
+          status: 'APPROVED', // Seulement les récupérations approuvées
+        });
+        const recoveryDays = Array.isArray(response) ? response : (response?.data || []);
+        setRecoveryDaysData(recoveryDays);
+      } catch (error) {
+        console.error('Error fetching recovery days:', error);
+        setRecoveryDaysData([]);
+      }
+    };
+    fetchRecoveryDays();
+  }, [filterDateStart, filterDateEnd]);
+
+  // Créer une Map des jours de récupération par employé et date
+  const recoveryDaysMap = useMemo(() => {
+    const map = new Map<string, RecoveryDay>(); // key: "employeeId-yyyy-MM-dd"
+    recoveryDaysData.forEach((rd) => {
+      // Un RecoveryDay peut couvrir plusieurs jours (startDate à endDate)
+      const start = parseISO(rd.startDate);
+      const end = parseISO(rd.endDate);
+      const days = eachDayOfInterval({ start, end });
+      days.forEach((day) => {
+        const key = `${rd.employeeId}-${format(day, 'yyyy-MM-dd')}`;
+        map.set(key, rd);
+      });
+    });
+    return map;
+  }, [recoveryDaysData]);
 
   const deleteScheduleMutation = useDeleteSchedule();
   const bulkDeleteMutation = useBulkDeleteSchedules();
@@ -1077,9 +1116,15 @@ export default function ShiftsPlanningPage() {
                             const isHoliday = !!holiday;
                             const holidayName = holiday?.name || '';
 
+                            // Vérifier si c'est un jour de récupération
+                            const recoveryDayKey = `${employee.id}-${dayKey}`;
+                            const recoveryDay = recoveryDaysMap.get(recoveryDayKey);
+                            const isRecoveryDay = !!recoveryDay;
+
                             // Construire le message du tooltip
                             let tooltipMessages: string[] = [];
                             if (isSuspended) tooltipMessages.push('🏖️ Planning suspendu par un congé approuvé');
+                            if (isRecoveryDay) tooltipMessages.push('🔄 Jour de récupération approuvé');
                             if (isHoliday) tooltipMessages.push(`🎉 Jour férié: ${holidayName}`);
                             if (isWeekend && !isHoliday) tooltipMessages.push('📅 Weekend');
                             if (schedule?.notes) tooltipMessages.push(`📝 Note: ${schedule.notes}`);
@@ -1104,10 +1149,13 @@ export default function ShiftsPlanningPage() {
                                       {isSuspended && (
                                         <span className="ml-1 text-base" title="Suspendu par congé">🏖️</span>
                                       )}
-                                      {isHoliday && !isSuspended && (
+                                      {isRecoveryDay && !isSuspended && (
+                                        <span className="ml-1 text-base" title="Jour de récupération">🔄</span>
+                                      )}
+                                      {isHoliday && !isSuspended && !isRecoveryDay && (
                                         <span className="ml-1 text-base" title="Jour férié">🎉</span>
                                       )}
-                                      {isWeekend && !isSuspended && !isHoliday && (
+                                      {isWeekend && !isSuspended && !isHoliday && !isRecoveryDay && (
                                         <span className="ml-1 text-base" title="Weekend">📅</span>
                                       )}
                                     </div>
@@ -1137,17 +1185,25 @@ export default function ShiftsPlanningPage() {
                                     </PermissionGate>
                                   </div>
                                 ) : (
-                                  // Pas de planning : afficher "-" avec tooltip si jour spécial
+                                  // Pas de planning : afficher "-" ou info jour spécial
                                   <div className="relative group inline-block">
-                                    <span className="text-text-secondary text-xs">
-                                      -
-                                      {isHoliday && <span className="ml-1">🎉</span>}
-                                      {isWeekend && !isHoliday && <span className="ml-1">📅</span>}
-                                    </span>
-                                    {(isHoliday || isWeekend) && (
+                                    {isRecoveryDay ? (
+                                      // Jour de récupération sans planning
+                                      <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs font-medium">
+                                        🔄 Récup
+                                      </span>
+                                    ) : (
+                                      <span className="text-text-secondary text-xs">
+                                        -
+                                        {isHoliday && <span className="ml-1">🎉</span>}
+                                        {isWeekend && !isHoliday && <span className="ml-1">📅</span>}
+                                      </span>
+                                    )}
+                                    {(isHoliday || isWeekend || isRecoveryDay) && (
                                       <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-1 w-48 p-2 bg-gray-800 text-white text-xs rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
-                                        {isHoliday && `🎉 Jour férié: ${holidayName}`}
-                                        {isWeekend && !isHoliday && '📅 Weekend'}
+                                        {isRecoveryDay && '🔄 Jour de récupération approuvé'}
+                                        {isHoliday && !isRecoveryDay && `🎉 Jour férié: ${holidayName}`}
+                                        {isWeekend && !isHoliday && !isRecoveryDay && '📅 Weekend'}
                                       </div>
                                     )}
                                   </div>

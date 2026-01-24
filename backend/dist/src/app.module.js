@@ -23,6 +23,7 @@ const teams_module_1 = require("./modules/teams/teams.module");
 const schedules_module_1 = require("./modules/schedules/schedules.module");
 const leaves_module_1 = require("./modules/leaves/leaves.module");
 const overtime_module_1 = require("./modules/overtime/overtime.module");
+const supplementary_days_module_1 = require("./modules/supplementary-days/supplementary-days.module");
 const recovery_days_module_1 = require("./modules/recovery-days/recovery-days.module");
 const reports_module_1 = require("./modules/reports/reports.module");
 const audit_module_1 = require("./modules/audit/audit.module");
@@ -73,6 +74,7 @@ exports.AppModule = AppModule = __decorate([
             schedules_module_1.SchedulesModule,
             leaves_module_1.LeavesModule,
             overtime_module_1.OvertimeModule,
+            supplementary_days_module_1.SupplementaryDaysModule,
             recovery_days_module_1.RecoveryDaysModule,
             reports_module_1.ReportsModule,
             audit_module_1.AuditModule,

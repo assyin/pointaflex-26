@@ -32,6 +32,15 @@ let RecoveryDaysController = class RecoveryDaysController {
     convertFromOvertime(user, dto) {
         return this.recoveryDaysService.convertFromOvertime(user.tenantId, user.userId, dto);
     }
+    convertFlexible(user, dto) {
+        return this.recoveryDaysService.convertFlexible(user.tenantId, user.userId, dto, user.permissions || []);
+    }
+    getCumulativeSupplementaryDaysBalance(user, employeeId) {
+        return this.recoveryDaysService.getCumulativeSupplementaryDaysBalance(user.tenantId, employeeId);
+    }
+    convertFromSupplementaryDays(user, dto) {
+        return this.recoveryDaysService.convertSupplementaryDaysFlexible(user.tenantId, user.userId, dto, user.permissions || []);
+    }
     create(user, dto) {
         return this.recoveryDaysService.create(user.tenantId, dto);
     }
@@ -83,6 +92,45 @@ __decorate([
     __metadata("design:paramtypes", [Object, create_recovery_day_dto_1.ConvertOvertimeToRecoveryDayDto]),
     __metadata("design:returntype", void 0)
 ], RecoveryDaysController.prototype, "convertFromOvertime", null);
+__decorate([
+    (0, common_1.Post)('convert-flexible'),
+    (0, permissions_decorator_1.RequirePermissions)('overtime.approve'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Conversion flexible des heures supplémentaires en journées de récupération',
+        description: 'Permet au manager de sélectionner ligne par ligne quelles heures convertir. ' +
+            'Les heures non sélectionnées restent APPROVED (payables). ' +
+            'Options: autoApprove pour approbation directe si manager, allowPastDate pour régularisation.',
+    }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, create_recovery_day_dto_1.ConvertFlexibleDto]),
+    __metadata("design:returntype", void 0)
+], RecoveryDaysController.prototype, "convertFlexible", null);
+__decorate([
+    (0, common_1.Get)('supplementary-days-balance/:employeeId'),
+    (0, permissions_decorator_1.RequirePermissions)('overtime.view_all', 'overtime.view_own'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get cumulative supplementary days balance for conversion' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('employeeId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], RecoveryDaysController.prototype, "getCumulativeSupplementaryDaysBalance", null);
+__decorate([
+    (0, common_1.Post)('convert-from-supplementary-days'),
+    (0, permissions_decorator_1.RequirePermissions)('overtime.approve'),
+    (0, swagger_1.ApiOperation)({
+        summary: 'Conversion des jours supplémentaires en journées de récupération',
+        description: 'Permet de convertir des jours supplémentaires (weekend/férié) en jours de récupération. ' +
+            'Même logique que pour les heures supplémentaires.',
+    }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", void 0)
+], RecoveryDaysController.prototype, "convertFromSupplementaryDays", null);
 __decorate([
     (0, common_1.Post)(),
     (0, roles_decorator_1.Roles)(client_1.LegacyRole.ADMIN_RH, client_1.LegacyRole.MANAGER),

@@ -1,5 +1,5 @@
 import { RecoveryDaysService } from './recovery-days.service';
-import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto } from './dto/create-recovery-day.dto';
+import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto, ConvertFlexibleDto } from './dto/create-recovery-day.dto';
 import { RecoveryDayStatus } from '@prisma/client';
 export declare class RecoveryDaysController {
     private recoveryDaysService;
@@ -14,6 +14,111 @@ export declare class RecoveryDaysController {
     }>;
     convertFromOvertime(user: any, dto: ConvertOvertimeToRecoveryDayDto): Promise<{
         overtimeSources: any[];
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        employeeId: string;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.RecoveryDayStatus;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        startDate: Date;
+        endDate: Date;
+        days: import("@prisma/client/runtime/library").Decimal;
+        sourceHours: import("@prisma/client/runtime/library").Decimal;
+        conversionRate: import("@prisma/client/runtime/library").Decimal | null;
+    }>;
+    convertFlexible(user: any, dto: ConvertFlexibleDto): Promise<{
+        conversionSummary: {
+            selectedOvertimeCount: number;
+            totalHoursConverted: number;
+            daysGranted: number;
+            autoApproved: boolean;
+            isRegularization: boolean;
+        };
+        employee: {
+            id: string;
+            email: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+        overtimeSources: ({
+            overtime: {
+                id: string;
+                date: Date;
+                type: import(".prisma/client").$Enums.OvertimeType;
+                hours: import("@prisma/client/runtime/library").Decimal;
+                approvedHours: import("@prisma/client/runtime/library").Decimal;
+            };
+        } & {
+            id: string;
+            overtimeId: string;
+            recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
+        })[];
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        employeeId: string;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.RecoveryDayStatus;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        startDate: Date;
+        endDate: Date;
+        days: import("@prisma/client/runtime/library").Decimal;
+        sourceHours: import("@prisma/client/runtime/library").Decimal;
+        conversionRate: import("@prisma/client/runtime/library").Decimal | null;
+    }>;
+    getCumulativeSupplementaryDaysBalance(user: any, employeeId: string): Promise<{
+        employeeId: string;
+        cumulativeHours: number;
+        possibleRecoveryDays: number;
+        dailyWorkingHours: number;
+        conversionRate: number;
+        supplementaryDayDetails: any[];
+    }>;
+    convertFromSupplementaryDays(user: any, dto: {
+        employeeId: string;
+        supplementaryDayIds: string[];
+        startDate: string;
+        endDate: string;
+        days: number;
+        autoApprove?: boolean;
+        allowPastDate?: boolean;
+        notes?: string;
+    }): Promise<{
+        conversionSummary: {
+            selectedSupplementaryDaysCount: number;
+            totalHoursConverted: number;
+            daysGranted: number;
+            autoApproved: boolean;
+            isRegularization: boolean;
+        };
+        employee: {
+            id: string;
+            email: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+        overtimeSources: ({
+            overtime: {
+                id: string;
+                date: Date;
+                type: import(".prisma/client").$Enums.OvertimeType;
+                hours: import("@prisma/client/runtime/library").Decimal;
+                approvedHours: import("@prisma/client/runtime/library").Decimal;
+            };
+        } & {
+            id: string;
+            overtimeId: string;
+            recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
+        })[];
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -69,9 +174,9 @@ export declare class RecoveryDaysController {
                 };
             } & {
                 id: string;
-                hoursUsed: import("@prisma/client/runtime/library").Decimal;
                 overtimeId: string;
                 recoveryDayId: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
             })[];
         } & {
             id: string;
@@ -114,9 +219,9 @@ export declare class RecoveryDaysController {
             };
         } & {
             id: string;
-            hoursUsed: import("@prisma/client/runtime/library").Decimal;
             overtimeId: string;
             recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
         })[];
     } & {
         id: string;
@@ -206,9 +311,9 @@ export declare class RecoveryDaysController {
             };
         } & {
             id: string;
-            hoursUsed: import("@prisma/client/runtime/library").Decimal;
             overtimeId: string;
             recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
         })[];
     } & {
         id: string;
@@ -243,9 +348,9 @@ export declare class RecoveryDaysController {
                 };
             } & {
                 id: string;
-                hoursUsed: import("@prisma/client/runtime/library").Decimal;
                 overtimeId: string;
                 recoveryDayId: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
             })[];
         } & {
             id: string;

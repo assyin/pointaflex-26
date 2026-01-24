@@ -1,5 +1,5 @@
 import { PrismaService } from '../../database/prisma.service';
-import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto } from './dto/create-recovery-day.dto';
+import { CreateRecoveryDayDto, ConvertOvertimeToRecoveryDayDto, UpdateRecoveryDayDto, ConvertFlexibleDto } from './dto/create-recovery-day.dto';
 import { RecoveryDayStatus } from '@prisma/client';
 export declare class RecoveryDaysService {
     private prisma;
@@ -14,6 +14,50 @@ export declare class RecoveryDaysService {
     }>;
     convertFromOvertime(tenantId: string, userId: string, dto: ConvertOvertimeToRecoveryDayDto): Promise<{
         overtimeSources: any[];
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        employeeId: string;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.RecoveryDayStatus;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        startDate: Date;
+        endDate: Date;
+        days: import("@prisma/client/runtime/library").Decimal;
+        sourceHours: import("@prisma/client/runtime/library").Decimal;
+        conversionRate: import("@prisma/client/runtime/library").Decimal | null;
+    }>;
+    convertFlexible(tenantId: string, userId: string, dto: ConvertFlexibleDto, userPermissions?: string[]): Promise<{
+        conversionSummary: {
+            selectedOvertimeCount: number;
+            totalHoursConverted: number;
+            daysGranted: number;
+            autoApproved: boolean;
+            isRegularization: boolean;
+        };
+        employee: {
+            id: string;
+            email: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+        overtimeSources: ({
+            overtime: {
+                id: string;
+                date: Date;
+                type: import(".prisma/client").$Enums.OvertimeType;
+                hours: import("@prisma/client/runtime/library").Decimal;
+                approvedHours: import("@prisma/client/runtime/library").Decimal;
+            };
+        } & {
+            id: string;
+            overtimeId: string;
+            recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
+        })[];
         id: string;
         createdAt: Date;
         updatedAt: Date;
@@ -75,9 +119,9 @@ export declare class RecoveryDaysService {
                 };
             } & {
                 id: string;
-                hoursUsed: import("@prisma/client/runtime/library").Decimal;
                 overtimeId: string;
                 recoveryDayId: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
             })[];
         } & {
             id: string;
@@ -120,9 +164,9 @@ export declare class RecoveryDaysService {
             };
         } & {
             id: string;
-            hoursUsed: import("@prisma/client/runtime/library").Decimal;
             overtimeId: string;
             recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
         })[];
     } & {
         id: string;
@@ -212,9 +256,9 @@ export declare class RecoveryDaysService {
             };
         } & {
             id: string;
-            hoursUsed: import("@prisma/client/runtime/library").Decimal;
             overtimeId: string;
             recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
         })[];
     } & {
         id: string;
@@ -249,9 +293,9 @@ export declare class RecoveryDaysService {
                 };
             } & {
                 id: string;
-                hoursUsed: import("@prisma/client/runtime/library").Decimal;
                 overtimeId: string;
                 recoveryDayId: string;
+                hoursUsed: import("@prisma/client/runtime/library").Decimal;
             })[];
         } & {
             id: string;
@@ -269,5 +313,66 @@ export declare class RecoveryDaysService {
             sourceHours: import("@prisma/client/runtime/library").Decimal;
             conversionRate: import("@prisma/client/runtime/library").Decimal | null;
         })[];
+    }>;
+    getCumulativeSupplementaryDaysBalance(tenantId: string, employeeId: string): Promise<{
+        employeeId: string;
+        cumulativeHours: number;
+        possibleRecoveryDays: number;
+        dailyWorkingHours: number;
+        conversionRate: number;
+        supplementaryDayDetails: any[];
+    }>;
+    convertSupplementaryDaysFlexible(tenantId: string, userId: string, dto: {
+        employeeId: string;
+        supplementaryDayIds: string[];
+        startDate: string;
+        endDate: string;
+        days: number;
+        autoApprove?: boolean;
+        allowPastDate?: boolean;
+        notes?: string;
+    }, userPermissions?: string[]): Promise<{
+        conversionSummary: {
+            selectedSupplementaryDaysCount: number;
+            totalHoursConverted: number;
+            daysGranted: number;
+            autoApproved: boolean;
+            isRegularization: boolean;
+        };
+        employee: {
+            id: string;
+            email: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+        overtimeSources: ({
+            overtime: {
+                id: string;
+                date: Date;
+                type: import(".prisma/client").$Enums.OvertimeType;
+                hours: import("@prisma/client/runtime/library").Decimal;
+                approvedHours: import("@prisma/client/runtime/library").Decimal;
+            };
+        } & {
+            id: string;
+            overtimeId: string;
+            recoveryDayId: string;
+            hoursUsed: import("@prisma/client/runtime/library").Decimal;
+        })[];
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        employeeId: string;
+        notes: string | null;
+        status: import(".prisma/client").$Enums.RecoveryDayStatus;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        startDate: Date;
+        endDate: Date;
+        days: import("@prisma/client/runtime/library").Decimal;
+        sourceHours: import("@prisma/client/runtime/library").Decimal;
+        conversionRate: import("@prisma/client/runtime/library").Decimal | null;
     }>;
 }

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Upload, X, FileSpreadsheet, AlertCircle, CheckCircle, XCircle, Download } from 'lucide-react';
+import { Upload, X, FileSpreadsheet, AlertCircle, CheckCircle, XCircle, Download, Calendar, List } from 'lucide-react';
 import { toast } from 'sonner';
 import { useImportSchedules } from '@/lib/hooks/useSchedules';
 import { schedulesApi } from '@/lib/api/schedules';
@@ -30,10 +30,14 @@ interface ImportSchedulesModalProps {
   onSuccess: () => void;
 }
 
+type ImportFormat = 'standard' | 'weekly-calendar';
+
 export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModalProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
-  
+  const [importFormat, setImportFormat] = useState<ImportFormat>('weekly-calendar');
+  const [isImporting, setIsImporting] = useState(false);
+
   const importSchedulesMutation = useImportSchedules();
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,11 +54,21 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
 
   const handleDownloadTemplate = async () => {
     try {
-      const blob = await schedulesApi.getImportTemplate();
+      let blob;
+      let filename;
+
+      if (importFormat === 'weekly-calendar') {
+        blob = await schedulesApi.getWeeklyCalendarTemplate();
+        filename = 'planning_calendrier_hebdomadaire.xlsx';
+      } else {
+        blob = await schedulesApi.getImportTemplate();
+        filename = 'modele_import_plannings.xlsx';
+      }
+
       const url = window.URL.createObjectURL(new Blob([blob]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', 'modele_import_plannings.xlsx');
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -75,27 +89,39 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
       return;
     }
 
+    setIsImporting(true);
+
     try {
-      const result = await importSchedulesMutation.mutateAsync(selectedFile);
-      
+      let result;
+
+      if (importFormat === 'weekly-calendar') {
+        result = await schedulesApi.importWeeklyCalendar(selectedFile);
+      } else {
+        result = await importSchedulesMutation.mutateAsync(selectedFile);
+      }
+
       // Set import result for display
-      // The backend returns: { statusCode, message, data: { success, failed, errors, imported } }
       if (result?.data) {
         setImportResult(result.data);
       }
-      
-      // onSuccess callback is handled by the mutation hook
+
+      // onSuccess callback
       if (result?.data?.success > 0) {
         onSuccess();
+        toast.success(`${result.data.success} planning(s) importé(s) avec succès`);
       }
     } catch (error: any) {
-      // Error is already handled by the mutation hook
-      // But we can set the result if available for display
+      // Error handling
       if (error?.response?.data?.data) {
         setImportResult(error.response.data.data);
       }
+      toast.error(translateErrorMessage(error));
+    } finally {
+      setIsImporting(false);
     }
   };
+
+  const isPending = isImporting || importSchedulesMutation.isPending;
 
   return (
     <div
@@ -107,7 +133,7 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
       aria-hidden="true"
     >
       <Card
-        className="w-full max-w-2xl max-h-[90vh] overflow-auto"
+        className="w-full max-w-3xl max-h-[90vh] overflow-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <CardHeader className="flex flex-row items-center justify-between">
@@ -121,32 +147,96 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {/* Instructions */}
+          {/* Format Selection */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Format d'import:</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setImportFormat('weekly-calendar');
+                  setSelectedFile(null);
+                  setImportResult(null);
+                }}
+                className={`p-4 border-2 rounded-lg text-left transition-all ${
+                  importFormat === 'weekly-calendar'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Calendar className={`h-8 w-8 ${importFormat === 'weekly-calendar' ? 'text-primary' : 'text-gray-400'}`} />
+                  <div>
+                    <p className="font-semibold">Calendrier Hebdomadaire</p>
+                    <p className="text-xs text-text-secondary">Vue semaine avec Lun-Dim (Recommandé)</p>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setImportFormat('standard');
+                  setSelectedFile(null);
+                  setImportResult(null);
+                }}
+                className={`p-4 border-2 rounded-lg text-left transition-all ${
+                  importFormat === 'standard'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <List className={`h-8 w-8 ${importFormat === 'standard' ? 'text-primary' : 'text-gray-400'}`} />
+                  <div>
+                    <p className="font-semibold">Format Liste</p>
+                    <p className="text-xs text-text-secondary">Une ligne par planning</p>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Instructions based on format */}
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <div className="space-y-2">
-              <p className="font-semibold">Format du fichier Excel attendu:</p>
-              <ul className="list-disc list-inside text-sm space-y-1">
-                <li><strong>Matricule</strong> (obligatoire) - Matricule de l'employé</li>
-                <li><strong>Date Début</strong> (obligatoire) - Date de début au format DD/MM/YYYY (ex: 15/01/2025) ou YYYY-MM-DD (ex: 2025-01-15)</li>
-                <li><strong>Date Fin</strong> (optionnel) - Date de fin pour créer un intervalle au format DD/MM/YYYY (ex: 31/01/2025). Si vide, crée un planning pour une seule journée</li>
-                <li><strong>Code Shift</strong> (obligatoire) - Code du shift (ex: M, S, N)</li>
-                <li><strong>Heure Début</strong> (optionnel) - Heure de début personnalisée au format HH:mm (ex: 08:00)</li>
-                <li><strong>Heure Fin</strong> (optionnel) - Heure de fin personnalisée au format HH:mm (ex: 16:00)</li>
-                <li><strong>Code Équipe</strong> (optionnel) - Code de l'équipe</li>
-                <li><strong>Notes</strong> (optionnel) - Notes supplémentaires</li>
-              </ul>
-              <p className="text-sm text-text-secondary mt-2">
-                <strong>Note :</strong> Si "Date Fin" est remplie, tous les plannings entre la date début et la date fin seront créés. Les plannings existants seront ignorés. Le format de date recommandé est DD/MM/YYYY (format français).
-              </p>
-            </div>
+            {importFormat === 'weekly-calendar' ? (
+              <div className="space-y-2">
+                <p className="font-semibold">Format Calendrier Hebdomadaire:</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li><strong>Feuille "Planning"</strong> - Contient le planning des employés</li>
+                  <li><strong>Ligne "Semaine du"</strong> - Date du lundi de la semaine (DD/MM/YYYY)</li>
+                  <li><strong>Colonnes</strong>: Matricule | Nom | Prénom | Département | Lun | Mar | Mer | Jeu | Ven | Sam | Dim</li>
+                  <li><strong>Cellules jour</strong>: Code shift (ex: MATIN, SOIR, NUIT) ou "-" pour repos</li>
+                </ul>
+                <p className="text-sm text-text-secondary mt-2">
+                  <strong>Exemple:</strong> 00994 | EL KHAYATI | Mohamed | GAB | MATIN | MATIN | MATIN | MATIN | MATIN | - | -
+                </p>
+                <p className="text-sm text-text-secondary">
+                  <strong>Horaire personnalisé:</strong> CODE(HH:mm-HH:mm) → MATIN(09:00-18:00)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="font-semibold">Format Liste (une ligne par planning):</p>
+                <ul className="list-disc list-inside text-sm space-y-1">
+                  <li><strong>Matricule</strong> (obligatoire) - Matricule de l'employé</li>
+                  <li><strong>Date Début</strong> (obligatoire) - Format DD/MM/YYYY</li>
+                  <li><strong>Date Fin</strong> (optionnel) - Pour créer un intervalle</li>
+                  <li><strong>Code Shift</strong> (obligatoire) - Code du shift</li>
+                  <li><strong>Heure Début/Fin</strong> (optionnel) - Format HH:mm</li>
+                  <li><strong>Code Équipe</strong> (optionnel)</li>
+                  <li><strong>Notes</strong> (optionnel)</li>
+                </ul>
+              </div>
+            )}
           </Alert>
 
           {/* Download Template Button */}
           <div className="flex justify-end">
             <Button variant="outline" onClick={handleDownloadTemplate} className="gap-2">
               <Download className="h-4 w-4" />
-              Télécharger le modèle
+              Télécharger le modèle {importFormat === 'weekly-calendar' ? 'calendrier' : 'liste'}
             </Button>
           </div>
 
@@ -195,7 +285,7 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
           </div>
 
           {/* Upload Progress */}
-          {importSchedulesMutation.isPending && (
+          {isPending && (
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-text-secondary">Importation en cours...</span>
@@ -211,7 +301,7 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
           )}
 
           {/* Import Results */}
-          {importResult && !importSchedulesMutation.isPending && (
+          {importResult && !isPending && (
             <div className="space-y-4">
               {/* Success Summary */}
               {importResult.success > 0 && (
@@ -261,15 +351,15 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
 
           {/* Actions */}
           <div className="flex gap-2 justify-end pt-4">
-            <Button variant="outline" onClick={onClose} disabled={importSchedulesMutation.isPending}>
+            <Button variant="outline" onClick={onClose} disabled={isPending}>
               Fermer
             </Button>
             <Button
               variant="primary"
               onClick={handleImport}
-              disabled={!selectedFile || importSchedulesMutation.isPending}
+              disabled={!selectedFile || isPending}
             >
-              {importSchedulesMutation.isPending ? (
+              {isPending ? (
                 <>
                   <Upload className="h-4 w-4 mr-2 animate-pulse" />
                   Importation en cours...
@@ -287,4 +377,3 @@ export function ImportSchedulesModal({ onClose, onSuccess }: ImportSchedulesModa
     </div>
   );
 }
-

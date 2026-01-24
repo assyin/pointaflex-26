@@ -97,4 +97,52 @@ export const overtimeApi = {
     const response = await apiClient.get('/overtime/dashboard/stats', { params: filters });
     return response.data;
   },
+
+  // ============================================
+  // ACTIONS DE RECTIFICATION
+  // ============================================
+
+  /**
+   * Annuler l'approbation (APPROVED → PENDING)
+   */
+  revokeApproval: async (id: string, reason?: string) => {
+    const response = await apiClient.post(`/overtime/${id}/revoke-approval`, { reason });
+    return response.data;
+  },
+
+  /**
+   * Annuler le rejet (REJECTED → PENDING)
+   */
+  revokeRejection: async (id: string, reason?: string) => {
+    const response = await apiClient.post(`/overtime/${id}/revoke-rejection`, { reason });
+    return response.data;
+  },
+
+  /**
+   * Modifier les heures approuvées
+   */
+  updateApprovedHours: async (id: string, approvedHours: number, reason?: string) => {
+    const response = await apiClient.patch(`/overtime/${id}/approved-hours`, {
+      approvedHours,
+      reason,
+    });
+    return response.data;
+  },
+
+  /**
+   * Récupérer les informations de récupération liées à un overtime
+   */
+  getRecoveryInfo: async (id: string) => {
+    const response = await apiClient.get(`/overtime/${id}/recovery-info`);
+    return response.data;
+  },
+
+  /**
+   * Annuler la conversion en récupération (RECOVERED → APPROVED)
+   * @param reason Justification obligatoire si la date de récupération est passée
+   */
+  cancelConversion: async (id: string, reason?: string) => {
+    const response = await apiClient.post(`/overtime/${id}/cancel-conversion`, { reason });
+    return response.data;
+  },
 };

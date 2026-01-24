@@ -684,4 +684,14 @@ export declare class SchedulesController {
         data: import("./dto/import-schedule.dto").ImportScheduleResultDto;
     }>;
     downloadTemplate(res: Response): Promise<void>;
+    importWeeklyCalendar(user: any, file: Express.Multer.File): Promise<{
+        statusCode: HttpStatus;
+        message: string;
+        data?: undefined;
+    } | {
+        statusCode: HttpStatus;
+        message: string;
+        data: import("./dto/import-schedule.dto").ImportScheduleResultDto;
+    }>;
+    downloadWeeklyCalendarTemplate(user: any, res: Response): Promise<void>;
 }

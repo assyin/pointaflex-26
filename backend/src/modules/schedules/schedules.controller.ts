@@ -294,4 +294,56 @@ export class SchedulesController {
 
     res.send(buffer);
   }
+
+  @Post('import/weekly-calendar')
+  @RequirePermissions('schedule.create', 'schedule.import')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Import schedules from Weekly Calendar Excel format' })
+  async importWeeklyCalendar(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Aucun fichier téléchargé',
+      };
+    }
+
+    if (!file.originalname.match(/\.(xlsx|xls)$/)) {
+      return {
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Format de fichier invalide. Seuls les fichiers .xlsx et .xls sont acceptés.',
+      };
+    }
+
+    const result = await this.schedulesService.importFromWeeklyCalendar(user.tenantId, file.buffer);
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Import terminé: ${result.success} planning(s) importé(s), ${result.failed} échec(s)`,
+      data: result,
+    };
+  }
+
+  @Get('import/weekly-calendar/template')
+  @RequirePermissions('schedule.create')
+  @ApiOperation({ summary: 'Download Weekly Calendar Excel template with employees and shift codes' })
+  async downloadWeeklyCalendarTemplate(
+    @CurrentUser() user: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.schedulesService.generateWeeklyCalendarTemplate(user.tenantId);
+
+    const filename = `planning_calendrier_hebdomadaire_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length,
+    });
+
+    res.send(buffer);
+  }
 }

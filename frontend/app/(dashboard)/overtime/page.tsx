@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { OvertimeDashboard } from '@/components/overtime';
+import { OvertimeDashboard, ConversionFlexibleModal, SupplementaryDaysTab } from '@/components/overtime';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,11 @@ import {
   Calendar,
   X,
   User,
+  Undo2,
+  Edit3,
+  RotateCcw,
+  AlertTriangle,
+  Loader2,
 } from 'lucide-react';
 import {
   useOvertimeRecords,
@@ -45,6 +50,11 @@ import {
   useConvertToRecovery,
   useCreateOvertime,
   useOvertimeDashboardStats,
+  useRevokeApproval,
+  useRevokeRejection,
+  useUpdateApprovedHours,
+  useCancelConversion,
+  useRecoveryInfo,
 } from '@/lib/hooks/useOvertime';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 import { useEmployees } from '@/lib/hooks/useEmployees';
@@ -56,7 +66,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 export default function OvertimePage() {
   // Tab state
-  const [activeTab, setActiveTab] = useState<'list' | 'dashboard'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'supplementary' | 'dashboard'>('list');
 
   // Search and basic filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,6 +95,23 @@ export default function OvertimePage() {
 
   // Create modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
+
+  // Conversion flexible modal state
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [selectedEmployeeForConversion, setSelectedEmployeeForConversion] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
+  // Rectification dialogs state
+  const [revokeApprovalDialogOpen, setRevokeApprovalDialogOpen] = useState(false);
+  const [revokeRejectionDialogOpen, setRevokeRejectionDialogOpen] = useState(false);
+  const [editHoursDialogOpen, setEditHoursDialogOpen] = useState(false);
+  const [cancelConversionDialogOpen, setCancelConversionDialogOpen] = useState(false);
+  const [selectedRecordForAction, setSelectedRecordForAction] = useState<any | null>(null);
+  const [actionReason, setActionReason] = useState('');
+  const [newApprovedHours, setNewApprovedHours] = useState('');
+
   const [createFormData, setCreateFormData] = useState({
     employeeId: '',
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -135,6 +162,20 @@ export default function OvertimePage() {
   const approveMutation = useApproveOvertime();
   const rejectMutation = useRejectOvertime();
   const convertMutation = useConvertToRecovery();
+
+  // Rectification mutations
+  const revokeApprovalMutation = useRevokeApproval();
+  const revokeRejectionMutation = useRevokeRejection();
+  const updateApprovedHoursMutation = useUpdateApprovedHours();
+  const cancelConversionMutation = useCancelConversion();
+
+  // State pour la justification d'annulation de conversion
+  const [cancelConversionReason, setCancelConversionReason] = useState('');
+
+  // Récupérer les infos de récupération quand on ouvre le dialog d'annulation
+  const { data: recoveryInfo, isLoading: isLoadingRecoveryInfo } = useRecoveryInfo(
+    cancelConversionDialogOpen ? selectedRecordForAction?.id : null
+  );
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -269,6 +310,14 @@ export default function OvertimePage() {
     }
   };
 
+  const handleOpenFlexibleConversion = (employee: any) => {
+    setSelectedEmployeeForConversion({
+      id: employee.id,
+      name: `${employee.firstName} ${employee.lastName}`,
+    });
+    setShowConversionModal(true);
+  };
+
   const handleCreateOvertime = async () => {
     if (!createFormData.employeeId || !createFormData.date || !createFormData.hours) {
       return;
@@ -290,6 +339,103 @@ export default function OvertimePage() {
         type: 'STANDARD',
         notes: '',
       });
+    } catch (error) {
+      // Error handled by mutation
+    }
+  };
+
+  // ============================================
+  // HANDLERS DE RECTIFICATION
+  // ============================================
+
+  const handleRevokeApprovalClick = (record: any) => {
+    setSelectedRecordForAction(record);
+    setActionReason('');
+    setRevokeApprovalDialogOpen(true);
+  };
+
+  const handleRevokeApprovalConfirm = async () => {
+    if (!selectedRecordForAction) return;
+    try {
+      await revokeApprovalMutation.mutateAsync({
+        id: selectedRecordForAction.id,
+        reason: actionReason || undefined,
+      });
+      setRevokeApprovalDialogOpen(false);
+      setSelectedRecordForAction(null);
+      setActionReason('');
+    } catch (error) {
+      // Error handled by mutation
+    }
+  };
+
+  const handleRevokeRejectionClick = (record: any) => {
+    setSelectedRecordForAction(record);
+    setActionReason('');
+    setRevokeRejectionDialogOpen(true);
+  };
+
+  const handleRevokeRejectionConfirm = async () => {
+    if (!selectedRecordForAction) return;
+    try {
+      await revokeRejectionMutation.mutateAsync({
+        id: selectedRecordForAction.id,
+        reason: actionReason || undefined,
+      });
+      setRevokeRejectionDialogOpen(false);
+      setSelectedRecordForAction(null);
+      setActionReason('');
+    } catch (error) {
+      // Error handled by mutation
+    }
+  };
+
+  const handleEditHoursClick = (record: any) => {
+    setSelectedRecordForAction(record);
+    setNewApprovedHours(String(record.approvedHours || record.hours));
+    setActionReason('');
+    setEditHoursDialogOpen(true);
+  };
+
+  const handleEditHoursConfirm = async () => {
+    if (!selectedRecordForAction || !newApprovedHours) return;
+    try {
+      await updateApprovedHoursMutation.mutateAsync({
+        id: selectedRecordForAction.id,
+        approvedHours: parseFloat(newApprovedHours),
+        reason: actionReason || undefined,
+      });
+      setEditHoursDialogOpen(false);
+      setSelectedRecordForAction(null);
+      setNewApprovedHours('');
+      setActionReason('');
+    } catch (error) {
+      // Error handled by mutation
+    }
+  };
+
+  const handleCancelConversionClick = (record: any) => {
+    setSelectedRecordForAction(record);
+    setCancelConversionReason('');
+    setCancelConversionDialogOpen(true);
+  };
+
+  const handleCancelConversionConfirm = async () => {
+    if (!selectedRecordForAction) return;
+
+    // Si date passée, la justification est obligatoire
+    if (recoveryInfo?.hasPastDates && (!cancelConversionReason || cancelConversionReason.trim().length < 10)) {
+      return; // Le bouton sera désactivé, mais au cas où
+    }
+
+    try {
+      await cancelConversionMutation.mutateAsync({
+        id: selectedRecordForAction.id,
+        reason: cancelConversionReason || undefined,
+      });
+      setCancelConversionDialogOpen(false);
+      setSelectedRecordForAction(null);
+      setCancelConversionReason('');
     } catch (error) {
       // Error handled by mutation
     }
@@ -382,7 +528,7 @@ export default function OvertimePage() {
         formatHours(record.hours),
         record.type,
         record.status,
-        record.convertedToRecovery ? 'Oui' : 'Non',
+        (record.convertedToRecovery || record.convertedToRecoveryDays) ? 'Oui' : 'Non',
       ].join(',')),
     ].join('\n');
 
@@ -507,7 +653,10 @@ export default function OvertimePage() {
               <CardContent className="p-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {(() => {
-                    const employees = employeesData?.data || [];
+                    // Handle both paginated response {data: []} and direct array response []
+                    const employees = Array.isArray(employeesData)
+                      ? employeesData
+                      : (employeesData?.data || []);
                     const employeeOptions = [
                       { value: 'all', label: 'Tous les employés' },
                       ...employees.map((emp: any) => ({
@@ -662,9 +811,10 @@ export default function OvertimePage() {
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'list' | 'dashboard')} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="list">Liste des demandes</TabsTrigger>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'list' | 'supplementary' | 'dashboard')} className="w-full">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
+            <TabsTrigger value="list">Heures Supplémentaires</TabsTrigger>
+            <TabsTrigger value="supplementary">Jours Supplémentaires</TabsTrigger>
             <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           </TabsList>
 
@@ -856,15 +1006,16 @@ export default function OvertimePage() {
                             </div>
                           </td>
                           <td className="p-4">
-                            {record.convertedToRecovery ? (
+                            {(record.convertedToRecovery || record.convertedToRecoveryDays) ? (
                               <Badge variant="success" className="text-xs">Converti</Badge>
                             ) : (
                               <span className="text-sm text-text-secondary">Non converti</span>
                             )}
                           </td>
                           <td className="p-4">
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-1">
                               <PermissionGate permission="overtime.approve">
+                                {/* Actions pour PENDING */}
                                 {record.status === 'PENDING' && (
                                   <>
                                     <Button
@@ -889,18 +1040,72 @@ export default function OvertimePage() {
                                     </Button>
                                   </>
                                 )}
-                              </PermissionGate>
-                              <PermissionGate permission="overtime.approve">
-                                {record.status === 'APPROVED' && !record.convertedToRecovery && (
+
+                                {/* Actions pour APPROVED (non converti) */}
+                                {record.status === 'APPROVED' && !record.convertedToRecovery && !record.convertedToRecoveryDays && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => handleOpenFlexibleConversion(record.employee)}
+                                      className="text-xs"
+                                      title="Conversion flexible - sélectionner les heures à convertir"
+                                    >
+                                      <RefreshCw className="h-3 w-3 mr-1" />
+                                      Convertir
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleEditHoursClick(record)}
+                                      disabled={updateApprovedHoursMutation.isPending}
+                                      className="text-xs"
+                                      title="Modifier les heures approuvées"
+                                    >
+                                      <Edit3 className="h-3 w-3 mr-1" />
+                                      Modifier
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleRevokeApprovalClick(record)}
+                                      disabled={revokeApprovalMutation.isPending}
+                                      className="text-xs text-warning"
+                                      title="Annuler l'approbation"
+                                    >
+                                      <Undo2 className="h-3 w-3 mr-1" />
+                                      Annuler
+                                    </Button>
+                                  </>
+                                )}
+
+                                {/* Actions pour REJECTED */}
+                                {record.status === 'REJECTED' && (
                                   <Button
-                                    variant="outline"
+                                    variant="ghost"
                                     size="sm"
-                                    onClick={() => handleConvertToRecovery(record.id)}
-                                    disabled={convertMutation.isPending}
+                                    onClick={() => handleRevokeRejectionClick(record)}
+                                    disabled={revokeRejectionMutation.isPending}
                                     className="text-xs"
+                                    title="Annuler le rejet et reconsidérer"
                                   >
-                                    <RefreshCw className="h-3 w-3 mr-1" />
-                                    Convertir
+                                    <RotateCcw className="h-3 w-3 mr-1" />
+                                    Reconsidérer
+                                  </Button>
+                                )}
+
+                                {/* Actions pour RECOVERED */}
+                                {record.status === 'RECOVERED' && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleCancelConversionClick(record)}
+                                    disabled={cancelConversionMutation.isPending}
+                                    className="text-xs text-warning"
+                                    title="Annuler la conversion et restaurer les heures"
+                                  >
+                                    <Undo2 className="h-3 w-3 mr-1" />
+                                    Annuler conversion
                                   </Button>
                                 )}
                               </PermissionGate>
@@ -969,6 +1174,10 @@ export default function OvertimePage() {
             )}
           </CardContent>
         </Card>
+          </TabsContent>
+
+          <TabsContent value="supplementary" className="mt-6">
+            <SupplementaryDaysTab startDate={startDate} endDate={endDate} />
           </TabsContent>
 
           <TabsContent value="dashboard" className="mt-6">
@@ -1112,7 +1321,7 @@ export default function OvertimePage() {
               <SearchableEmployeeSelect
                 value={createFormData.employeeId}
                 onChange={(value) => setCreateFormData({ ...createFormData, employeeId: value })}
-                employees={employeesData?.data || []}
+                employees={Array.isArray(employeesData) ? employeesData : (employeesData?.data || [])}
                 isLoading={!employeesData}
                 placeholder="Rechercher un employé..."
                 label="Employé"
@@ -1228,6 +1437,340 @@ export default function OvertimePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Conversion Flexible Modal */}
+      {selectedEmployeeForConversion && (
+        <ConversionFlexibleModal
+          isOpen={showConversionModal}
+          onClose={() => {
+            setShowConversionModal(false);
+            setSelectedEmployeeForConversion(null);
+          }}
+          employeeId={selectedEmployeeForConversion.id}
+          employeeName={selectedEmployeeForConversion.name}
+        />
+      )}
+
+      {/* ============================================ */}
+      {/* DIALOGS DE RECTIFICATION */}
+      {/* ============================================ */}
+
+      {/* Dialog: Annuler l'approbation */}
+      <Dialog open={revokeApprovalDialogOpen} onOpenChange={setRevokeApprovalDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Undo2 className="h-5 w-5 text-warning" />
+              Annuler l'approbation
+            </DialogTitle>
+            <DialogDescription>
+              Cette action va remettre les heures supplémentaires en statut "En attente" pour reconsidération.
+              {selectedRecordForAction && (
+                <span className="block mt-2 font-medium">
+                  {selectedRecordForAction.employee?.firstName} {selectedRecordForAction.employee?.lastName} - {format(new Date(selectedRecordForAction.date), 'dd/MM/yyyy')} - {selectedRecordForAction.approvedHours || selectedRecordForAction.hours}h
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="revoke-approval-reason">Motif (optionnel)</Label>
+            <Textarea
+              id="revoke-approval-reason"
+              placeholder="Ex: Erreur de validation, heures à vérifier..."
+              value={actionReason}
+              onChange={(e) => setActionReason(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeApprovalDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="warning"
+              onClick={handleRevokeApprovalConfirm}
+              disabled={revokeApprovalMutation.isPending}
+            >
+              {revokeApprovalMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  En cours...
+                </>
+              ) : (
+                <>
+                  <Undo2 className="h-4 w-4 mr-2" />
+                  Confirmer l'annulation
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Annuler le rejet */}
+      <Dialog open={revokeRejectionDialogOpen} onOpenChange={setRevokeRejectionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-5 w-5 text-primary" />
+              Reconsidérer la demande
+            </DialogTitle>
+            <DialogDescription>
+              Cette action va remettre les heures supplémentaires en statut "En attente" pour une nouvelle évaluation.
+              {selectedRecordForAction && (
+                <span className="block mt-2 font-medium">
+                  {selectedRecordForAction.employee?.firstName} {selectedRecordForAction.employee?.lastName} - {format(new Date(selectedRecordForAction.date), 'dd/MM/yyyy')} - {selectedRecordForAction.hours}h
+                </span>
+              )}
+              {selectedRecordForAction?.rejectionReason && (
+                <span className="block mt-1 text-sm text-danger">
+                  Motif du rejet initial: {selectedRecordForAction.rejectionReason}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="revoke-rejection-reason">Motif de la reconsidération (optionnel)</Label>
+            <Textarea
+              id="revoke-rejection-reason"
+              placeholder="Ex: Appel de l'employé, nouvelles informations..."
+              value={actionReason}
+              onChange={(e) => setActionReason(e.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRevokeRejectionDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleRevokeRejectionConfirm}
+              disabled={revokeRejectionMutation.isPending}
+            >
+              {revokeRejectionMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  En cours...
+                </>
+              ) : (
+                <>
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reconsidérer
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Modifier les heures approuvées */}
+      <Dialog open={editHoursDialogOpen} onOpenChange={setEditHoursDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Edit3 className="h-5 w-5 text-primary" />
+              Modifier les heures approuvées
+            </DialogTitle>
+            <DialogDescription>
+              Corrigez le nombre d'heures validées pour cette demande.
+              {selectedRecordForAction && (
+                <span className="block mt-2 font-medium">
+                  {selectedRecordForAction.employee?.firstName} {selectedRecordForAction.employee?.lastName} - {format(new Date(selectedRecordForAction.date), 'dd/MM/yyyy')}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div>
+              <Label htmlFor="new-approved-hours">Nouvelles heures approuvées *</Label>
+              <div className="relative mt-2">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
+                <Input
+                  id="new-approved-hours"
+                  type="number"
+                  step="0.5"
+                  min="0.5"
+                  max="24"
+                  placeholder="Ex: 8"
+                  value={newApprovedHours}
+                  onChange={(e) => setNewApprovedHours(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              {selectedRecordForAction && (
+                <p className="text-xs text-text-secondary mt-1">
+                  Heures demandées: {selectedRecordForAction.hours}h | Actuellement approuvées: {selectedRecordForAction.approvedHours || selectedRecordForAction.hours}h
+                </p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="edit-hours-reason">Motif de la modification (optionnel)</Label>
+              <Textarea
+                id="edit-hours-reason"
+                placeholder="Ex: Correction suite à vérification..."
+                value={actionReason}
+                onChange={(e) => setActionReason(e.target.value)}
+                className="mt-2"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditHoursDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleEditHoursConfirm}
+              disabled={
+                updateApprovedHoursMutation.isPending ||
+                !newApprovedHours ||
+                parseFloat(newApprovedHours) < 0.5 ||
+                isNaN(parseFloat(newApprovedHours))
+              }
+            >
+              {updateApprovedHoursMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  En cours...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Enregistrer
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Annuler la conversion */}
+      <Dialog open={cancelConversionDialogOpen} onOpenChange={setCancelConversionDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-warning">
+              <Undo2 className="h-5 w-5" />
+              Annuler la conversion en récupération
+            </DialogTitle>
+            <DialogDescription>
+              {selectedRecordForAction && (
+                <span className="block font-medium">
+                  {selectedRecordForAction.employee?.firstName} {selectedRecordForAction.employee?.lastName} - {format(new Date(selectedRecordForAction.date), 'dd/MM/yyyy')} - {selectedRecordForAction.approvedHours || selectedRecordForAction.hours}h
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoadingRecoveryInfo ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              <span className="ml-2">Chargement des informations...</span>
+            </div>
+          ) : (
+            <>
+              {/* Avertissement pour date passée */}
+              {recoveryInfo?.hasPastDates && (
+                <Alert variant="danger" className="my-4 border-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  <AlertDescription>
+                    <div className="font-bold text-danger mb-2">
+                      ATTENTION: Date de récupération passée!
+                    </div>
+                    <div className="text-sm">
+                      La date de récupération prévue ({recoveryInfo.recoveryDays?.map((rd: any) =>
+                        format(new Date(rd.startDate), 'dd/MM/yyyy')
+                      ).join(', ')}) est déjà passée.
+                    </div>
+                    <div className="text-sm mt-2 font-medium">
+                      L'employé a peut-être déjà pris ce jour de repos. Vérifiez les pointages avant de confirmer.
+                    </div>
+                    <div className="text-sm mt-2 text-danger font-bold">
+                      Une justification détaillée est obligatoire (min. 10 caractères).
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* Info standard */}
+              <Alert variant="warning" className="my-4">
+                <AlertDescription>
+                  <div>Cette action va:</div>
+                  <ul className="list-disc ml-4 mt-2">
+                    <li>Annuler le jour de récupération associé</li>
+                    <li>Restaurer les heures supplémentaires en statut "Approuvé"</li>
+                    <li>Les heures redeviendront disponibles pour paiement ou nouvelle conversion</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+
+              {/* Afficher les dates de récupération */}
+              {recoveryInfo?.recoveryDays && recoveryInfo.recoveryDays.length > 0 && (
+                <div className="text-sm bg-muted p-3 rounded-md mb-4">
+                  <div className="font-medium mb-1">Jour(s) de récupération concerné(s):</div>
+                  {recoveryInfo.recoveryDays.map((rd: any) => (
+                    <div key={rd.id} className={`flex items-center gap-2 ${rd.isPast ? 'text-danger' : ''}`}>
+                      <Calendar className="h-4 w-4" />
+                      {format(new Date(rd.startDate), 'dd/MM/yyyy')}
+                      {rd.isPast && <span className="text-xs bg-danger text-white px-1 rounded">PASSÉ</span>}
+                      <span className="text-muted-foreground">({rd.sourceHours}h)</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Champ de justification */}
+              <div className="space-y-2">
+                <Label htmlFor="cancelReason">
+                  Justification {recoveryInfo?.hasPastDates && <span className="text-danger">*</span>}
+                </Label>
+                <Textarea
+                  id="cancelReason"
+                  value={cancelConversionReason}
+                  onChange={(e) => setCancelConversionReason(e.target.value)}
+                  placeholder={recoveryInfo?.hasPastDates
+                    ? "Expliquez pourquoi vous annulez cette conversion malgré la date passée (min. 10 caractères)"
+                    : "Raison de l'annulation (optionnel)"}
+                  className={recoveryInfo?.hasPastDates ? 'border-danger' : ''}
+                  rows={3}
+                />
+                {recoveryInfo?.hasPastDates && cancelConversionReason.length > 0 && cancelConversionReason.length < 10 && (
+                  <p className="text-xs text-danger">
+                    Minimum 10 caractères requis ({cancelConversionReason.length}/10)
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelConversionDialogOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              variant={recoveryInfo?.hasPastDates ? "danger" : "warning"}
+              onClick={handleCancelConversionConfirm}
+              disabled={
+                cancelConversionMutation.isPending ||
+                isLoadingRecoveryInfo ||
+                (recoveryInfo?.hasPastDates && (!cancelConversionReason || cancelConversionReason.trim().length < 10))
+              }
+            >
+              {cancelConversionMutation.isPending ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  En cours...
+                </>
+              ) : (
+                <>
+                  <Undo2 className="h-4 w-4 mr-2" />
+                  {recoveryInfo?.hasPastDates ? "Confirmer malgré la date passée" : "Confirmer l'annulation"}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       </DashboardLayout>
     </ProtectedRoute>
   );

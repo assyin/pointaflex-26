@@ -58,7 +58,8 @@ export function ReportFiltersPanel({
     const options: { value: string; label: string; searchText?: string }[] = [
       { value: 'all', label: 'Tous les employés' }
     ];
-    filteredEmployees.slice(0, 50).forEach((emp: any) => {
+    // Ne pas limiter le nombre d'employés - le SearchableSelect gère le scroll
+    filteredEmployees.forEach((emp: any) => {
       const label = `${emp.firstName} ${emp.lastName} (${emp.matricule})`;
       options.push({
         value: emp.id,

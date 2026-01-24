@@ -139,3 +139,98 @@ export function useOvertimeDashboardStats(filters?: {
     staleTime: 60000, // 1 minute
   });
 }
+
+// ============================================
+// ACTIONS DE RECTIFICATION
+// ============================================
+
+/**
+ * Annuler l'approbation (APPROVED → PENDING)
+ */
+export function useRevokeApproval() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      overtimeApi.revokeApproval(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['overtime'] });
+      queryClient.invalidateQueries({ queryKey: ['recovery-days'] });
+      toast.success('Approbation annulée - La demande est de nouveau en attente');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de l\'annulation de l\'approbation');
+    },
+  });
+}
+
+/**
+ * Annuler le rejet (REJECTED → PENDING)
+ */
+export function useRevokeRejection() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      overtimeApi.revokeRejection(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['overtime'] });
+      toast.success('Rejet annulé - La demande est de nouveau en attente');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de l\'annulation du rejet');
+    },
+  });
+}
+
+/**
+ * Modifier les heures approuvées
+ */
+export function useUpdateApprovedHours() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, approvedHours, reason }: { id: string; approvedHours: number; reason?: string }) =>
+      overtimeApi.updateApprovedHours(id, approvedHours, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['overtime'] });
+      queryClient.invalidateQueries({ queryKey: ['recovery-days'] });
+      toast.success('Heures approuvées modifiées avec succès');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de la modification des heures');
+    },
+  });
+}
+
+/**
+ * Récupérer les informations de récupération liées à un overtime
+ */
+export function useRecoveryInfo(overtimeId: string | null) {
+  return useQuery({
+    queryKey: ['overtime', 'recovery-info', overtimeId],
+    queryFn: () => overtimeApi.getRecoveryInfo(overtimeId!),
+    enabled: !!overtimeId,
+    staleTime: 0, // Toujours refetch pour avoir les données à jour
+  });
+}
+
+/**
+ * Annuler la conversion en récupération (RECOVERED → APPROVED)
+ */
+export function useCancelConversion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+      overtimeApi.cancelConversion(id, reason),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['overtime'] });
+      queryClient.invalidateQueries({ queryKey: ['recovery-days'] });
+      toast.success('Conversion annulée - Les heures sont de nouveau disponibles');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de l\'annulation de la conversion');
+    },
+  });
+}

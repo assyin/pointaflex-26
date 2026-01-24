@@ -615,6 +615,7 @@ export class OvertimeService {
         isNightShift: true,
         rate: true,
         convertedToRecovery: true,
+        convertedToRecoveryDays: true,
         recoveryId: true,
         status: true,
         rejectionReason: true,
@@ -834,6 +835,304 @@ export class OvertimeService {
     });
 
     return recovery;
+  }
+
+  /**
+   * Annuler l'approbation d'une heure supplémentaire (APPROVED → PENDING)
+   * Permet au manager de reconsidérer une approbation
+   */
+  async revokeApproval(tenantId: string, id: string, userId: string, reason?: string) {
+    const overtime = await this.findOne(tenantId, id);
+
+    if (overtime.status !== OvertimeStatus.APPROVED) {
+      throw new BadRequestException(
+        'Seules les heures supplémentaires approuvées peuvent être annulées'
+      );
+    }
+
+    // Vérifier qu'il n'y a pas de conversion en cours
+    if (overtime.convertedToRecovery || overtime.convertedToRecoveryDays) {
+      throw new BadRequestException(
+        'Impossible d\'annuler l\'approbation: les heures ont déjà été converties en récupération'
+      );
+    }
+
+    return this.prisma.overtime.update({
+      where: { id },
+      data: {
+        status: OvertimeStatus.PENDING,
+        approvedBy: null,
+        approvedAt: null,
+        approvedHours: null,
+        notes: overtime.notes
+          ? `${overtime.notes}\n[Approbation annulée le ${new Date().toISOString().split('T')[0]}${reason ? ': ' + reason : ''}]`
+          : `[Approbation annulée le ${new Date().toISOString().split('T')[0]}${reason ? ': ' + reason : ''}]`,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Annuler le rejet d'une heure supplémentaire (REJECTED → PENDING)
+   * Permet de reconsidérer une demande après appel de l'employé
+   */
+  async revokeRejection(tenantId: string, id: string, userId: string, reason?: string) {
+    const overtime = await this.findOne(tenantId, id);
+
+    if (overtime.status !== OvertimeStatus.REJECTED) {
+      throw new BadRequestException(
+        'Seules les heures supplémentaires rejetées peuvent être réouvertes'
+      );
+    }
+
+    return this.prisma.overtime.update({
+      where: { id },
+      data: {
+        status: OvertimeStatus.PENDING,
+        rejectionReason: null,
+        notes: overtime.notes
+          ? `${overtime.notes}\n[Rejet annulé le ${new Date().toISOString().split('T')[0]}${reason ? ': ' + reason : ''}]`
+          : `[Rejet annulé le ${new Date().toISOString().split('T')[0]}${reason ? ': ' + reason : ''}]`,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Modifier les heures approuvées d'une heure supplémentaire
+   * Permet de corriger une erreur de saisie
+   */
+  async updateApprovedHours(
+    tenantId: string,
+    id: string,
+    userId: string,
+    newApprovedHours: number,
+    reason?: string,
+  ) {
+    const overtime = await this.findOne(tenantId, id);
+
+    if (overtime.status !== OvertimeStatus.APPROVED) {
+      throw new BadRequestException(
+        'Seules les heures supplémentaires approuvées peuvent être modifiées'
+      );
+    }
+
+    // Vérifier qu'il n'y a pas de conversion en cours
+    if (overtime.convertedToRecovery || overtime.convertedToRecoveryDays) {
+      throw new BadRequestException(
+        'Impossible de modifier: les heures ont déjà été converties en récupération'
+      );
+    }
+
+    if (newApprovedHours <= 0) {
+      throw new BadRequestException('Le nombre d\'heures doit être supérieur à 0');
+    }
+
+    const oldHours = Number(overtime.approvedHours || overtime.hours);
+
+    return this.prisma.overtime.update({
+      where: { id },
+      data: {
+        approvedHours: newApprovedHours,
+        notes: overtime.notes
+          ? `${overtime.notes}\n[Heures modifiées le ${new Date().toISOString().split('T')[0]}: ${oldHours}h → ${newApprovedHours}h${reason ? ' - ' + reason : ''}]`
+          : `[Heures modifiées le ${new Date().toISOString().split('T')[0]}: ${oldHours}h → ${newApprovedHours}h${reason ? ' - ' + reason : ''}]`,
+      },
+      include: {
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Récupérer les informations de récupération liées à un overtime
+   */
+  async getRecoveryInfo(tenantId: string, id: string) {
+    const overtime = await this.findOne(tenantId, id);
+
+    if (overtime.status !== OvertimeStatus.RECOVERED) {
+      return { hasRecoveryDays: false, recoveryDays: [], hasPastDates: false };
+    }
+
+    const overtimeRecoveryLinks = await this.prisma.overtimeRecoveryDay.findMany({
+      where: { overtimeId: id },
+      include: {
+        recoveryDay: true,
+      },
+    });
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const recoveryDays = overtimeRecoveryLinks.map(link => ({
+      id: link.recoveryDay.id,
+      startDate: link.recoveryDay.startDate,
+      endDate: link.recoveryDay.endDate,
+      status: link.recoveryDay.status,
+      hoursUsed: Number(link.hoursUsed), // hoursUsed est sur OvertimeRecoveryDay
+      sourceHours: Number(link.recoveryDay.sourceHours),
+      isPast: new Date(link.recoveryDay.startDate) < today,
+    }));
+
+    return {
+      hasRecoveryDays: recoveryDays.length > 0,
+      recoveryDays,
+      hasPastDates: recoveryDays.some(rd => rd.isPast),
+    };
+  }
+
+  /**
+   * Annuler la conversion d'une heure supplémentaire (RECOVERED → APPROVED)
+   * Restaure les heures et annule le jour de récupération associé
+   * @param reason Justification obligatoire si la date de récupération est passée
+   */
+  async cancelConversion(tenantId: string, id: string, userId: string, reason?: string) {
+    const overtime = await this.findOne(tenantId, id);
+
+    if (overtime.status !== OvertimeStatus.RECOVERED) {
+      throw new BadRequestException(
+        'Seules les heures supplémentaires converties (RECOVERED) peuvent être annulées'
+      );
+    }
+
+    // Trouver les liens OvertimeRecoveryDay pour cet overtime
+    const overtimeRecoveryLinks = await this.prisma.overtimeRecoveryDay.findMany({
+      where: { overtimeId: id },
+      include: {
+        recoveryDay: true,
+      },
+    });
+
+    if (overtimeRecoveryLinks.length === 0) {
+      throw new BadRequestException(
+        'Aucune récupération liée trouvée pour ces heures supplémentaires'
+      );
+    }
+
+    // Vérifier que les recovery days ne sont pas déjà utilisés
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    let hasPastDates = false;
+    const pastDates: string[] = [];
+
+    for (const link of overtimeRecoveryLinks) {
+      if (link.recoveryDay.status === 'USED') {
+        throw new BadRequestException(
+          `Impossible d'annuler: le jour de récupération du ${link.recoveryDay.startDate.toISOString().split('T')[0]} a déjà été utilisé`
+        );
+      }
+
+      // Vérifier si la date est passée
+      if (new Date(link.recoveryDay.startDate) < today) {
+        hasPastDates = true;
+        pastDates.push(link.recoveryDay.startDate.toISOString().split('T')[0]);
+      }
+    }
+
+    // Si dates passées, la justification est obligatoire
+    if (hasPastDates && (!reason || reason.trim().length < 10)) {
+      throw new BadRequestException(
+        `La date de récupération est passée (${pastDates.join(', ')}). Une justification d'au moins 10 caractères est obligatoire.`
+      );
+    }
+
+    // Effectuer l'annulation dans une transaction
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Récupérer les IDs des recovery days liés
+      const recoveryDayIds = [...new Set(overtimeRecoveryLinks.map(link => link.recoveryDayId))];
+
+      // 2. Trouver TOUS les overtimes liés à ces recovery days (pas seulement celui cliqué)
+      const allLinkedOvertimeLinks = await tx.overtimeRecoveryDay.findMany({
+        where: { recoveryDayId: { in: recoveryDayIds } },
+        select: { overtimeId: true },
+      });
+      const allLinkedOvertimeIds = [...new Set(allLinkedOvertimeLinks.map(link => link.overtimeId))];
+
+      const cancelNote = hasPastDates
+        ? `[Annulé le ${new Date().toISOString().split('T')[0]}] Conversion annulée (date passée). Motif: ${reason}`
+        : `[Annulé le ${new Date().toISOString().split('T')[0]}] Conversion annulée par le manager`;
+
+      // 3. Annuler les recovery days
+      for (const recoveryDayId of recoveryDayIds) {
+        await tx.recoveryDay.update({
+          where: { id: recoveryDayId },
+          data: {
+            status: 'CANCELLED',
+            notes: cancelNote,
+          },
+        });
+      }
+
+      // 4. Supprimer TOUS les liens OvertimeRecoveryDay pour ces recovery days
+      await tx.overtimeRecoveryDay.deleteMany({
+        where: { recoveryDayId: { in: recoveryDayIds } },
+      });
+
+      // 5. Restaurer TOUS les overtimes liés en APPROVED
+      const overtimeNote = hasPastDates
+        ? `[Conversion annulée le ${new Date().toISOString().split('T')[0]} - DATE PASSÉE] Motif: ${reason}`
+        : `[Conversion annulée le ${new Date().toISOString().split('T')[0]}]`;
+
+      // Mettre à jour tous les overtimes liés
+      await tx.overtime.updateMany({
+        where: { id: { in: allLinkedOvertimeIds } },
+        data: {
+          status: OvertimeStatus.APPROVED,
+          convertedToRecovery: false,
+          convertedToRecoveryDays: false,
+          convertedHoursToRecoveryDays: 0,
+        },
+      });
+
+      // Récupérer l'overtime principal avec ses infos pour le retour
+      const updatedOvertime = await tx.overtime.findUnique({
+        where: { id },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              matricule: true,
+            },
+          },
+        },
+      });
+
+      return {
+        overtime: updatedOvertime,
+        cancelledRecoveryDays: recoveryDayIds.length,
+        restoredOvertimes: allLinkedOvertimeIds.length,
+        restoredOvertimeIds: allLinkedOvertimeIds,
+        hasPastDates,
+        pastDates,
+      };
+    });
   }
 
   async getBalance(tenantId: string, employeeId: string) {
