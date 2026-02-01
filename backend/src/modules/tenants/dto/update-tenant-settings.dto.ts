@@ -289,6 +289,14 @@ export class UpdateTenantSettingsDto {
   leaveApprovalLevels?: number;
 
   @ApiPropertyOptional({
+    description: 'Inclure le samedi dans le calcul des jours de congé (même si samedi n\'est pas un jour ouvrable)',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  leaveIncludeSaturday?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Activer le workflow à deux niveaux pour les congés',
     default: true,
   })
@@ -758,4 +766,59 @@ export class UpdateTenantSettingsDto {
   @IsOptional()
   @IsInt()
   missingOutPatternAlertThreshold?: number;
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DÉTECTION ERREUR DE TYPE (WRONG TYPE)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  @ApiPropertyOptional({
+    description: 'Activer la détection des erreurs de type IN/OUT (employé appuie sur IN au lieu de OUT)',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  enableWrongTypeDetection?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Corriger automatiquement le type quand la confiance est suffisante',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  wrongTypeAutoCorrect?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Méthode de détection: SHIFT_BASED, CONTEXT_BASED, PATTERN_BASED, COMBINED',
+    example: 'SHIFT_BASED',
+    default: 'SHIFT_BASED',
+  })
+  @IsOptional()
+  @IsString()
+  wrongTypeDetectionMethod?: string;
+
+  @ApiPropertyOptional({
+    description: 'Marge en minutes autour du shift pour la détection (défaut: 120 min)',
+    example: 120,
+    default: 120,
+  })
+  @IsOptional()
+  @IsInt()
+  wrongTypeShiftMarginMinutes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Seuil de confiance minimum (0-100) pour signaler une erreur de type',
+    example: 80,
+    default: 80,
+  })
+  @IsOptional()
+  @IsInt()
+  wrongTypeConfidenceThreshold?: number;
+
+  @ApiPropertyOptional({
+    description: 'Exiger une validation manuelle même en auto-correction',
+    default: true,
+  })
+  @IsOptional()
+  @IsBoolean()
+  wrongTypeRequiresValidation?: boolean;
 }

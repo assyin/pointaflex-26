@@ -8,6 +8,18 @@ export declare class LeavesService {
     private prisma;
     private fileStorageService;
     constructor(prisma: PrismaService, fileStorageService: FileStorageService);
+    calculateWorkingDays(tenantId: string, startDate: Date, endDate: Date): Promise<{
+        workingDays: number;
+        excludedWeekends: number;
+        excludedHolidays: number;
+        totalCalendarDays: number;
+        includeSaturday: boolean;
+        details: Array<{
+            date: string;
+            isWorking: boolean;
+            reason?: string;
+        }>;
+    }>;
     private suspendSchedulesForLeave;
     private reactivateSchedulesForLeave;
     private adjustScheduleSuspensionsForLeaveUpdate;
@@ -69,6 +81,13 @@ export declare class LeavesService {
                 firstName: string;
                 lastName: string;
                 matricule: string;
+                siteId: string;
+                departmentId: string;
+                department: {
+                    id: string;
+                    code: string;
+                    name: string;
+                };
                 site: {
                     id: string;
                     code: string;
@@ -328,6 +347,13 @@ export declare class LeavesService {
         hrApprovedBy: string | null;
         hrApprovedAt: Date | null;
         hrComment: string | null;
+    }>;
+    getWorkflowConfig(tenantId: string): Promise<{
+        twoLevelWorkflow: boolean;
+        leaveApprovalLevels: number;
+        annualLeaveDays: number;
+        anticipatedLeave: boolean;
+        leaveIncludeSaturday: boolean;
     }>;
     getLeaveTypes(tenantId: string): Promise<{
         id: string;

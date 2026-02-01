@@ -37,18 +37,22 @@ import {
   useCreateDepartment,
   useUpdateDepartment,
   useDeleteDepartment,
+  useDepartmentSettings,
+  useUpdateDepartmentSettings,
 } from '@/lib/hooks/useDepartments';
 import { useEmployees } from '@/lib/hooks/useEmployees';
 import type { Department, CreateDepartmentDto } from '@/lib/api/departments';
-import { Plus, Pencil, Trash2, Building2, Search, Loader2, UserCog } from 'lucide-react';
+import { Plus, Pencil, Trash2, Building2, Search, Loader2, UserCog, Settings } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { DepartmentsAdvancedFilters, type DepartmentsFilters } from './DepartmentsAdvancedFilters';
+import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 
 export function DepartmentsTab() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
   const [deletingDepartment, setDeletingDepartment] = useState<Department | null>(null);
+  const [settingsDepartment, setSettingsDepartment] = useState<Department | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMounted, setIsMounted] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
@@ -322,6 +326,15 @@ export function DepartmentsTab() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => setSettingsDepartment(department)}
+                            className="h-8 w-8 p-0 hover:bg-amber-100 hover:text-amber-700"
+                            title="Paramètres de détection"
+                          >
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
                             onClick={() => handleEdit(department)}
                             className="h-8 w-8 p-0 hover:bg-gray-100 hover:text-gray-700"
                           >
@@ -444,23 +457,13 @@ export function DepartmentsTab() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="managerId" className="text-sm font-semibold text-gray-700">
-                  Manager de Direction
-                </Label>
-                <select
-                  id="managerId"
+                <SearchableEmployeeSelect
+                  label="Manager de Direction"
                   value={formData.managerId || ''}
-                  onChange={(e) => setFormData({ ...formData, managerId: e.target.value || undefined })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent bg-white h-11"
-                >
-                  <option value="">Aucun manager (à assigner plus tard)</option>
-                  {employees.map((emp: any) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.firstName} {emp.lastName} - {emp.matricule}
-                      {emp.department?.name ? ` (${emp.department.name})` : ''}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setFormData({ ...formData, managerId: value || undefined })}
+                  employees={employees}
+                  placeholder="Rechercher un directeur..."
+                />
                 <p className="text-xs text-gray-500">
                   Le Manager de Direction gère ce département dans tous les sites
                 </p>
@@ -494,6 +497,14 @@ export function DepartmentsTab() {
         </DialogContent>
       </Dialog>
 
+      {/* Department Settings Modal */}
+      {settingsDepartment && (
+        <DepartmentSettingsModal
+          department={settingsDepartment}
+          onClose={() => setSettingsDepartment(null)}
+        />
+      )}
+
       {/* Delete Confirmation */}
       <AlertDialog
         open={!!deletingDepartment}
@@ -525,5 +536,200 @@ export function DepartmentsTab() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Department Settings Modal - Wrong Type Detection Override
+// ═══════════════════════════════════════════════════════════════════════════════
+
+type TriState = true | false | null; // null = inherit from tenant
+
+function TriStateToggle({
+  value,
+  onChange,
+  label,
+  description,
+  tenantDefault,
+}: {
+  value: TriState;
+  onChange: (v: TriState) => void;
+  label: string;
+  description: string;
+  tenantDefault: boolean;
+}) {
+  // Cycle: null (inherit) → true (on) → false (off) → null (inherit)
+  const stateLabel = value === null ? 'Hériter' : value ? 'Activé' : 'Désactivé';
+  const stateColor = value === null ? 'bg-gray-200 text-gray-600' : value ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+
+  return (
+    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+      <div className="flex-1">
+        <div className="text-[14px] font-semibold text-[#212529]">{label}</div>
+        <div className="text-[12px] text-[#6C757D] mt-0.5">{description}</div>
+        {value === null && (
+          <div className="text-[11px] text-blue-600 mt-1">
+            Valeur héritée du tenant: {tenantDefault ? 'Activé' : 'Désactivé'}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          if (value === null) onChange(true);
+          else if (value === true) onChange(false);
+          else onChange(null);
+        }}
+        className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${stateColor}`}
+      >
+        {stateLabel}
+      </button>
+    </div>
+  );
+}
+
+function DepartmentSettingsModal({
+  department,
+  onClose,
+}: {
+  department: Department;
+  onClose: () => void;
+}) {
+  const { data, isLoading } = useDepartmentSettings(department.id);
+  const updateMutation = useUpdateDepartmentSettings();
+
+  const [localSettings, setLocalSettings] = useState<{
+    wrongTypeDetectionEnabled: TriState;
+    wrongTypeAutoCorrect: TriState;
+    wrongTypeShiftMarginMinutes: number | null;
+  }>({
+    wrongTypeDetectionEnabled: null,
+    wrongTypeAutoCorrect: null,
+    wrongTypeShiftMarginMinutes: null,
+  });
+
+  // Sync local state when data loads
+  useEffect(() => {
+    if (data?.settings) {
+      setLocalSettings({
+        wrongTypeDetectionEnabled: data.settings.wrongTypeDetectionEnabled,
+        wrongTypeAutoCorrect: data.settings.wrongTypeAutoCorrect,
+        wrongTypeShiftMarginMinutes: data.settings.wrongTypeShiftMarginMinutes,
+      });
+    }
+  }, [data]);
+
+  const handleSave = () => {
+    updateMutation.mutate(
+      { id: department.id, data: localSettings },
+      { onSuccess: () => onClose() },
+    );
+  };
+
+  const tenantDefaults = data?.tenantDefaults || {
+    enableWrongTypeDetection: false,
+    wrongTypeAutoCorrect: false,
+    wrongTypeShiftMarginMinutes: 120,
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5 text-amber-500" />
+            Paramètres - {department.name}
+          </DialogTitle>
+          <DialogDescription>
+            Configuration de la détection d&apos;erreur de type IN/OUT pour ce département.
+            Les valeurs &quot;Hériter&quot; utilisent la configuration du tenant.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          </div>
+        ) : (
+          <div className="space-y-3 py-2">
+            <TriStateToggle
+              value={localSettings.wrongTypeDetectionEnabled}
+              onChange={(v) => setLocalSettings({ ...localSettings, wrongTypeDetectionEnabled: v })}
+              label="Détection erreur de type"
+              description="Détecter les inversions IN/OUT probables"
+              tenantDefault={tenantDefaults.enableWrongTypeDetection}
+            />
+
+            <TriStateToggle
+              value={localSettings.wrongTypeAutoCorrect}
+              onChange={(v) => setLocalSettings({ ...localSettings, wrongTypeAutoCorrect: v })}
+              label="Auto-correction"
+              description="Corriger automatiquement le type quand la confiance est suffisante"
+              tenantDefault={tenantDefaults.wrongTypeAutoCorrect}
+            />
+
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div className="text-[14px] font-semibold text-[#212529]">Marge autour du shift</div>
+                  <div className="text-[12px] text-[#6C757D]">Minutes de tolérance pour la détection</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLocalSettings({
+                      ...localSettings,
+                      wrongTypeShiftMarginMinutes: localSettings.wrongTypeShiftMarginMinutes === null ? tenantDefaults.wrongTypeShiftMarginMinutes : null,
+                    })
+                  }
+                  className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+                    localSettings.wrongTypeShiftMarginMinutes === null
+                      ? 'bg-gray-200 text-gray-600'
+                      : 'bg-blue-100 text-blue-700'
+                  }`}
+                >
+                  {localSettings.wrongTypeShiftMarginMinutes === null ? 'Hériter' : 'Personnalisé'}
+                </button>
+              </div>
+              {localSettings.wrongTypeShiftMarginMinutes === null ? (
+                <div className="text-[11px] text-blue-600">
+                  Valeur héritée du tenant: {tenantDefaults.wrongTypeShiftMarginMinutes} min
+                </div>
+              ) : (
+                <input
+                  type="number"
+                  min="30"
+                  max="300"
+                  value={localSettings.wrongTypeShiftMarginMinutes}
+                  onChange={(e) =>
+                    setLocalSettings({
+                      ...localSettings,
+                      wrongTypeShiftMarginMinutes: parseInt(e.target.value) || 120,
+                    })
+                  }
+                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={updateMutation.isPending || isLoading}
+            className="bg-[#0052CC] hover:bg-[#0747A6]"
+          >
+            {updateMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : null}
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

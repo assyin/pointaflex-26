@@ -68,7 +68,8 @@ export interface AnomalyRecord {
     };
   };
   schedule?: {
-    id: string;
+    id: string | null;
+    isDefault?: boolean;
     shift?: {
       name: string;
       startTime: string;
@@ -91,7 +92,9 @@ export type AnomalyType =
   | 'UNPLANNED_PUNCH'
   | 'DEBOUNCE_BLOCKED'
   | 'PENDING_VALIDATION'
-  | 'REJECTED_PUNCH';
+  | 'REJECTED_PUNCH'
+  | 'PROBABLE_WRONG_TYPE'
+  | 'AUTO_CORRECTED_WRONG_TYPE';
 
 // Types d'anomalies informatives (pas d'action requise)
 export const INFORMATIVE_ANOMALY_TYPES: AnomalyType[] = ['DEBOUNCE_BLOCKED'];
@@ -185,6 +188,8 @@ export const ANOMALY_COLORS: Record<AnomalyType, string> = {
   DEBOUNCE_BLOCKED: '#6B7280', // Gris - informatif
   PENDING_VALIDATION: '#8B5CF6', // Violet - validation requise
   REJECTED_PUNCH: '#EF4444', // Rouge - pointage rejeté
+  PROBABLE_WRONG_TYPE: '#F59E0B', // Ambre - erreur probable de type
+  AUTO_CORRECTED_WRONG_TYPE: '#3B82F6', // Bleu - auto-corrigé, en attente validation
 };
 
 // Labels français par type d'anomalie
@@ -203,6 +208,8 @@ export const ANOMALY_LABELS: Record<AnomalyType, string> = {
   DEBOUNCE_BLOCKED: 'Anti-rebond',
   PENDING_VALIDATION: 'Validation requise',
   REJECTED_PUNCH: 'Pointage rejeté',
+  PROBABLE_WRONG_TYPE: 'Erreur probable de type',
+  AUTO_CORRECTED_WRONG_TYPE: 'Auto-corrigé (mauvais bouton)',
 };
 
 // API Client
@@ -272,6 +279,22 @@ export const anomaliesApi = {
    */
   bulkCorrect: async (payload: BulkCorrectionPayload) => {
     const response = await apiClient.post('/attendance/bulk-correct', payload);
+    return response.data;
+  },
+
+  /**
+   * Invert attendance type (IN→OUT or OUT→IN)
+   */
+  invertType: async (id: string, note?: string): Promise<AnomalyRecord> => {
+    const response = await apiClient.patch(`/attendance/${id}/invert-type`, { note });
+    return response.data;
+  },
+
+  /**
+   * Create missing IN or OUT punch
+   */
+  createMissing: async (id: string, suggestedTimestamp?: string, note?: string): Promise<AnomalyRecord> => {
+    const response = await apiClient.post(`/attendance/${id}/create-missing`, { suggestedTimestamp, note });
     return response.data;
   },
 

@@ -241,7 +241,7 @@ export class TenantsService {
         'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
         'nightShiftStart', 'nightShiftEnd',
         'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-        'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+        'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
         'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
         'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
         'absencePartialThreshold', 'absenceDetectionTime',
@@ -263,7 +263,10 @@ export class TenantsService {
         'missingOutDetectionTime', 'missingOutDetectionWindow',
         'allowMissingOutForRemoteWork', 'allowMissingOutForMissions',
         'missingOutReminderEnabled', 'missingOutReminderDelay', 'missingOutReminderBeforeClosing',
-        'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold'
+        'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold',
+        // Wrong type detection
+        'enableWrongTypeDetection', 'wrongTypeAutoCorrect', 'wrongTypeDetectionMethod',
+        'wrongTypeShiftMarginMinutes', 'wrongTypeConfidenceThreshold', 'wrongTypeRequiresValidation'
       ];
 
       for (const [key, value] of Object.entries(settingsData)) {
@@ -338,7 +341,7 @@ export class TenantsService {
           'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
           'nightShiftStart', 'nightShiftEnd',
           'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-          'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+          'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
           'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
           'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
           'absencePartialThreshold', 'absenceDetectionTime',
@@ -360,7 +363,10 @@ export class TenantsService {
           'missingOutDetectionTime', 'missingOutDetectionWindow',
           'allowMissingOutForRemoteWork', 'allowMissingOutForMissions',
           'missingOutReminderEnabled', 'missingOutReminderDelay', 'missingOutReminderBeforeClosing',
-          'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold'
+          'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold',
+          // Wrong type detection
+          'enableWrongTypeDetection', 'wrongTypeAutoCorrect', 'wrongTypeDetectionMethod',
+          'wrongTypeShiftMarginMinutes', 'wrongTypeConfidenceThreshold', 'wrongTypeRequiresValidation'
         ];
 
         for (const [key, value] of Object.entries(settingsData)) {
@@ -409,7 +415,7 @@ export class TenantsService {
               'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
               'nightShiftStart', 'nightShiftEnd',
               'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-              'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+              'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
               'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
               'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
               'absencePartialThreshold', 'absenceDetectionTime',

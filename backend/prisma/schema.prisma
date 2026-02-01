@@ -80,6 +80,7 @@ model TenantSettings {
   alertMinimumStaffing                       Boolean  @default(true)
   annualLeaveDays                            Int      @default(18)
   leaveApprovalLevels                        Int      @default(2)
+  leaveIncludeSaturday                       Boolean  @default(false)  // Inclure samedi dans le calcul des congés
   overtimeRate                               Decimal  @default(1.25)
   nightShiftRate                             Decimal  @default(1.50)
   createdAt                                  DateTime @default(now())
@@ -193,6 +194,28 @@ model TenantSettings {
   ambiguousPunchNotifyManager                Boolean  @default(true)
   ambiguousPunchNotifyHR                     Boolean  @default(true)
   ambiguousPunchNotifyEmployee               Boolean  @default(false)
+
+  // ═══════════════════════════════════════════════════════════════════════════════
+  // DÉTECTION ERREUR DE TYPE (WRONG TYPE) - Configuration
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  // Activer/désactiver la détection globale des erreurs de type IN/OUT
+  enableWrongTypeDetection                   Boolean  @default(false)
+
+  // Corriger automatiquement le type quand la confiance est suffisante
+  wrongTypeAutoCorrect                       Boolean  @default(false)
+
+  // Méthode de détection: SHIFT_BASED, CONTEXT_BASED, PATTERN_BASED, COMBINED
+  wrongTypeDetectionMethod                   String   @default("SHIFT_BASED")
+
+  // Marge en minutes autour du shift pour la détection (défaut: 120 min = 2h)
+  wrongTypeShiftMarginMinutes                Int      @default(120)
+
+  // Seuil de confiance minimum pour signaler (0-100, défaut: 80%)
+  wrongTypeConfidenceThreshold               Int      @default(80)
+
+  // Exiger une validation manuelle même en auto-correction
+  wrongTypeRequiresValidation                Boolean  @default(true)
 
   tenant                                     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -372,22 +395,38 @@ model Site {
 }
 
 model Department {
-  id           String        @id @default(uuid())
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id           String              @id @default(uuid())
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
   tenantId     String
   name         String
   code         String?
   description  String?
   managerId    String?
-  manager      Employee?     @relation("DepartmentManager", fields: [managerId], references: [id])
-  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  manager      Employee?           @relation("DepartmentManager", fields: [managerId], references: [id])
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   employees    Employee[]
-  sites        Site[]        @relation("SiteDepartment")
+  sites        Site[]              @relation("SiteDepartment")
   siteManagers SiteManager[]
+  settings     DepartmentSettings?
 
   @@index([tenantId])
   @@index([managerId])
+}
+
+model DepartmentSettings {
+  id                             String     @id @default(uuid())
+  createdAt                      DateTime   @default(now())
+  updatedAt                      DateTime   @updatedAt
+  departmentId                   String     @unique
+  department                     Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // null = hériter du tenant, true/false = override
+  wrongTypeDetectionEnabled      Boolean?
+  wrongTypeAutoCorrect           Boolean?
+  wrongTypeShiftMarginMinutes    Int?
+
+  @@index([departmentId])
 }
 
 model SiteManager {

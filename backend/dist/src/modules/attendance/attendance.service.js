@@ -22,10 +22,12 @@ const library_1 = require("@prisma/client/runtime/library");
 const matricule_util_1 = require("../../common/utils/matricule.util");
 const manager_level_util_1 = require("../../common/utils/manager-level.util");
 const supplementary_days_service_1 = require("../supplementary-days/supplementary-days.service");
+const wrong_type_detection_service_1 = require("./wrong-type-detection.service");
 let AttendanceService = class AttendanceService {
-    constructor(prisma, supplementaryDaysService) {
+    constructor(prisma, supplementaryDaysService, wrongTypeDetectionService) {
         this.prisma = prisma;
         this.supplementaryDaysService = supplementaryDaysService;
+        this.wrongTypeDetectionService = wrongTypeDetectionService;
     }
     roundOvertimeHours(hours, roundingMinutes) {
         if (roundingMinutes <= 0)
@@ -1478,6 +1480,16 @@ let AttendanceService = class AttendanceService {
             where.hasAnomaly = filters.hasAnomaly;
         if (filters?.type)
             where.type = filters.type;
+        if (filters?.search) {
+            const searchTerm = filters.search.trim();
+            where.employee = {
+                OR: [
+                    { firstName: { contains: searchTerm, mode: 'insensitive' } },
+                    { lastName: { contains: searchTerm, mode: 'insensitive' } },
+                    { matricule: { contains: searchTerm, mode: 'insensitive' } },
+                ],
+            };
+        }
         where.OR = [
             { anomalyType: null },
             { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
@@ -1764,6 +1776,111 @@ let AttendanceService = class AttendanceService {
             throw new common_1.NotFoundException(`Attendance record ${id} not found`);
         }
         return attendance;
+    }
+    async invertAttendanceType(tenantId, id, userId, note) {
+        const attendance = await this.prisma.attendance.findFirst({
+            where: { id, tenantId },
+        });
+        if (!attendance) {
+            throw new common_1.NotFoundException('Attendance not found');
+        }
+        const newType = attendance.type === 'IN' ? 'OUT' : 'IN';
+        const correctionNote = `[INVERSION] Type inversé: ${attendance.type} → ${newType}${note ? `. ${note}` : ''}`;
+        return this.prisma.attendance.update({
+            where: { id },
+            data: {
+                type: newType,
+                isCorrected: true,
+                correctedBy: userId,
+                correctedAt: new Date(),
+                correctionNote,
+                anomalyType: attendance.anomalyType === 'PROBABLE_WRONG_TYPE' ? null : attendance.anomalyType,
+                hasAnomaly: attendance.anomalyType !== 'PROBABLE_WRONG_TYPE' && !!attendance.anomalyType,
+            },
+            include: {
+                employee: {
+                    select: { id: true, matricule: true, firstName: true, lastName: true },
+                },
+            },
+        });
+    }
+    async createMissingPunch(tenantId, attendanceId, userId, suggestedTimestamp, note) {
+        const existing = await this.prisma.attendance.findFirst({
+            where: { id: attendanceId, tenantId },
+            include: {
+                employee: {
+                    select: { id: true, currentShiftId: true, currentShift: true, siteId: true },
+                },
+            },
+        });
+        if (!existing) {
+            throw new common_1.NotFoundException('Attendance not found');
+        }
+        if (!existing.anomalyType || !['MISSING_IN', 'MISSING_OUT'].includes(existing.anomalyType)) {
+            throw new common_1.BadRequestException('Ce pointage n\'a pas d\'anomalie MISSING_IN ou MISSING_OUT');
+        }
+        const missingType = existing.anomalyType === 'MISSING_IN' ? 'IN' : 'OUT';
+        let timestamp;
+        if (suggestedTimestamp) {
+            timestamp = new Date(suggestedTimestamp);
+        }
+        else {
+            const schedule = await this.getScheduleWithFallback(tenantId, existing.employeeId, existing.timestamp);
+            const shift = schedule?.shift;
+            if (shift) {
+                const dateStr = existing.timestamp.toISOString().split('T')[0];
+                if (missingType === 'IN') {
+                    const [h, m] = shift.startTime.split(':').map(Number);
+                    timestamp = new Date(dateStr + 'T00:00:00Z');
+                    timestamp.setUTCHours(h, m, 0, 0);
+                    if (shift.isNightShift || shift.startTime > shift.endTime) {
+                        timestamp.setDate(timestamp.getDate() - 1);
+                    }
+                }
+                else {
+                    const [h, m] = shift.endTime.split(':').map(Number);
+                    timestamp = new Date(dateStr + 'T00:00:00Z');
+                    timestamp.setUTCHours(h, m, 0, 0);
+                    if (shift.isNightShift || shift.startTime > shift.endTime) {
+                        timestamp.setDate(timestamp.getDate() + 1);
+                    }
+                }
+            }
+            else {
+                throw new common_1.BadRequestException('Aucun shift trouvé. Veuillez fournir un timestamp.');
+            }
+        }
+        const created = await this.prisma.attendance.create({
+            data: {
+                tenantId,
+                employeeId: existing.employeeId,
+                siteId: existing.siteId,
+                timestamp,
+                type: missingType,
+                method: 'MANUAL',
+                source: 'MANUAL',
+                isGenerated: true,
+                generatedBy: userId || 'system',
+                correctionNote: note || `[AUTO] Pointage ${missingType} créé pour compléter la session. Basé sur le shift assigné.`,
+            },
+            include: {
+                employee: {
+                    select: { id: true, matricule: true, firstName: true, lastName: true },
+                },
+            },
+        });
+        await this.prisma.attendance.update({
+            where: { id: attendanceId },
+            data: {
+                isCorrected: true,
+                correctedBy: userId,
+                correctedAt: new Date(),
+                correctionNote: `${missingType} manquant créé automatiquement (ID: ${created.id})`,
+                hasAnomaly: false,
+                anomalyType: null,
+            },
+        });
+        return created;
     }
     async correctAttendance(tenantId, id, correctionDto, userId, userPermissions) {
         const attendance = await this.prisma.attendance.findFirst({
@@ -2212,6 +2329,7 @@ let AttendanceService = class AttendanceService {
                             photo: true,
                             site: { select: { id: true, name: true } },
                             department: { select: { id: true, name: true } },
+                            currentShift: { select: { id: true, name: true, startTime: true, endTime: true } },
                         },
                     },
                     site: true,
@@ -2222,8 +2340,40 @@ let AttendanceService = class AttendanceService {
             }),
         ]);
         const totalPages = Math.ceil(total / limit);
+        const dateEmployeePairs = anomalies.map((a) => ({
+            employeeId: a.employeeId,
+            date: new Date(a.timestamp.toISOString().split('T')[0]),
+        }));
+        let scheduleMap = new Map();
+        if (dateEmployeePairs.length > 0) {
+            const schedules = await this.prisma.schedule.findMany({
+                where: {
+                    tenantId,
+                    OR: dateEmployeePairs.map(p => ({
+                        employeeId: p.employeeId,
+                        date: p.date,
+                    })),
+                },
+                include: {
+                    shift: { select: { id: true, name: true, startTime: true, endTime: true } },
+                },
+            });
+            for (const s of schedules) {
+                const key = `${s.employeeId}_${s.date.toISOString().split('T')[0]}`;
+                scheduleMap.set(key, { id: s.id, shift: s.shift });
+            }
+        }
+        const enrichedAnomalies = anomalies.map((a) => {
+            const key = `${a.employeeId}_${a.timestamp.toISOString().split('T')[0]}`;
+            const scheduleData = scheduleMap.get(key) || null;
+            const defaultShift = a.employee?.currentShift || null;
+            return {
+                ...a,
+                schedule: scheduleData || (defaultShift ? { id: null, shift: defaultShift, isDefault: true } : null),
+            };
+        });
         return {
-            data: anomalies,
+            data: enrichedAnomalies,
             meta: {
                 total,
                 page,
@@ -4224,6 +4374,7 @@ let AttendanceService = class AttendanceService {
         if (attendance.approvalStatus === 'APPROVED' || attendance.approvalStatus === 'REJECTED') {
             throw new common_1.BadRequestException('Cette correction a déjà été traitée');
         }
+        const isAutoCorrectReject = !approved && attendance.anomalyType === 'AUTO_CORRECTED_WRONG_TYPE';
         const updatedAttendance = await this.prisma.attendance.update({
             where: { id },
             data: {
@@ -4234,6 +4385,16 @@ let AttendanceService = class AttendanceService {
                 approvedBy: approved ? approvedBy : null,
                 approvedAt: approved ? new Date() : null,
                 correctionNote: comment || attendance.correctionNote,
+                ...(isAutoCorrectReject && {
+                    type: attendance.type === 'IN' ? 'OUT' : 'IN',
+                    anomalyType: 'PROBABLE_WRONG_TYPE',
+                    anomalyNote: `Auto-correction rejetée par le manager. Type restauré à ${attendance.type === 'IN' ? 'OUT' : 'IN'} (terminal state=${attendance.terminalState}).`,
+                }),
+                ...(approved && attendance.anomalyType === 'AUTO_CORRECTED_WRONG_TYPE' && {
+                    hasAnomaly: false,
+                    anomalyType: null,
+                    anomalyNote: `Auto-correction validée par le manager.`,
+                }),
             },
             include: {
                 employee: {
@@ -5205,28 +5366,30 @@ let AttendanceService = class AttendanceService {
                 },
             },
         });
-        const results = await Promise.all(employees.map(async (employee) => {
-            const anomalyCount = await this.prisma.attendance.count({
-                where: {
-                    tenantId,
-                    employeeId: employee.id,
-                    hasAnomaly: true,
-                    timestamp: { gte: startDate },
-                },
-            });
-            if (anomalyCount >= threshold) {
-                return {
-                    employeeId: employee.id,
-                    employeeName: `${employee.firstName} ${employee.lastName}`,
-                    matricule: employee.matricule,
-                    department: employee.department?.name,
-                    anomalyCount,
-                    recommendation: this.generateRecommendation(anomalyCount),
-                };
-            }
-            return null;
+        const anomalyCounts = await this.prisma.attendance.groupBy({
+            by: ['employeeId'],
+            where: {
+                tenantId,
+                employeeId: { in: employees.map(e => e.id) },
+                hasAnomaly: true,
+                timestamp: { gte: startDate },
+            },
+            _count: { id: true },
+            having: {
+                id: { _count: { gte: threshold } },
+            },
+        });
+        const countMap = new Map(anomalyCounts.map(a => [a.employeeId, a._count.id]));
+        return employees
+            .filter(e => countMap.has(e.id))
+            .map(e => ({
+            employeeId: e.id,
+            employeeName: `${e.firstName} ${e.lastName}`,
+            matricule: e.matricule,
+            department: e.department?.name,
+            anomalyCount: countMap.get(e.id),
+            recommendation: this.generateRecommendation(countMap.get(e.id)),
         }));
-        return results.filter(r => r !== null);
     }
     async detectHolidayWork(tenantId, employeeId, timestamp, type) {
         const timestampDate = new Date(timestamp);
@@ -5891,17 +6054,81 @@ let AttendanceService = class AttendanceService {
             let isDoubleIn = false;
             let firstInTime = null;
             let isMissingIn = false;
-            if (isHoliday && !isOnLeave) {
-                anomalyType = 'HOLIDAY_WORKED';
+            let isAutoCorrectedWrongType = false;
+            let effectiveType = webhookData.type;
+            if (webhookData.type === 'OUT' && shift?.startTime) {
+                const punchMins = punchTime.getHours() * 60 + punchTime.getMinutes();
+                const shiftStartParts = shift.startTime.split(':');
+                const shiftStartMins = parseInt(shiftStartParts[0]) * 60 + parseInt(shiftStartParts[1] || '0');
+                const diffFromStart = Math.abs(punchMins - shiftStartMins);
+                const diffFromStartWrapped = Math.min(diffFromStart, 24 * 60 - diffFromStart);
+                if (diffFromStartWrapped <= 150) {
+                    const recentIn = await this.prisma.attendance.findFirst({
+                        where: {
+                            tenantId,
+                            employeeId: employee.id,
+                            type: 'IN',
+                            timestamp: {
+                                gte: new Date(punchTime.getTime() - 16 * 60 * 60 * 1000),
+                                lt: punchTime,
+                            },
+                            OR: [
+                                { anomalyType: null },
+                                { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'AUTO_CORRECTED_WRONG_TYPE'] } },
+                            ],
+                        },
+                        orderBy: { timestamp: 'desc' },
+                    });
+                    if (!recentIn) {
+                        isAutoCorrectedWrongType = true;
+                        effectiveType = 'IN';
+                        console.log(`   🔄 AUTO-CORRECTION: OUT→IN (bouton OUT à ${diffFromStartWrapped} min du début shift ${shift.startTime}). En attente validation manager.`);
+                    }
+                }
             }
-            else if (isOnLeave) {
-                anomalyType = 'LEAVE_BUT_PRESENT';
+            if (!isAutoCorrectedWrongType && webhookData.type === 'IN' && shift?.endTime) {
+                const punchMins = punchTime.getHours() * 60 + punchTime.getMinutes();
+                const shiftEndParts = shift.endTime.split(':');
+                const shiftEndMins = parseInt(shiftEndParts[0]) * 60 + parseInt(shiftEndParts[1] || '0');
+                const diffFromEnd = Math.abs(punchMins - shiftEndMins);
+                const diffFromEndWrapped = Math.min(diffFromEnd, 24 * 60 - diffFromEnd);
+                if (diffFromEndWrapped <= 150) {
+                    const recentIn = await this.prisma.attendance.findFirst({
+                        where: {
+                            tenantId,
+                            employeeId: employee.id,
+                            type: 'IN',
+                            timestamp: {
+                                gte: new Date(punchTime.getTime() - 16 * 60 * 60 * 1000),
+                                lt: punchTime,
+                            },
+                            OR: [
+                                { anomalyType: null },
+                                { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'AUTO_CORRECTED_WRONG_TYPE'] } },
+                            ],
+                        },
+                        orderBy: { timestamp: 'desc' },
+                    });
+                    if (recentIn) {
+                        isAutoCorrectedWrongType = true;
+                        effectiveType = 'OUT';
+                        console.log(`   🔄 AUTO-CORRECTION: IN→OUT (bouton IN à ${diffFromEndWrapped} min de la fin shift ${shift.endTime}). En attente validation manager.`);
+                    }
+                }
             }
-            else if (!isWorkingDay && isVirtualSchedule) {
-                anomalyType = 'WEEKEND_WORK';
-                console.log(`   ⚠️ Anomalie WEEKEND_WORK: pointage le ${dayName} sans planning explicite`);
+            if (effectiveType === 'IN') {
+                if (isHoliday && !isOnLeave) {
+                    anomalyType = 'HOLIDAY_WORKED';
+                }
+                else if (isOnLeave) {
+                    anomalyType = 'LEAVE_BUT_PRESENT';
+                }
+                else if (!isWorkingDay && isVirtualSchedule) {
+                    anomalyType = 'WEEKEND_WORK';
+                    console.log(`   ⚠️ Anomalie WEEKEND_WORK: pointage IN le ${dayName} sans planning explicite`);
+                }
             }
-            else if (shift) {
+            if (!anomalyType && shift) {
                 const punchMinutes = punchTime.getHours() * 60 + punchTime.getMinutes();
                 const [startH, startM] = shift.startTime.split(':').map(Number);
                 const [endH, endM] = shift.endTime.split(':').map(Number);
@@ -5921,7 +6148,7 @@ let AttendanceService = class AttendanceService {
                 const lateThreshold = settings?.lateToleranceEntry ?? 10;
                 const earlyThreshold = settings?.earlyToleranceExit ?? 5;
                 const overtimeThreshold = settings?.overtimeMinimumThreshold ?? 30;
-                if (webhookData.type === 'IN') {
+                if (effectiveType === 'IN') {
                     const punchDate = punchTime.toISOString().split('T')[0];
                     const threeDaysAgo = new Date(punchTime);
                     threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
@@ -5952,11 +6179,27 @@ let AttendanceService = class AttendanceService {
                                 },
                                 OR: [
                                     { anomalyType: null },
-                                    { anomalyType: { notIn: ['MISSING_IN', 'DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
+                                    { anomalyType: { notIn: ['DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
                                 ],
                             },
                         });
-                        if (!hasOutAfter) {
+                        if (hasOutAfter) {
+                            if (unclosedPreviousIn.anomalyType === 'MISSING_OUT') {
+                                await this.prisma.attendance.update({
+                                    where: { id: unclosedPreviousIn.id },
+                                    data: { hasAnomaly: false, anomalyType: null, anomalyNote: null },
+                                });
+                                console.log(`   🧹 Nettoyage MISSING_OUT: IN du ${unclosedPreviousIn.timestamp.toISOString()} fermé par OUT du ${hasOutAfter.timestamp.toISOString()}`);
+                            }
+                            if (hasOutAfter.anomalyType === 'MISSING_IN') {
+                                await this.prisma.attendance.update({
+                                    where: { id: hasOutAfter.id },
+                                    data: { hasAnomaly: false, anomalyType: null, anomalyNote: null },
+                                });
+                                console.log(`   🧹 Nettoyage MISSING_IN: OUT du ${hasOutAfter.timestamp.toISOString()} pairé avec IN du ${unclosedPreviousIn.timestamp.toISOString()}`);
+                            }
+                        }
+                        else {
                             const inDate = unclosedPreviousIn.timestamp;
                             const inDateStr = inDate.toISOString().split('T')[0];
                             const oldSchedule = await this.getScheduleWithFallback(tenantId, employee.id, inDate);
@@ -5986,14 +6229,18 @@ let AttendanceService = class AttendanceService {
                             }
                         }
                     }
+                    const isNightShiftForDoubleIn = shift?.isNightShift === true || (shift && shift.startTime > shift.endTime);
+                    const doubleInSearchFrom = isNightShiftForDoubleIn
+                        ? new Date(punchTime.getTime() - 16 * 60 * 60 * 1000)
+                        : new Date(punchDate + 'T00:00:00Z');
                     const existingIn = await this.prisma.attendance.findFirst({
                         where: {
                             tenantId,
                             employeeId: employee.id,
                             type: 'IN',
                             timestamp: {
-                                gte: new Date(punchDate + 'T00:00:00Z'),
-                                lt: new Date(punchDate + 'T23:59:59Z'),
+                                gte: doubleInSearchFrom,
+                                lt: punchTime,
                             },
                             OR: [
                                 { anomalyType: null },
@@ -6032,69 +6279,117 @@ let AttendanceService = class AttendanceService {
                         console.log(`   ⚠️ Anomalie: RETARD de ${late} min`);
                     }
                 }
-                if (webhookData.type === 'OUT') {
+                if (effectiveType === 'OUT') {
                     const punchDate = punchTime.toISOString().split('T')[0];
-                    const existingIn = await this.prisma.attendance.findFirst({
-                        where: {
-                            tenantId,
-                            employeeId: employee.id,
-                            type: 'IN',
-                            timestamp: {
-                                gte: new Date(punchDate + 'T00:00:00Z'),
-                                lt: new Date(punchDate + 'T23:59:59Z'),
+                    const isNight = shift?.isNightShift === true || (shift && shift.startTime > shift.endTime);
+                    let existingIn = null;
+                    if (isNight) {
+                        const searchFrom = new Date(punchTime.getTime() - 16 * 60 * 60 * 1000);
+                        existingIn = await this.prisma.attendance.findFirst({
+                            where: {
+                                tenantId,
+                                employeeId: employee.id,
+                                type: 'IN',
+                                timestamp: { gte: searchFrom, lt: punchTime },
+                                OR: [
+                                    { anomalyType: null },
+                                    { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                                ],
                             },
-                            OR: [
-                                { anomalyType: null },
-                                { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
-                            ],
-                        },
-                    });
+                            orderBy: { timestamp: 'desc' },
+                        });
+                        if (existingIn) {
+                            console.log(`   ✅ Session nuit cross-day: IN trouvé le ${existingIn.timestamp.toISOString()} pour OUT du ${punchTime.toISOString()}`);
+                        }
+                    }
+                    else {
+                        existingIn = await this.prisma.attendance.findFirst({
+                            where: {
+                                tenantId,
+                                employeeId: employee.id,
+                                type: 'IN',
+                                timestamp: {
+                                    gte: new Date(punchDate + 'T00:00:00Z'),
+                                    lt: new Date(punchDate + 'T23:59:59Z'),
+                                },
+                                OR: [
+                                    { anomalyType: null },
+                                    { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                                ],
+                            },
+                        });
+                    }
                     if (!existingIn) {
-                        isMissingIn = true;
-                        console.log(`   ⚠️ MISSING_IN détecté: Aucune entrée trouvée pour aujourd'hui`);
-                        const threeDaysAgo = new Date(punchTime);
-                        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+                        const sixteenHoursAgo = new Date(punchTime.getTime() - 16 * 60 * 60 * 1000);
                         const unclosedPreviousIn = await this.prisma.attendance.findFirst({
                             where: {
                                 tenantId,
                                 employeeId: employee.id,
                                 type: 'IN',
                                 timestamp: {
-                                    gte: threeDaysAgo,
+                                    gte: sixteenHoursAgo,
                                     lt: new Date(punchDate + 'T00:00:00Z'),
                                 },
-                                OR: [
-                                    { anomalyType: null },
-                                    { anomalyType: { notIn: ['MISSING_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
-                                ],
                             },
                             orderBy: { timestamp: 'desc' },
                         });
                         if (unclosedPreviousIn) {
-                            const hasOutAfter = await this.prisma.attendance.findFirst({
-                                where: {
-                                    tenantId,
-                                    employeeId: employee.id,
-                                    type: 'OUT',
-                                    timestamp: { gt: unclosedPreviousIn.timestamp },
-                                    OR: [
-                                        { anomalyType: null },
-                                        { anomalyType: { notIn: ['MISSING_IN', 'DOUBLE_OUT', 'DEBOUNCE_BLOCKED'] } },
-                                    ],
-                                },
-                            });
-                            if (!hasOutAfter) {
-                                const inDate = unclosedPreviousIn.timestamp;
+                            console.log(`   ✅ Pairage cross-day: OUT ${punchTime.toISOString()} ferme IN ${unclosedPreviousIn.timestamp.toISOString()}`);
+                            if (unclosedPreviousIn.anomalyType === 'MISSING_OUT') {
                                 await this.prisma.attendance.update({
                                     where: { id: unclosedPreviousIn.id },
                                     data: {
-                                        hasAnomaly: true,
-                                        anomalyType: 'MISSING_OUT',
-                                        isCorrected: false,
-                                        anomalyNote: `Entrée du ${inDate.toLocaleDateString('fr-FR')} sans sortie. Veuillez ajouter l'heure de sortie manuellement.`,
+                                        hasAnomaly: false,
+                                        anomalyType: null,
+                                        anomalyNote: null,
                                     },
                                 });
-                                console.log(`   ⚠️ MISSING_OUT détecté: IN du ${inDate.toLocaleDateString('fr-FR')} à ${inDate.toLocaleTimeString('fr-FR')} sans OUT`);
+                                console.log(`   🧹 Nettoyage MISSING_OUT sur IN du ${unclosedPreviousIn.timestamp.toISOString()}`);
+                            }
+                        }
+                        else {
+                            isMissingIn = true;
+                            console.log(`   ⚠️ MISSING_IN détecté: Aucune entrée trouvée (même jour ni cross-day)`);
+                            const threeDaysAgo = new Date(punchTime);
+                            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+                            const oldUnclosedIn = await this.prisma.attendance.findFirst({
+                                where: {
+                                    tenantId,
+                                    employeeId: employee.id,
+                                    type: 'IN',
+                                    timestamp: {
+                                        gte: threeDaysAgo,
+                                        lt: sixteenHoursAgo,
+                                    },
+                                    OR: [
+                                        { anomalyType: null },
+                                        { anomalyType: { notIn: ['MISSING_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                                    ],
+                                },
+                                orderBy: { timestamp: 'desc' },
+                            });
+                            if (oldUnclosedIn) {
+                                const hasOutAfter = await this.prisma.attendance.findFirst({
+                                    where: {
+                                        tenantId,
+                                        employeeId: employee.id,
+                                        type: 'OUT',
+                                        timestamp: { gt: oldUnclosedIn.timestamp, lt: punchTime },
+                                    },
+                                });
+                                if (!hasOutAfter) {
+                                    const inDate = oldUnclosedIn.timestamp;
+                                    await this.prisma.attendance.update({
+                                        where: { id: oldUnclosedIn.id },
+                                        data: {
+                                            hasAnomaly: true,
+                                            anomalyType: 'MISSING_OUT',
+                                            isCorrected: false,
+                                            anomalyNote: `Entrée du ${inDate.toLocaleDateString('fr-FR')} sans sortie. Veuillez ajouter l'heure de sortie manuellement.`,
+                                        },
+                                    });
+                                    console.log(`   ⚠️ MISSING_OUT détecté: IN du ${inDate.toLocaleDateString('fr-FR')} à ${inDate.toLocaleTimeString('fr-FR')} sans OUT (> 16h)`);
+                                }
                             }
                         }
                     }
@@ -6111,25 +6406,74 @@ let AttendanceService = class AttendanceService {
                         orderBy: { timestamp: 'desc' },
                     });
                     if (existingOut) {
-                        await this.prisma.attendance.update({
-                            where: { id: existingOut.id },
-                            data: {
-                                hasAnomaly: true,
-                                anomalyType: 'DOUBLE_OUT',
-                                isCorrected: true,
-                                correctionNote: `Remplacé par sortie ultérieure à ${punchTime.toLocaleTimeString('fr-FR')}`,
-                                overtimeMinutes: null,
-                            },
-                        });
-                        console.log(`   📝 Ancienne sortie ${existingOut.id} marquée comme DOUBLE_OUT`);
-                        await this.prisma.overtime.deleteMany({
+                        const existingOutTime = new Date(existingOut.timestamp);
+                        const pairedInForExistingOut = await this.prisma.attendance.findFirst({
                             where: {
                                 tenantId,
                                 employeeId: employee.id,
-                                date: new Date(punchDate),
+                                type: 'IN',
+                                timestamp: {
+                                    gte: new Date(existingOutTime.getTime() - 16 * 60 * 60 * 1000),
+                                    lt: existingOutTime,
+                                },
+                                OR: [
+                                    { anomalyType: null },
+                                    { anomalyType: { notIn: ['DOUBLE_IN', 'DEBOUNCE_BLOCKED'] } },
+                                ],
                             },
+                            orderBy: { timestamp: 'desc' },
                         });
-                        console.log(`   🗑️ Ancien overtime supprimé pour recalcul`);
+                        const isNightSessionOut = pairedInForExistingOut &&
+                            new Date(pairedInForExistingOut.timestamp).toISOString().slice(0, 10) !== existingOutTime.toISOString().slice(0, 10);
+                        if (isNightSessionOut) {
+                            console.log(`   ✅ Ancien OUT ${existingOut.id} appartient à une session nuit (IN ${pairedInForExistingOut.id} de la veille) — pas de DOUBLE_OUT`);
+                        }
+                        else {
+                            let isWrongButton = false;
+                            if (shift?.startTime) {
+                                const existingOutLocal = new Date(existingOut.timestamp);
+                                const existingOutMinutes = existingOutLocal.getHours() * 60 + existingOutLocal.getMinutes();
+                                const shiftStartParts = shift.startTime.split(':');
+                                const shiftStartMins = parseInt(shiftStartParts[0]) * 60 + parseInt(shiftStartParts[1] || '0');
+                                const diffMins = Math.abs(existingOutMinutes - shiftStartMins);
+                                if (diffMins <= 150 || diffMins >= (24 * 60 - 150)) {
+                                    isWrongButton = true;
+                                }
+                            }
+                            if (isWrongButton) {
+                                await this.prisma.attendance.update({
+                                    where: { id: existingOut.id },
+                                    data: {
+                                        hasAnomaly: true,
+                                        anomalyType: 'PROBABLE_WRONG_TYPE',
+                                        isCorrected: false,
+                                        anomalyNote: `Sortie enregistrée proche de l'heure de début du shift (${shift.startTime}). L'employé a probablement appuyé sur le mauvais bouton.`,
+                                    },
+                                });
+                                console.log(`   ⚠️ Ancien OUT ${existingOut.id} marqué PROBABLE_WRONG_TYPE (proche début shift ${shift.startTime})`);
+                            }
+                            else {
+                                await this.prisma.attendance.update({
+                                    where: { id: existingOut.id },
+                                    data: {
+                                        hasAnomaly: true,
+                                        anomalyType: 'DOUBLE_OUT',
+                                        isCorrected: true,
+                                        correctionNote: `Remplacé par sortie ultérieure à ${punchTime.toLocaleTimeString('fr-FR')}`,
+                                        overtimeMinutes: null,
+                                    },
+                                });
+                                console.log(`   📝 Ancienne sortie ${existingOut.id} marquée comme DOUBLE_OUT`);
+                                await this.prisma.overtime.deleteMany({
+                                    where: {
+                                        tenantId,
+                                        employeeId: employee.id,
+                                        date: new Date(punchDate),
+                                    },
+                                });
+                                console.log(`   🗑️ Ancien overtime supprimé pour recalcul`);
+                            }
+                        }
                     }
                     let adjustedPunchMinutes = punchMinutes;
                     if (shift.isNightShift && punchMinutes < shiftStartMinutes) {
@@ -6154,13 +6498,17 @@ let AttendanceService = class AttendanceService {
                 }
             }
             let finalAnomalyType = anomalyType;
-            if (isMissingIn) {
+            if (isAutoCorrectedWrongType) {
+                finalAnomalyType = 'AUTO_CORRECTED_WRONG_TYPE';
+            }
+            else if (isMissingIn) {
                 finalAnomalyType = 'MISSING_IN';
             }
             else if (isDoubleIn) {
                 finalAnomalyType = 'DOUBLE_IN';
             }
-            const finalHasAnomaly = isMissingIn || isDoubleIn || !!anomalyType;
+            const isInfoAlert = finalAnomalyType === 'WEEKEND_WORK' || finalAnomalyType === 'HOLIDAY_WORKED';
+            const finalHasAnomaly = !isInfoAlert && (isAutoCorrectedWrongType || isMissingIn || isDoubleIn || !!anomalyType);
             const attendance = await this.prisma.attendance.create({
                 data: {
                     tenantId,
@@ -6168,7 +6516,7 @@ let AttendanceService = class AttendanceService {
                     deviceId: device.id,
                     siteId: device.siteId,
                     timestamp: punchTime,
-                    type: webhookData.type,
+                    type: effectiveType,
                     terminalState: webhookData.terminalState,
                     method: webhookData.method || 'FINGERPRINT',
                     source: webhookData.source || 'TERMINAL',
@@ -6187,6 +6535,17 @@ let AttendanceService = class AttendanceService {
                         isCorrected: true,
                         correctionNote: `Entrée en double - première entrée à ${firstInTime?.toLocaleTimeString('fr-FR')} conservée`,
                     }),
+                    ...(isAutoCorrectedWrongType && {
+                        isCorrected: true,
+                        needsApproval: true,
+                        approvalStatus: 'PENDING_APPROVAL',
+                        anomalyNote: webhookData.type === 'OUT'
+                            ? `Sortie auto-corrigée en entrée (bouton OUT pressé à ${punchTime.toLocaleTimeString('fr-FR')}, proche début shift ${shift?.startTime}). En attente validation manager.`
+                            : `Entrée auto-corrigée en sortie (bouton IN pressé à ${punchTime.toLocaleTimeString('fr-FR')}, proche fin shift ${shift?.endTime}). En attente validation manager.`,
+                        correctionNote: webhookData.type === 'OUT'
+                            ? `Auto-correction: OUT→IN (terminal state=${webhookData.terminalState}, shift début=${shift?.startTime})`
+                            : `Auto-correction: IN→OUT (terminal state=${webhookData.terminalState}, shift fin=${shift?.endTime})`,
+                    }),
                     rawData: webhookData.rawData || {
                         terminalState: webhookData.terminalState,
                         source: 'TERMINAL_STATE_WEBHOOK',
@@ -6196,10 +6555,31 @@ let AttendanceService = class AttendanceService {
             });
             console.log(`   ✅ CRÉÉ: ${attendance.id}`);
             console.log(`   📊 Type: ${attendance.type}, Anomalie: ${finalAnomalyType || 'Aucune'}`);
+            try {
+                const wrongTypeResult = await this.wrongTypeDetectionService.detect(tenantId, employee.id, punchTime, effectiveType, employee.departmentId || undefined);
+                if (wrongTypeResult.isWrongType) {
+                    console.log(`   ⚠️ [WRONG-TYPE] Erreur probable détectée: ${effectiveType} → attendu ${wrongTypeResult.expectedType} (confiance: ${wrongTypeResult.confidence}%)`);
+                    console.log(`   📋 Raison: ${wrongTypeResult.reason}`);
+                    const wrongTypeNote = `[WRONG_TYPE] Type probable: ${wrongTypeResult.expectedType} (confiance: ${wrongTypeResult.confidence}%). ${wrongTypeResult.reason}`;
+                    await this.prisma.attendance.update({
+                        where: { id: attendance.id },
+                        data: {
+                            hasAnomaly: true,
+                            anomalyType: attendance.anomalyType || 'PROBABLE_WRONG_TYPE',
+                            anomalyNote: attendance.anomalyNote
+                                ? `${attendance.anomalyNote} | ${wrongTypeNote}`
+                                : wrongTypeNote,
+                        },
+                    });
+                }
+            }
+            catch (wrongTypeError) {
+                console.error(`   ❌ [WRONG-TYPE] Erreur lors de la détection:`, wrongTypeError);
+            }
             if (overtimeMinutes && overtimeMinutes > 0) {
                 await this.createAutoOvertime(tenantId, attendance, overtimeMinutes);
             }
-            if (webhookData.type === 'OUT') {
+            if (effectiveType === 'OUT') {
                 const punchDateStr = punchTime.toISOString().split('T')[0];
                 const matchingIn = await this.prisma.attendance.findFirst({
                     where: {
@@ -6250,6 +6630,7 @@ exports.AttendanceService = AttendanceService = __decorate([
     (0, common_1.Injectable)(),
     __param(1, (0, common_1.Inject)((0, common_1.forwardRef)(() => supplementary_days_service_1.SupplementaryDaysService))),
     __metadata("design:paramtypes", [prisma_service_1.PrismaService,
-        supplementary_days_service_1.SupplementaryDaysService])
+        supplementary_days_service_1.SupplementaryDaysService,
+        wrong_type_detection_service_1.WrongTypeDetectionService])
 ], AttendanceService);
 //# sourceMappingURL=attendance.service.js.map

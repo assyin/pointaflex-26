@@ -59,6 +59,13 @@ export declare class LeavesController {
                 firstName: string;
                 lastName: string;
                 matricule: string;
+                siteId: string;
+                departmentId: string;
+                department: {
+                    id: string;
+                    code: string;
+                    name: string;
+                };
                 site: {
                     id: string;
                     code: string;
@@ -110,6 +117,28 @@ export declare class LeavesController {
             totalPages: number;
         };
     }>;
+    getWorkflowConfig(user: any): Promise<{
+        twoLevelWorkflow: boolean;
+        leaveApprovalLevels: number;
+        annualLeaveDays: number;
+        anticipatedLeave: boolean;
+        leaveIncludeSaturday: boolean;
+    }>;
+    calculateWorkingDays(user: any, startDate: string, endDate: string): Promise<{
+        workingDays: number;
+        excludedWeekends: number;
+        excludedHolidays: number;
+        totalCalendarDays: number;
+        includeSaturday: boolean;
+        details: Array<{
+            date: string;
+            isWorking: boolean;
+            reason?: string;
+        }>;
+    }> | {
+        workingDays: number;
+        error: string;
+    };
     findOne(user: any, id: string): Promise<{
         employee: {
             id: string;

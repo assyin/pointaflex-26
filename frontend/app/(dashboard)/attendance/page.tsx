@@ -151,14 +151,15 @@ export default function AttendancePage() {
       startDate,
       endDate,
       page: 1,
-      limit: 100,
+      limit: 500,
     };
     if (selectedEmployee !== 'all') filters.employeeId = selectedEmployee;
     if (selectedSite !== 'all') filters.siteId = selectedSite;
     if (showAnomaliesOnly) filters.hasAnomaly = true;
     if (selectedType !== 'all') filters.type = selectedType;
+    if (searchQuery.trim()) filters.search = searchQuery.trim();
     return filters;
-  }, [startDate, endDate, selectedEmployee, selectedSite, showAnomaliesOnly, selectedType]);
+  }, [startDate, endDate, selectedEmployee, selectedSite, showAnomaliesOnly, selectedType, searchQuery]);
 
   // Helper function to convert Decimal values to numbers
   const toNumber = (value: any): number => {
@@ -173,7 +174,9 @@ export default function AttendancePage() {
   };
 
   // Fetch attendance data with auto-refresh
-  const { data: attendanceData, isLoading, error, refetch, dataUpdatedAt } = useAttendance(apiFilters);
+  const { data: attendanceDataRaw, isLoading, error, refetch, dataUpdatedAt } = useAttendance(apiFilters);
+  // Handle both paginated response {data: [], meta: {}} and raw array response
+  const attendanceData = Array.isArray(attendanceDataRaw) ? attendanceDataRaw : attendanceDataRaw?.data || [];
 
   // Auto-refresh notification
   const [lastCount, setLastCount] = React.useState(0);
@@ -291,6 +294,8 @@ export default function AttendancePage() {
       DOUBLE_IN: { label: 'Double entrée', color: 'bg-sky-100 text-sky-700' },
       DOUBLE_OUT: { label: 'Double sortie', color: 'bg-sky-100 text-sky-700' },
       DEBOUNCE_BLOCKED: { label: 'Anti-rebond', color: 'bg-sky-100 text-sky-700' },
+      AUTO_CORRECTED_WRONG_TYPE: { label: 'Mauvais bouton (auto-corrigé)', color: 'bg-blue-100 text-blue-800' },
+      PROBABLE_WRONG_TYPE: { label: 'Mauvais bouton probable', color: 'bg-amber-100 text-amber-800' },
       // Anomalies de séquence
       MISSING_IN: { label: 'Sortie sans entrée', color: 'bg-orange-100 text-orange-800' },
       MISSING_OUT: { label: 'Entrée sans sortie', color: 'bg-yellow-100 text-yellow-800' },
@@ -304,10 +309,11 @@ export default function AttendancePage() {
       ABSENCE_TECHNICAL: { label: 'Absence technique', color: 'bg-blue-100 text-blue-800' },
       UNPLANNED_PUNCH: { label: 'Pointage non planifié', color: 'bg-slate-100 text-slate-800' },
       INSUFFICIENT_REST: { label: 'Repos insuffisant', color: 'bg-amber-100 text-amber-800' },
-      // Jours spéciaux
-      JOUR_FERIE_TRAVAILLE: { label: 'Jour férié travaillé', color: 'bg-blue-100 text-blue-800' },
-      HOLIDAY_WORKED: { label: 'Jour férié travaillé', color: 'bg-blue-100 text-blue-800' },
-      WEEKEND_WORK_UNAUTHORIZED: { label: 'Travail weekend non autorisé', color: 'bg-red-100 text-red-800' },
+      // Jours spéciaux (alertes informatives, pas des anomalies)
+      JOUR_FERIE_TRAVAILLE: { label: 'Jour férié', color: 'bg-purple-50 text-purple-600' },
+      HOLIDAY_WORKED: { label: 'Jour férié', color: 'bg-purple-50 text-purple-600' },
+      WEEKEND_WORK: { label: 'Weekend', color: 'bg-slate-50 text-slate-500' },
+      WEEKEND_WORK_UNAUTHORIZED: { label: 'Weekend non autorisé', color: 'bg-red-100 text-red-800' },
       // Congés
       LEAVE_CONFLICT: { label: 'Pointage pendant congé', color: 'bg-red-100 text-red-800' },
       LEAVE_BUT_PRESENT: { label: 'Présent malgré congé', color: 'bg-orange-100 text-orange-800' },
@@ -372,12 +378,8 @@ export default function AttendancePage() {
     if (!Array.isArray(attendanceData)) return [];
 
     return attendanceData.filter((record: any) => {
-      // Filtre par recherche
-      const matchesSearch =
-        searchQuery === '' ||
-        record.employee?.firstName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        record.employee?.lastName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        record.employee?.matricule?.toLowerCase().includes(searchQuery.toLowerCase());
+      // Filtre par recherche — déjà filtré côté backend via le paramètre search
+      const matchesSearch = true;
 
       // Filtre par département (côté client)
       const matchesDepartment =
@@ -1095,12 +1097,12 @@ export default function AttendancePage() {
                                   </Badge>
                                 )}
                               </>
-                            ) : record.hasAnomaly ? (
+                            ) : record.hasAnomaly || ['WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) ? (
                               <>
-                                {['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) ? (
+                                {['JOUR_FERIE_TRAVAILLE', 'HOLIDAY_WORKED', 'WEEKEND_WORK', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) ? (
                                   <Badge variant="info" className="flex items-center gap-1 w-fit">
                                     <AlertCircle className="h-3 w-3" />
-                                    Info
+                                    {['WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) ? 'Alerte' : 'Info'}
                                   </Badge>
                                 ) : (
                                   <Badge variant="danger" className="flex items-center gap-1 w-fit">
@@ -1122,7 +1124,7 @@ export default function AttendancePage() {
                                 {record.isCorrected && (
                                   <Badge variant="info" className="flex items-center gap-1 w-fit mt-1">
                                     <CheckCircle className="h-3 w-3" />
-                                    {['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType)
+                                    {['DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'AUTO_CORRECTED_WRONG_TYPE'].includes(record.anomalyType)
                                       ? 'Auto correction'
                                       : 'Corrigé'}
                                   </Badge>
@@ -1152,7 +1154,7 @@ export default function AttendancePage() {
                           <div className="flex gap-2">
                             {/* Lien vers page anomalies : si anomalie non corrigée (sauf info) */}
                             {record.hasAnomaly &&
-                             !['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) &&
+                             !['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) &&
                              !record.isCorrected && (
                               <PermissionGate permissions={['attendance.correct', 'attendance.view_anomalies']}>
                                 <Link href="/attendance/anomalies">

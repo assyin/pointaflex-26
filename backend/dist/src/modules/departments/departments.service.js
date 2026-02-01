@@ -266,6 +266,57 @@ let DepartmentsService = class DepartmentsService {
             departments: departmentStats.sort((a, b) => b.employeeCount - a.employeeCount),
         };
     }
+    async getSettings(departmentId, tenantId) {
+        const dept = await this.prisma.department.findFirst({
+            where: { id: departmentId, tenantId },
+        });
+        if (!dept)
+            throw new common_1.NotFoundException('Département non trouvé');
+        const settings = await this.prisma.departmentSettings.findUnique({
+            where: { departmentId },
+        });
+        const tenantSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: {
+                enableWrongTypeDetection: true,
+                wrongTypeAutoCorrect: true,
+                wrongTypeShiftMarginMinutes: true,
+            },
+        });
+        return {
+            departmentId,
+            departmentName: dept.name,
+            settings: settings ? {
+                wrongTypeDetectionEnabled: settings.wrongTypeDetectionEnabled,
+                wrongTypeAutoCorrect: settings.wrongTypeAutoCorrect,
+                wrongTypeShiftMarginMinutes: settings.wrongTypeShiftMarginMinutes,
+            } : {
+                wrongTypeDetectionEnabled: null,
+                wrongTypeAutoCorrect: null,
+                wrongTypeShiftMarginMinutes: null,
+            },
+            tenantDefaults: {
+                enableWrongTypeDetection: tenantSettings?.enableWrongTypeDetection ?? false,
+                wrongTypeAutoCorrect: tenantSettings?.wrongTypeAutoCorrect ?? false,
+                wrongTypeShiftMarginMinutes: tenantSettings?.wrongTypeShiftMarginMinutes ?? 120,
+            },
+        };
+    }
+    async updateSettings(departmentId, tenantId, data) {
+        const dept = await this.prisma.department.findFirst({
+            where: { id: departmentId, tenantId },
+        });
+        if (!dept)
+            throw new common_1.NotFoundException('Département non trouvé');
+        return this.prisma.departmentSettings.upsert({
+            where: { departmentId },
+            create: {
+                departmentId,
+                ...data,
+            },
+            update: data,
+        });
+    }
 };
 exports.DepartmentsService = DepartmentsService;
 exports.DepartmentsService = DepartmentsService = __decorate([

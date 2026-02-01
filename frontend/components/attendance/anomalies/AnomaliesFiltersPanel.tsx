@@ -12,11 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+// Collapsible removed - using simple state toggle instead
 import {
   Filter,
   ChevronDown,
@@ -157,22 +153,23 @@ export function AnomaliesFiltersPanel({
               <RefreshCw className="h-4 w-4" />
             </Button>
 
-            <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1">
-                  <Filter className="h-4 w-4" />
-                  Filtres
-                  {activeFiltersCount > 0 && (
-                    <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 text-xs">
-                      {activeFiltersCount}
-                    </span>
-                  )}
-                  <ChevronDown
-                    className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                  />
-                </Button>
-              </CollapsibleTrigger>
-            </Collapsible>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1"
+              onClick={() => setIsOpen(!isOpen)}
+            >
+              <Filter className="h-4 w-4" />
+              Filtres
+              {activeFiltersCount > 0 && (
+                <span className="bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 text-xs">
+                  {activeFiltersCount}
+                </span>
+              )}
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+              />
+            </Button>
 
             <Button
               variant="outline"
@@ -187,9 +184,9 @@ export function AnomaliesFiltersPanel({
           </div>
         </div>
 
-        {/* Filtres avancés (collapsible) */}
-        <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-          <CollapsibleContent className="mt-4">
+        {/* Filtres avancés */}
+        {isOpen && (
+          <div className="mt-4">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t">
               {/* Employé */}
               <div>
@@ -298,8 +295,8 @@ export function AnomaliesFiltersPanel({
                 </Button>
               </div>
             )}
-          </CollapsibleContent>
-        </Collapsible>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

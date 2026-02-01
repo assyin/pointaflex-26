@@ -5,6 +5,7 @@ import { AlertsService } from './alerts.service';
 import { CreateScheduleDto, BulkScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
+import { GenerateRotationPlanningDto, PreviewRotationPlanningDto } from './dto/rotation-planning.dto';
 export declare class SchedulesController {
     private schedulesService;
     private alertsService;
@@ -650,6 +651,12 @@ export declare class SchedulesController {
         suspendedByLeaveId: string | null;
         suspendedAt: Date | null;
     }>;
+    removeBulk(user: any, body: {
+        ids: string[];
+    }): Promise<{
+        count: number;
+        deleted: number;
+    }>;
     remove(user: any, id: string): Promise<{
         id: string;
         createdAt: Date;
@@ -667,12 +674,6 @@ export declare class SchedulesController {
         cancelledAt: Date | null;
         suspendedByLeaveId: string | null;
         suspendedAt: Date | null;
-    }>;
-    removeBulk(user: any, body: {
-        ids: string[];
-    }): Promise<{
-        count: number;
-        deleted: number;
     }>;
     importExcel(user: any, file: Express.Multer.File): Promise<{
         statusCode: HttpStatus;
@@ -694,4 +695,37 @@ export declare class SchedulesController {
         data: import("./dto/import-schedule.dto").ImportScheduleResultDto;
     }>;
     downloadWeeklyCalendarTemplate(user: any, res: Response): Promise<void>;
+    previewRotationPlanning(user: any, dto: PreviewRotationPlanningDto): Promise<{
+        preview: {
+            employeeId: string;
+            matricule: string;
+            employeeName: string;
+            startDate: string;
+            schedule: {
+                date: string;
+                dayOfWeek: string;
+                isWorkDay: boolean;
+            }[];
+            totalWorkDays: number;
+            totalRestDays: number;
+        }[];
+        totalSchedulesToCreate: number;
+    }>;
+    generateRotationPlanning(user: any, dto: GenerateRotationPlanningDto): Promise<{
+        statusCode: HttpStatus;
+        message: string;
+        data: {
+            success: number;
+            skipped: number;
+            failed: number;
+            details: {
+                employeeId: string;
+                matricule: string;
+                employeeName: string;
+                created: number;
+                skipped: number;
+                errors: string[];
+            }[];
+        };
+    }>;
 }

@@ -1774,6 +1774,227 @@ let SchedulesService = class SchedulesService {
         XLSX.utils.book_append_sheet(workbook, instructionsSheet, 'Instructions');
         return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
     }
+    async previewRotationPlanning(tenantId, dto) {
+        const cycleLength = dto.workDays + dto.restDays;
+        const endDate = new Date(dto.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+        const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+        const employeeIds = dto.employees.map((e) => e.employeeId);
+        const employees = await this.prisma.employee.findMany({
+            where: { tenantId, id: { in: employeeIds } },
+            select: { id: true, matricule: true, firstName: true, lastName: true },
+        });
+        const employeeMap = new Map(employees.map((e) => [e.id, e]));
+        const preview = [];
+        let totalSchedulesToCreate = 0;
+        for (const empDto of dto.employees) {
+            const employee = employeeMap.get(empDto.employeeId);
+            if (!employee)
+                continue;
+            const startDate = new Date(empDto.startDate);
+            startDate.setUTCHours(0, 0, 0, 0);
+            const schedule = [];
+            let totalWorkDays = 0;
+            let totalRestDays = 0;
+            const currentDate = new Date(startDate);
+            let dayInCycle = 0;
+            while (currentDate <= endDate) {
+                const isWorkDay = dayInCycle < dto.workDays;
+                const dateStr = currentDate.toISOString().split('T')[0];
+                const dayOfWeek = dayNames[currentDate.getUTCDay()];
+                schedule.push({
+                    date: dateStr,
+                    dayOfWeek,
+                    isWorkDay,
+                });
+                if (isWorkDay) {
+                    totalWorkDays++;
+                    totalSchedulesToCreate++;
+                }
+                else {
+                    totalRestDays++;
+                }
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+                dayInCycle = (dayInCycle + 1) % cycleLength;
+            }
+            preview.push({
+                employeeId: employee.id,
+                matricule: employee.matricule,
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                startDate: empDto.startDate,
+                schedule,
+                totalWorkDays,
+                totalRestDays,
+            });
+        }
+        return {
+            preview,
+            totalSchedulesToCreate,
+        };
+    }
+    async generateRotationPlanning(tenantId, dto) {
+        const cycleLength = dto.workDays + dto.restDays;
+        const endDate = new Date(dto.endDate);
+        endDate.setUTCHours(23, 59, 59, 999);
+        const shift = await this.prisma.shift.findFirst({
+            where: { tenantId, id: dto.shiftId },
+        });
+        if (!shift) {
+            throw new common_1.NotFoundException(`Shift avec l'ID ${dto.shiftId} introuvable`);
+        }
+        const employeeIds = dto.employees.map((e) => e.employeeId);
+        const employees = await this.prisma.employee.findMany({
+            where: { tenantId, id: { in: employeeIds } },
+            select: { id: true, matricule: true, firstName: true, lastName: true },
+        });
+        const employeeMap = new Map(employees.map((e) => [e.id, e]));
+        let leavesMap = new Map();
+        if (dto.respectLeaves !== false) {
+            const leaves = await this.prisma.leave.findMany({
+                where: {
+                    tenantId,
+                    employeeId: { in: employeeIds },
+                    status: 'APPROVED',
+                    startDate: { lte: endDate },
+                },
+                select: { employeeId: true, startDate: true, endDate: true },
+            });
+            for (const leave of leaves) {
+                if (!leavesMap.has(leave.employeeId)) {
+                    leavesMap.set(leave.employeeId, []);
+                }
+                leavesMap.get(leave.employeeId).push({
+                    startDate: leave.startDate,
+                    endDate: leave.endDate,
+                });
+            }
+        }
+        let recoveryDaysMap = new Map();
+        if (dto.respectRecoveryDays !== false) {
+            const recoveryDays = await this.prisma.recoveryDay.findMany({
+                where: {
+                    tenantId,
+                    employeeId: { in: employeeIds },
+                    status: 'APPROVED',
+                    startDate: { lte: endDate },
+                },
+                select: { employeeId: true, startDate: true, endDate: true },
+            });
+            for (const rd of recoveryDays) {
+                if (!recoveryDaysMap.has(rd.employeeId)) {
+                    recoveryDaysMap.set(rd.employeeId, []);
+                }
+                recoveryDaysMap.get(rd.employeeId).push({
+                    startDate: rd.startDate,
+                    endDate: rd.endDate,
+                });
+            }
+        }
+        const result = {
+            success: 0,
+            skipped: 0,
+            failed: 0,
+            details: [],
+        };
+        for (const empDto of dto.employees) {
+            const employee = employeeMap.get(empDto.employeeId);
+            if (!employee) {
+                result.failed++;
+                result.details.push({
+                    employeeId: empDto.employeeId,
+                    matricule: 'INCONNU',
+                    employeeName: 'Employé introuvable',
+                    created: 0,
+                    skipped: 0,
+                    errors: [`Employé avec l'ID ${empDto.employeeId} introuvable`],
+                });
+                continue;
+            }
+            const startDate = new Date(empDto.startDate);
+            startDate.setUTCHours(0, 0, 0, 0);
+            const employeeLeaves = leavesMap.get(employee.id) || [];
+            const employeeRecoveryDays = recoveryDaysMap.get(employee.id) || [];
+            const empResult = {
+                employeeId: employee.id,
+                matricule: employee.matricule,
+                employeeName: `${employee.firstName} ${employee.lastName}`,
+                created: 0,
+                skipped: 0,
+                errors: [],
+            };
+            const currentDate = new Date(startDate);
+            let dayInCycle = 0;
+            const schedulesToCreate = [];
+            while (currentDate <= endDate) {
+                const isWorkDay = dayInCycle < dto.workDays;
+                if (isWorkDay) {
+                    const dateToCheck = new Date(currentDate);
+                    const isOnLeave = employeeLeaves.some((leave) => {
+                        const leaveStart = new Date(leave.startDate);
+                        leaveStart.setUTCHours(0, 0, 0, 0);
+                        const leaveEnd = new Date(leave.endDate);
+                        leaveEnd.setUTCHours(23, 59, 59, 999);
+                        return dateToCheck >= leaveStart && dateToCheck <= leaveEnd;
+                    });
+                    const isOnRecovery = employeeRecoveryDays.some((rd) => {
+                        const rdStart = new Date(rd.startDate);
+                        rdStart.setUTCHours(0, 0, 0, 0);
+                        const rdEnd = new Date(rd.endDate);
+                        rdEnd.setUTCHours(23, 59, 59, 999);
+                        return dateToCheck >= rdStart && dateToCheck <= rdEnd;
+                    });
+                    if (!isOnLeave && !isOnRecovery) {
+                        schedulesToCreate.push({
+                            tenantId,
+                            employeeId: employee.id,
+                            shiftId: dto.shiftId,
+                            date: new Date(currentDate),
+                            status: client_1.ScheduleStatus.PUBLISHED,
+                        });
+                    }
+                    else {
+                        empResult.skipped++;
+                        result.skipped++;
+                    }
+                }
+                currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+                dayInCycle = (dayInCycle + 1) % cycleLength;
+            }
+            if (dto.overwriteExisting) {
+                await this.prisma.schedule.deleteMany({
+                    where: {
+                        tenantId,
+                        employeeId: employee.id,
+                        date: {
+                            gte: startDate,
+                            lte: endDate,
+                        },
+                    },
+                });
+            }
+            if (schedulesToCreate.length > 0) {
+                try {
+                    const createResult = await this.prisma.schedule.createMany({
+                        data: schedulesToCreate,
+                        skipDuplicates: !dto.overwriteExisting,
+                    });
+                    empResult.created = createResult.count;
+                    result.success += createResult.count;
+                    const possiblySkipped = schedulesToCreate.length - createResult.count;
+                    if (possiblySkipped > 0 && !dto.overwriteExisting) {
+                        empResult.skipped += possiblySkipped;
+                        result.skipped += possiblySkipped;
+                    }
+                }
+                catch (error) {
+                    empResult.errors.push(error.message);
+                    result.failed += schedulesToCreate.length;
+                }
+            }
+            result.details.push(empResult);
+        }
+        return result;
+    }
 };
 exports.SchedulesService = SchedulesService;
 exports.SchedulesService = SchedulesService = __decorate([

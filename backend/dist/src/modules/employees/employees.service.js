@@ -503,6 +503,9 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                 this.logger.error(error.stack);
                 throw error;
             }
+        }).then(async (result) => {
+            await this.invalidateEmployeesCache(tenantId);
+            return result;
         });
     }
     async findAll(tenantId, filters, userId, userPermissions) {
@@ -734,6 +737,9 @@ let EmployeesService = EmployeesService_1 = class EmployeesService {
                 message: 'Compte d\'accès supprimé avec succès',
                 employee: updatedEmployee,
             };
+        }).then(async (result) => {
+            await this.invalidateEmployeesCache(tenantId);
+            return result;
         });
     }
     async update(tenantId, id, updateEmployeeDto) {

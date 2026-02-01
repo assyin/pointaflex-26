@@ -314,4 +314,70 @@ export class DepartmentsService {
       departments: departmentStats.sort((a, b) => b.employeeCount - a.employeeCount),
     };
   }
+
+  async getSettings(departmentId: string, tenantId: string) {
+    // Vérifier que le département existe et appartient au tenant
+    const dept = await this.prisma.department.findFirst({
+      where: { id: departmentId, tenantId },
+    });
+    if (!dept) throw new NotFoundException('Département non trouvé');
+
+    // Récupérer les settings du département (ou null si pas encore créé)
+    const settings = await this.prisma.departmentSettings.findUnique({
+      where: { departmentId },
+    });
+
+    // Récupérer les settings du tenant pour afficher les valeurs héritées
+    const tenantSettings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: {
+        enableWrongTypeDetection: true,
+        wrongTypeAutoCorrect: true,
+        wrongTypeShiftMarginMinutes: true,
+      },
+    });
+
+    return {
+      departmentId,
+      departmentName: dept.name,
+      settings: settings ? {
+        wrongTypeDetectionEnabled: settings.wrongTypeDetectionEnabled,
+        wrongTypeAutoCorrect: settings.wrongTypeAutoCorrect,
+        wrongTypeShiftMarginMinutes: settings.wrongTypeShiftMarginMinutes,
+      } : {
+        wrongTypeDetectionEnabled: null,
+        wrongTypeAutoCorrect: null,
+        wrongTypeShiftMarginMinutes: null,
+      },
+      tenantDefaults: {
+        enableWrongTypeDetection: tenantSettings?.enableWrongTypeDetection ?? false,
+        wrongTypeAutoCorrect: tenantSettings?.wrongTypeAutoCorrect ?? false,
+        wrongTypeShiftMarginMinutes: tenantSettings?.wrongTypeShiftMarginMinutes ?? 120,
+      },
+    };
+  }
+
+  async updateSettings(
+    departmentId: string,
+    tenantId: string,
+    data: {
+      wrongTypeDetectionEnabled?: boolean | null;
+      wrongTypeAutoCorrect?: boolean | null;
+      wrongTypeShiftMarginMinutes?: number | null;
+    },
+  ) {
+    const dept = await this.prisma.department.findFirst({
+      where: { id: departmentId, tenantId },
+    });
+    if (!dept) throw new NotFoundException('Département non trouvé');
+
+    return this.prisma.departmentSettings.upsert({
+      where: { departmentId },
+      create: {
+        departmentId,
+        ...data,
+      },
+      update: data,
+    });
+  }
 }

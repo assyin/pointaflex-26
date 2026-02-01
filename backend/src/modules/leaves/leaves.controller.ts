@@ -69,6 +69,29 @@ export class LeavesController {
     );
   }
 
+  @Get('workflow-config')
+  @ApiOperation({ summary: 'Get leave workflow configuration for tenant' })
+  getWorkflowConfig(@CurrentUser() user: any) {
+    return this.leavesService.getWorkflowConfig(user.tenantId);
+  }
+
+  @Get('calculate-working-days')
+  @ApiOperation({ summary: 'Calculate working days between two dates' })
+  calculateWorkingDays(
+    @CurrentUser() user: any,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+  ) {
+    if (!startDate || !endDate) {
+      return { workingDays: 0, error: 'startDate and endDate are required' };
+    }
+    return this.leavesService.calculateWorkingDays(
+      user.tenantId,
+      new Date(startDate),
+      new Date(endDate),
+    );
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get leave by ID' })
   findOne(@CurrentUser() user: any, @Param('id') id: string) {

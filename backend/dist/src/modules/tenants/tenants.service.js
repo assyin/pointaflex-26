@@ -205,7 +205,7 @@ let TenantsService = class TenantsService {
                 'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
                 'nightShiftStart', 'nightShiftEnd',
                 'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-                'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+                'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
                 'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
                 'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
                 'absencePartialThreshold', 'absenceDetectionTime',
@@ -226,7 +226,9 @@ let TenantsService = class TenantsService {
                 'missingOutDetectionTime', 'missingOutDetectionWindow',
                 'allowMissingOutForRemoteWork', 'allowMissingOutForMissions',
                 'missingOutReminderEnabled', 'missingOutReminderDelay', 'missingOutReminderBeforeClosing',
-                'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold'
+                'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold',
+                'enableWrongTypeDetection', 'wrongTypeAutoCorrect', 'wrongTypeDetectionMethod',
+                'wrongTypeShiftMarginMinutes', 'wrongTypeConfidenceThreshold', 'wrongTypeRequiresValidation'
             ];
             for (const [key, value] of Object.entries(settingsData)) {
                 if (value !== undefined && validSettingsFields.includes(key)) {
@@ -298,7 +300,7 @@ let TenantsService = class TenantsService {
                     'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
                     'nightShiftStart', 'nightShiftEnd',
                     'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-                    'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+                    'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
                     'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
                     'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
                     'absencePartialThreshold', 'absenceDetectionTime',
@@ -319,7 +321,9 @@ let TenantsService = class TenantsService {
                     'missingOutDetectionTime', 'missingOutDetectionWindow',
                     'allowMissingOutForRemoteWork', 'allowMissingOutForMissions',
                     'missingOutReminderEnabled', 'missingOutReminderDelay', 'missingOutReminderBeforeClosing',
-                    'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold'
+                    'enableMissingOutPatternDetection', 'missingOutPatternAlertThreshold',
+                    'enableWrongTypeDetection', 'wrongTypeAutoCorrect', 'wrongTypeDetectionMethod',
+                    'wrongTypeShiftMarginMinutes', 'wrongTypeConfidenceThreshold', 'wrongTypeRequiresValidation'
                 ];
                 for (const [key, value] of Object.entries(settingsData)) {
                     if (value !== undefined && validSettingsFields.includes(key)) {
@@ -363,7 +367,7 @@ let TenantsService = class TenantsService {
                             'overtimePendingNotificationTime', 'overtimeAutoApprove', 'overtimeAutoApproveMaxHours',
                             'nightShiftStart', 'nightShiftEnd',
                             'alertWeeklyHoursExceeded', 'alertInsufficientRest', 'alertNightWorkRepetitive', 'alertMinimumStaffing',
-                            'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave',
+                            'annualLeaveDays', 'leaveApprovalLevels', 'twoLevelWorkflow', 'anticipatedLeave', 'leaveIncludeSaturday',
                             'monthlyPayrollEmail', 'sfptExport', 'requireBreakPunch', 'requireScheduleForAttendance',
                             'temporaryMatriculeExpiryDays', 'recoveryConversionRate', 'recoveryExpiryDays', 'dailyWorkingHours',
                             'absencePartialThreshold', 'absenceDetectionTime',

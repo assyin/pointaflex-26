@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { departmentsApi, type CreateDepartmentDto, type UpdateDepartmentDto } from '../api/departments';
+import { departmentsApi, type CreateDepartmentDto, type UpdateDepartmentDto, type DepartmentSettingsData } from '../api/departments';
 import { toast } from 'sonner';
 import { isAuthenticated } from '../utils/auth';
 import { useAuth } from '../../contexts/AuthContext';
@@ -74,6 +74,30 @@ export function useDeleteDepartment() {
     },
     onError: (error: any) => {
       toast.error(error.response?.data?.message || 'Erreur lors de la suppression du département');
+    },
+  });
+}
+
+export function useDepartmentSettings(departmentId: string | null) {
+  return useQuery({
+    queryKey: ['departments', departmentId, 'settings'],
+    queryFn: () => departmentsApi.getSettings(departmentId!),
+    enabled: !!departmentId && isAuthenticated(),
+  });
+}
+
+export function useUpdateDepartmentSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Partial<DepartmentSettingsData> }) =>
+      departmentsApi.updateSettings(id, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['departments', variables.id, 'settings'] });
+      toast.success('Paramètres du département mis à jour');
+    },
+    onError: (error: any) => {
+      toast.error(error.response?.data?.message || 'Erreur lors de la mise à jour des paramètres');
     },
   });
 }

@@ -3,10 +3,11 @@ import { leavesApi, type Leave, type CreateLeaveDto, type LeaveFilters, type Lea
 import { toast } from 'sonner';
 
 // Fetch leaves with filters
+// Note: On récupère tous les congés (limit très élevée) pour permettre le filtrage côté client
 export function useLeaves(filters?: LeaveFilters) {
   return useQuery({
     queryKey: ['leaves', filters],
-    queryFn: () => leavesApi.getAll(filters),
+    queryFn: () => leavesApi.getAll({ ...filters, limit: 1000 }),
     staleTime: 30000, // 30 seconds
   });
 }
@@ -41,6 +42,15 @@ export function useLeaveBalance(employeeId: string) {
     queryFn: () => leavesApi.getBalance(employeeId),
     enabled: !!employeeId,
     staleTime: 60000, // 1 minute
+  });
+}
+
+// Fetch leave workflow configuration
+export function useLeaveWorkflowConfig() {
+  return useQuery({
+    queryKey: ['leaveWorkflowConfig'],
+    queryFn: () => leavesApi.getWorkflowConfig(),
+    staleTime: 300000, // 5 minutes - config doesn't change often
   });
 }
 

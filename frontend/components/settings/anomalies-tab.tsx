@@ -1,6 +1,6 @@
 'use client';
 
-import { LogIn, LogOut } from 'lucide-react';
+import { LogIn, LogOut, ArrowLeftRight } from 'lucide-react';
 
 interface AnomaliesTabProps {
   formData: {
@@ -28,6 +28,13 @@ interface AnomaliesTabProps {
     missingOutReminderBeforeClosing: number;
     enableMissingOutPatternDetection: boolean;
     missingOutPatternAlertThreshold: number;
+    // WRONG TYPE
+    enableWrongTypeDetection: boolean;
+    wrongTypeAutoCorrect: boolean;
+    wrongTypeDetectionMethod: string;
+    wrongTypeShiftMarginMinutes: number;
+    wrongTypeConfidenceThreshold: number;
+    wrongTypeRequiresValidation: boolean;
   };
   setFormData: (data: any) => void;
 }
@@ -374,6 +381,109 @@ export function AnomaliesTab({ formData, setFormData }: AnomaliesTabProps) {
               </div>
             )}
           </div>
+        </div>
+      </div>
+      {/* WRONG TYPE Detection */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h2 className="text-[18px] font-semibold text-[#212529] flex items-center gap-2">
+            <ArrowLeftRight className="w-5 h-5 text-amber-500" />
+            Detection Erreur de Type (IN/OUT)
+          </h2>
+          <p className="text-[13px] text-[#6C757D] mt-1">
+            Detecte quand un employe appuie sur IN au lieu de OUT (ou inversement) en comparant avec son planning
+          </p>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg border border-amber-200">
+            <div>
+              <div className="text-[14px] font-semibold text-[#212529]">Activer la detection d'erreur de type</div>
+              <div className="text-[12px] text-[#6C757D] mt-0.5">Analyser chaque pointage pour detecter les inversions IN/OUT probables</div>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formData.enableWrongTypeDetection}
+                onChange={(e) => setFormData({ ...formData, enableWrongTypeDetection: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+
+          {formData.enableWrongTypeDetection && (
+            <>
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                    Methode de detection
+                  </label>
+                  <select
+                    value={formData.wrongTypeDetectionMethod}
+                    onChange={(e) => setFormData({ ...formData, wrongTypeDetectionMethod: e.target.value })}
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                  >
+                    <option value="SHIFT_BASED">Basee sur le shift (recommande)</option>
+                    <option value="CONTEXT_BASED">Basee sur le contexte</option>
+                    <option value="COMBINED">Combinee (shift + contexte)</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">SHIFT_BASED compare avec le planning, CONTEXT_BASED analyse la sequence des pointages</p>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                    Marge autour du shift (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    min="30"
+                    max="300"
+                    value={formData.wrongTypeShiftMarginMinutes}
+                    onChange={(e) => setFormData({ ...formData, wrongTypeShiftMarginMinutes: parseInt(e.target.value) || 120 })}
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Fenetre de temps autour du debut/fin du shift pour la detection</p>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-[#6C757D] mb-1.5">
+                    Seuil de confiance (%)
+                  </label>
+                  <input
+                    type="number"
+                    min="50"
+                    max="100"
+                    value={formData.wrongTypeConfidenceThreshold}
+                    onChange={(e) => setFormData({ ...formData, wrongTypeConfidenceThreshold: parseInt(e.target.value) || 80 })}
+                    className="w-full px-3 py-2.5 bg-white border border-gray-300 rounded-lg text-[14px] focus:outline-none focus:ring-2 focus:ring-[#0052CC]"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Niveau minimum de confiance pour signaler une erreur (80% recommande)</p>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-6 space-y-4">
+                <h3 className="text-[15px] font-semibold text-[#212529]">Correction automatique</h3>
+                {[
+                  { key: 'wrongTypeAutoCorrect', label: 'Auto-correction du type', desc: 'Corriger automatiquement le type IN/OUT quand la confiance est suffisante' },
+                  { key: 'wrongTypeRequiresValidation', label: 'Validation requise', desc: 'Meme en auto-correction, marquer le pointage pour validation manuelle' },
+                ].map((item) => (
+                  <div key={item.key} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <div className="text-[14px] font-semibold text-[#212529]">{item.label}</div>
+                      <div className="text-[12px] text-[#6C757D] mt-0.5">{item.desc}</div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData[item.key as keyof typeof formData] as boolean}
+                        onChange={(e) => setFormData({ ...formData, [item.key]: e.target.checked })}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#0052CC]"></div>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

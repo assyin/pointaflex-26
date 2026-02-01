@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Search, Download, Printer, Plus, Calendar, AlertTriangle, Clock, Loader2, Upload,
   ChevronLeft, ChevronRight, Filter, X, Users, Building2, Eye, EyeOff, Grid3x3, List,
-  Edit, Trash2, Save
+  Edit, Trash2, Save, RotateCcw
 } from 'lucide-react';
 import {
   useSchedules,
@@ -35,6 +35,7 @@ import { useEmployees } from '@/lib/hooks/useEmployees';
 import { useSites } from '@/lib/hooks/useSites';
 import { useHolidays } from '@/lib/hooks/useHolidays';
 import { ImportSchedulesModal } from '@/components/schedules/ImportSchedulesModal';
+import { RotationPlanningModal } from '@/components/schedules/RotationPlanningModal';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 import { formatErrorAlert } from '@/lib/utils/errorMessages';
 import { toast } from 'sonner';
@@ -115,6 +116,7 @@ export default function ShiftsPlanningPage() {
   // Modals
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showRotationModal, setShowRotationModal] = useState(false);
   
   // Shifts management state
   const [showShiftModal, setShowShiftModal] = useState(false);
@@ -711,6 +713,17 @@ export default function ShiftsPlanningPage() {
                   >
                     <Upload className="h-4 w-4 mr-2" />
                     Importer
+                  </Button>
+                </PermissionGate>
+                <PermissionGate permissions={['schedule.create']}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowRotationModal(true)}
+                    className="bg-purple-50 border-purple-200 text-purple-700 hover:bg-purple-100"
+                  >
+                    <RotateCcw className="h-4 w-4 mr-2" />
+                    Planning Rotatif
                   </Button>
                 </PermissionGate>
               </div>
@@ -1457,6 +1470,17 @@ export default function ShiftsPlanningPage() {
             onClose={() => setShowImportModal(false)}
             onSuccess={() => {
               setShowImportModal(false);
+              refetch();
+            }}
+          />
+        )}
+
+        {/* Rotation Planning Modal */}
+        {showRotationModal && (
+          <RotationPlanningModal
+            onClose={() => setShowRotationModal(false)}
+            onSuccess={() => {
+              setShowRotationModal(false);
               refetch();
             }}
           />

@@ -143,6 +143,7 @@ export function AnomaliesTable({
                     <TableHead>Type</TableHead>
                     <TableHead>Date/Heure</TableHead>
                     <TableHead>Département</TableHead>
+                    <TableHead>Shift</TableHead>
                     <TableHead>Statut</TableHead>
                     <TableHead className="w-12">Actions</TableHead>
                   </TableRow>
@@ -209,14 +210,38 @@ export function AnomaliesTable({
                               locale: fr,
                             })}
                           </div>
-                          <div className="text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                             {format(parseISO(anomaly.timestamp), 'HH:mm', {
                               locale: fr,
                             })}
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              (anomaly as any).type === 'IN'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}>
+                              {(anomaly as any).type === 'IN' ? 'Entrée' : 'Sortie'}
+                            </span>
                           </div>
                         </TableCell>
                         <TableCell>
                           {anomaly.employee?.department?.name || '-'}
+                        </TableCell>
+                        <TableCell>
+                          {anomaly.schedule?.shift ? (
+                            <div>
+                              <div className="text-sm font-medium">
+                                {anomaly.schedule.shift.name}
+                                {anomaly.schedule.isDefault && (
+                                  <span className="text-xs text-muted-foreground ml-1">(défaut)</span>
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {anomaly.schedule.shift.startTime} - {anomaly.schedule.shift.endTime}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Non assigné</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {isInformative ? (

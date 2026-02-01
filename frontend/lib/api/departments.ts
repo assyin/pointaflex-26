@@ -58,6 +58,23 @@ export interface DepartmentStats {
   }>;
 }
 
+export interface DepartmentSettingsData {
+  wrongTypeDetectionEnabled: boolean | null;
+  wrongTypeAutoCorrect: boolean | null;
+  wrongTypeShiftMarginMinutes: number | null;
+}
+
+export interface DepartmentSettingsResponse {
+  departmentId: string;
+  departmentName: string;
+  settings: DepartmentSettingsData;
+  tenantDefaults: {
+    enableWrongTypeDetection: boolean;
+    wrongTypeAutoCorrect: boolean;
+    wrongTypeShiftMarginMinutes: number;
+  };
+}
+
 export interface CreateDepartmentDto {
   name: string;
   code?: string;
@@ -100,6 +117,16 @@ export const departmentsApi = {
 
   getStats: async () => {
     const response = await apiClient.get<DepartmentStats>('/departments/stats');
+    return response.data;
+  },
+
+  getSettings: async (id: string): Promise<DepartmentSettingsResponse> => {
+    const response = await apiClient.get(`/departments/${id}/settings`);
+    return response.data;
+  },
+
+  updateSettings: async (id: string, data: Partial<DepartmentSettingsData>) => {
+    const response = await apiClient.patch(`/departments/${id}/settings`, data);
     return response.data;
   },
 };

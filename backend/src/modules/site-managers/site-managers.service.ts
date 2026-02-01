@@ -60,6 +60,7 @@ export class SiteManagersService {
         firstName: true,
         lastName: true,
         departmentId: true,
+        userId: true,
       },
     });
 
@@ -138,7 +139,7 @@ export class SiteManagersService {
     }
 
     // Créer le SiteManager
-    return this.prisma.siteManager.create({
+    const siteManager = await this.prisma.siteManager.create({
       data: {
         tenantId,
         siteId: dto.siteId,
@@ -171,6 +172,39 @@ export class SiteManagersService {
         },
       },
     });
+
+    // Mettre à jour le rôle de l'utilisateur en "Manager" s'il a un compte utilisateur
+    if (manager.userId) {
+      // Trouver le rôle "Manager" pour ce tenant
+      const managerRole = await this.prisma.role.findFirst({
+        where: {
+          tenantId,
+          name: 'Manager',
+        },
+      });
+
+      if (managerRole) {
+        // Mettre à jour UserTenantRole
+        await this.prisma.userTenantRole.updateMany({
+          where: {
+            userId: manager.userId,
+            tenantId,
+          },
+          data: {
+            roleId: managerRole.id,
+            updatedAt: new Date(),
+          },
+        });
+
+        // Mettre à jour le rôle legacy dans User
+        await this.prisma.user.update({
+          where: { id: manager.userId },
+          data: { role: 'MANAGER' },
+        });
+      }
+    }
+
+    return siteManager;
   }
 
   /**

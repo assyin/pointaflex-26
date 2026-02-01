@@ -21,6 +21,7 @@ import { AlertsService } from './alerts.service';
 import { CreateScheduleDto, BulkScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
+import { GenerateRotationPlanningDto, PreviewRotationPlanningDto } from './dto/rotation-planning.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -203,18 +204,18 @@ export class SchedulesController {
     return this.schedulesService.update(user.tenantId, id, dto);
   }
 
-  @Delete(':id')
-  @RequirePermissions('schedule.delete')
-  @ApiOperation({ summary: 'Delete schedule' })
-  remove(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.schedulesService.remove(user.tenantId, id);
-  }
-
   @Delete('bulk')
   @RequirePermissions('schedule.delete')
   @ApiOperation({ summary: 'Delete multiple schedules' })
   removeBulk(@CurrentUser() user: any, @Body() body: { ids: string[] }) {
     return this.schedulesService.removeBulk(user.tenantId, body.ids);
+  }
+
+  @Delete(':id')
+  @RequirePermissions('schedule.delete')
+  @ApiOperation({ summary: 'Delete schedule' })
+  remove(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.schedulesService.remove(user.tenantId, id);
   }
 
   @Post('import/excel')
@@ -345,5 +346,33 @@ export class SchedulesController {
     });
 
     res.send(buffer);
+  }
+
+  // ============== ROTATION PLANNING ENDPOINTS ==============
+
+  @Post('rotation/preview')
+  @RequirePermissions('schedule.create')
+  @ApiOperation({ summary: 'Preview rotation planning before generation' })
+  async previewRotationPlanning(
+    @CurrentUser() user: any,
+    @Body() dto: PreviewRotationPlanningDto,
+  ) {
+    return this.schedulesService.previewRotationPlanning(user.tenantId, dto);
+  }
+
+  @Post('rotation/generate')
+  @RequirePermissions('schedule.create')
+  @ApiOperation({ summary: 'Generate rotation planning (X days work / Y days rest)' })
+  async generateRotationPlanning(
+    @CurrentUser() user: any,
+    @Body() dto: GenerateRotationPlanningDto,
+  ) {
+    const result = await this.schedulesService.generateRotationPlanning(user.tenantId, dto);
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Génération terminée: ${result.success} planning(s) créé(s), ${result.skipped} ignoré(s), ${result.failed} erreur(s)`,
+      data: result,
+    };
   }
 }

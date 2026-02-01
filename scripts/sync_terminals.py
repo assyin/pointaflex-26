@@ -183,9 +183,9 @@ def main():
     print("🔄 SYNCHRONISATION DES TERMINAUX ZKTECO")
     print("="*60)
 
-    # Calculer les dates
-    start_date = get_last_monday().replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = datetime.now()
+    # Période personnalisée: 26/01/2026 au 31/01/2026
+    start_date = datetime(2026, 1, 26, 0, 0, 0)
+    end_date = datetime(2026, 1, 31, 23, 59, 59)
 
     print(f"\n📅 Période: {start_date.strftime('%d/%m/%Y %H:%M')} → {end_date.strftime('%d/%m/%Y %H:%M')}")
     print(f"🌐 Backend: {BACKEND_URL}")

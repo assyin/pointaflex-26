@@ -53,6 +53,7 @@ let SiteManagersService = class SiteManagersService {
                 firstName: true,
                 lastName: true,
                 departmentId: true,
+                userId: true,
             },
         });
         if (!manager) {
@@ -108,7 +109,7 @@ let SiteManagersService = class SiteManagersService {
                 `Un manager régional ne peut gérer qu'un seul département. ` +
                 `Il peut cependant gérer ce même département dans plusieurs sites.`);
         }
-        return this.prisma.siteManager.create({
+        const siteManager = await this.prisma.siteManager.create({
             data: {
                 tenantId,
                 siteId: dto.siteId,
@@ -141,6 +142,31 @@ let SiteManagersService = class SiteManagersService {
                 },
             },
         });
+        if (manager.userId) {
+            const managerRole = await this.prisma.role.findFirst({
+                where: {
+                    tenantId,
+                    name: 'Manager',
+                },
+            });
+            if (managerRole) {
+                await this.prisma.userTenantRole.updateMany({
+                    where: {
+                        userId: manager.userId,
+                        tenantId,
+                    },
+                    data: {
+                        roleId: managerRole.id,
+                        updatedAt: new Date(),
+                    },
+                });
+                await this.prisma.user.update({
+                    where: { id: manager.userId },
+                    data: { role: 'MANAGER' },
+                });
+            }
+        }
+        return siteManager;
     }
     async findAll(tenantId, filters) {
         const where = { tenantId };

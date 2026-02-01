@@ -125,6 +125,31 @@ export const leavesApi = {
     return response.data;
   },
 
+  getWorkflowConfig: async (): Promise<{
+    twoLevelWorkflow: boolean;
+    leaveApprovalLevels: number;
+    annualLeaveDays: number;
+    anticipatedLeave: boolean;
+    leaveIncludeSaturday: boolean;
+  }> => {
+    const response = await apiClient.get('/leaves/workflow-config');
+    return response.data;
+  },
+
+  calculateWorkingDays: async (startDate: string, endDate: string): Promise<{
+    workingDays: number;
+    excludedWeekends: number;
+    excludedHolidays: number;
+    totalCalendarDays: number;
+    includeSaturday: boolean;
+    details: Array<{ date: string; isWorking: boolean; reason?: string }>;
+  }> => {
+    const response = await apiClient.get('/leaves/calculate-working-days', {
+      params: { startDate, endDate },
+    });
+    return response.data;
+  },
+
   uploadDocument: async (id: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);

@@ -35,6 +35,7 @@ export declare class UpdateTenantSettingsDto {
     alertMinimumStaffing?: boolean;
     annualLeaveDays?: number;
     leaveApprovalLevels?: number;
+    leaveIncludeSaturday?: boolean;
     twoLevelWorkflow?: boolean;
     anticipatedLeave?: boolean;
     monthlyPayrollEmail?: boolean;
@@ -90,4 +91,10 @@ export declare class UpdateTenantSettingsDto {
     missingOutReminderBeforeClosing?: number;
     enableMissingOutPatternDetection?: boolean;
     missingOutPatternAlertThreshold?: number;
+    enableWrongTypeDetection?: boolean;
+    wrongTypeAutoCorrect?: boolean;
+    wrongTypeDetectionMethod?: string;
+    wrongTypeShiftMarginMinutes?: number;
+    wrongTypeConfidenceThreshold?: number;
+    wrongTypeRequiresValidation?: boolean;
 }

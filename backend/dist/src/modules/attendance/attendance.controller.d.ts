@@ -322,7 +322,7 @@ export declare class AttendanceController {
         };
         timestamp: string;
         type: import(".prisma/client").$Enums.AttendanceType;
-        detectionMethod: "ALTERNATION" | "SHIFT_BASED" | "TIME_BASED";
+        detectionMethod: "SHIFT_BASED" | "ALTERNATION" | "TIME_BASED";
         status?: undefined;
         reason?: undefined;
         message?: undefined;
@@ -441,7 +441,7 @@ export declare class AttendanceController {
     }>;
     private mapAttendanceType;
     private mapVerifyMode;
-    findAll(user: any, tenantId: string, employeeId?: string, siteId?: string, startDate?: string, endDate?: string, hasAnomaly?: string, type?: AttendanceType): Promise<{
+    findAll(user: any, tenantId: string, employeeId?: string, siteId?: string, startDate?: string, endDate?: string, hasAnomaly?: string, type?: AttendanceType, search?: string, page?: string, limit?: string): Promise<{
         hoursWorked: number;
         effectiveShift: any;
         id: string;
@@ -577,80 +577,7 @@ export declare class AttendanceController {
         };
     }>;
     getAnomalies(user: any, tenantId: string, startDate?: string, endDate?: string, employeeId?: string, departmentId?: string, siteId?: string, anomalyType?: string, isCorrected?: string, page?: string, limit?: string, date?: string): Promise<{
-        data: ({
-            employee: {
-                id: string;
-                firstName: string;
-                lastName: string;
-                matricule: string;
-                photo: string;
-                department: {
-                    id: string;
-                    name: string;
-                };
-                site: {
-                    id: string;
-                    name: string;
-                };
-            };
-            site: {
-                id: string;
-                createdAt: Date;
-                updatedAt: Date;
-                phone: string | null;
-                address: string | null;
-                timezone: string | null;
-                city: string | null;
-                tenantId: string;
-                code: string | null;
-                name: string;
-                departmentId: string | null;
-                managerId: string | null;
-                latitude: import("@prisma/client/runtime/library").Decimal | null;
-                longitude: import("@prisma/client/runtime/library").Decimal | null;
-                workingDays: import("@prisma/client/runtime/library").JsonValue | null;
-            };
-        } & {
-            id: string;
-            createdAt: Date;
-            updatedAt: Date;
-            tenantId: string;
-            siteId: string | null;
-            latitude: import("@prisma/client/runtime/library").Decimal | null;
-            longitude: import("@prisma/client/runtime/library").Decimal | null;
-            employeeId: string;
-            deviceId: string | null;
-            timestamp: Date;
-            type: import(".prisma/client").$Enums.AttendanceType;
-            method: import(".prisma/client").$Enums.DeviceType;
-            hasAnomaly: boolean;
-            anomalyType: string | null;
-            anomalyNote: string | null;
-            isCorrected: boolean;
-            correctedBy: string | null;
-            correctedAt: Date | null;
-            correctionNote: string | null;
-            hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
-            lateMinutes: number | null;
-            earlyLeaveMinutes: number | null;
-            overtimeMinutes: number | null;
-            needsApproval: boolean;
-            approvalStatus: string | null;
-            approvedBy: string | null;
-            approvedAt: Date | null;
-            rawData: import("@prisma/client/runtime/library").JsonValue | null;
-            generatedBy: string | null;
-            isGenerated: boolean;
-            isAmbiguous: boolean;
-            ambiguityReason: string | null;
-            validationStatus: import(".prisma/client").$Enums.ValidationStatus;
-            validatedBy: string | null;
-            validatedAt: Date | null;
-            escalationLevel: number;
-            terminalState: number | null;
-            source: string;
-            detectionMethod: string | null;
-        })[];
+        data: any[];
         meta: {
             total: number;
             page: number;
@@ -788,6 +715,107 @@ export declare class AttendanceController {
             firstName: string;
             lastName: string;
             userId: string;
+            matricule: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        siteId: string | null;
+        latitude: import("@prisma/client/runtime/library").Decimal | null;
+        longitude: import("@prisma/client/runtime/library").Decimal | null;
+        employeeId: string;
+        deviceId: string | null;
+        timestamp: Date;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        method: import(".prisma/client").$Enums.DeviceType;
+        hasAnomaly: boolean;
+        anomalyType: string | null;
+        anomalyNote: string | null;
+        isCorrected: boolean;
+        correctedBy: string | null;
+        correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        generatedBy: string | null;
+        isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
+    }>;
+    createMissing(user: any, tenantId: string, id: string, body: {
+        suggestedTimestamp?: string;
+        note?: string;
+    }): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
+            matricule: string;
+        };
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        tenantId: string;
+        siteId: string | null;
+        latitude: import("@prisma/client/runtime/library").Decimal | null;
+        longitude: import("@prisma/client/runtime/library").Decimal | null;
+        employeeId: string;
+        deviceId: string | null;
+        timestamp: Date;
+        type: import(".prisma/client").$Enums.AttendanceType;
+        method: import(".prisma/client").$Enums.DeviceType;
+        hasAnomaly: boolean;
+        anomalyType: string | null;
+        anomalyNote: string | null;
+        isCorrected: boolean;
+        correctedBy: string | null;
+        correctedAt: Date | null;
+        correctionNote: string | null;
+        hoursWorked: import("@prisma/client/runtime/library").Decimal | null;
+        lateMinutes: number | null;
+        earlyLeaveMinutes: number | null;
+        overtimeMinutes: number | null;
+        needsApproval: boolean;
+        approvalStatus: string | null;
+        approvedBy: string | null;
+        approvedAt: Date | null;
+        rawData: import("@prisma/client/runtime/library").JsonValue | null;
+        generatedBy: string | null;
+        isGenerated: boolean;
+        isAmbiguous: boolean;
+        ambiguityReason: string | null;
+        validationStatus: import(".prisma/client").$Enums.ValidationStatus;
+        validatedBy: string | null;
+        validatedAt: Date | null;
+        escalationLevel: number;
+        terminalState: number | null;
+        source: string;
+        detectionMethod: string | null;
+    }>;
+    invertType(user: any, tenantId: string, id: string, body: {
+        note?: string;
+    }): Promise<{
+        employee: {
+            id: string;
+            firstName: string;
+            lastName: string;
             matricule: string;
         };
     } & {

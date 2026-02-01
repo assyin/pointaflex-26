@@ -333,6 +333,15 @@ __decorate([
 ], UpdateTenantSettingsDto.prototype, "leaveApprovalLevels", void 0);
 __decorate([
     (0, swagger_1.ApiPropertyOptional)({
+        description: 'Inclure le samedi dans le calcul des jours de congé (même si samedi n\'est pas un jour ouvrable)',
+        default: false,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "leaveIncludeSaturday", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
         description: 'Activer le workflow à deux niveaux pour les congés',
         default: true,
     }),
@@ -845,4 +854,61 @@ __decorate([
     (0, class_validator_1.IsInt)(),
     __metadata("design:type", Number)
 ], UpdateTenantSettingsDto.prototype, "missingOutPatternAlertThreshold", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Activer la détection des erreurs de type IN/OUT (employé appuie sur IN au lieu de OUT)',
+        default: false,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "enableWrongTypeDetection", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Corriger automatiquement le type quand la confiance est suffisante',
+        default: false,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "wrongTypeAutoCorrect", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Méthode de détection: SHIFT_BASED, CONTEXT_BASED, PATTERN_BASED, COMBINED',
+        example: 'SHIFT_BASED',
+        default: 'SHIFT_BASED',
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateTenantSettingsDto.prototype, "wrongTypeDetectionMethod", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Marge en minutes autour du shift pour la détection (défaut: 120 min)',
+        example: 120,
+        default: 120,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "wrongTypeShiftMarginMinutes", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Seuil de confiance minimum (0-100) pour signaler une erreur de type',
+        example: 80,
+        default: 80,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsInt)(),
+    __metadata("design:type", Number)
+], UpdateTenantSettingsDto.prototype, "wrongTypeConfidenceThreshold", void 0);
+__decorate([
+    (0, swagger_1.ApiPropertyOptional)({
+        description: 'Exiger une validation manuelle même en auto-correction',
+        default: true,
+    }),
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsBoolean)(),
+    __metadata("design:type", Boolean)
+], UpdateTenantSettingsDto.prototype, "wrongTypeRequiresValidation", void 0);
 //# sourceMappingURL=update-tenant-settings.dto.js.map

@@ -81,6 +81,37 @@ export interface MonthScheduleResponse {
   replacements: Replacement[];
 }
 
+export interface RotationPreviewResponse {
+  preview: Array<{
+    employeeId: string;
+    matricule: string;
+    employeeName: string;
+    startDate: string;
+    schedule: Array<{
+      date: string;
+      dayOfWeek: string;
+      isWorkDay: boolean;
+    }>;
+    totalWorkDays: number;
+    totalRestDays: number;
+  }>;
+  totalSchedulesToCreate: number;
+}
+
+export interface RotationGenerateResponse {
+  success: number;
+  skipped: number;
+  failed: number;
+  details: Array<{
+    employeeId: string;
+    matricule: string;
+    employeeName: string;
+    created: number;
+    skipped: number;
+    errors: string[];
+  }>;
+}
+
 export const schedulesApi = {
   getAll: async (filters?: ScheduleFilters) => {
     const response = await apiClient.get('/schedules', { params: filters });
@@ -233,6 +264,31 @@ export const schedulesApi = {
     const response = await apiClient.get('/schedules/import/weekly-calendar/template', {
       responseType: 'blob',
     });
+    return response.data;
+  },
+
+  // Rotation Planning
+  previewRotationPlanning: async (data: {
+    workDays: number;
+    restDays: number;
+    endDate: string;
+    employees: Array<{ employeeId: string; startDate: string }>;
+  }) => {
+    const response = await apiClient.post('/schedules/rotation/preview', data);
+    return response.data as RotationPreviewResponse;
+  },
+
+  generateRotationPlanning: async (data: {
+    workDays: number;
+    restDays: number;
+    shiftId: string;
+    endDate: string;
+    employees: Array<{ employeeId: string; startDate: string }>;
+    overwriteExisting?: boolean;
+    respectLeaves?: boolean;
+    respectRecoveryDays?: boolean;
+  }) => {
+    const response = await apiClient.post('/schedules/rotation/generate', data);
     return response.data;
   },
 };

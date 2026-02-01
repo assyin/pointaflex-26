@@ -55,6 +55,7 @@ export interface TenantSettings {
   leaveApprovalLevels?: number;
   twoLevelWorkflow?: boolean;
   anticipatedLeave?: boolean;
+  leaveIncludeSaturday?: boolean;
 
   // Export Settings
   monthlyPayrollEmail?: boolean;
@@ -133,6 +134,14 @@ export interface TenantSettings {
   enableMissingOutPatternDetection?: boolean; // Activer la détection de patterns d'oubli MISSING_OUT
   missingOutPatternAlertThreshold?: number; // Seuil d'alerte pour patterns d'oubli MISSING_OUT
 
+  // Wrong Type Detection
+  enableWrongTypeDetection?: boolean;
+  wrongTypeAutoCorrect?: boolean;
+  wrongTypeDetectionMethod?: string;
+  wrongTypeShiftMarginMinutes?: number;
+  wrongTypeConfidenceThreshold?: number;
+  wrongTypeRequiresValidation?: boolean;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -189,6 +198,7 @@ export interface UpdateTenantSettingsDto {
   leaveApprovalLevels?: number;
   twoLevelWorkflow?: boolean;
   anticipatedLeave?: boolean;
+  leaveIncludeSaturday?: boolean;
 
   // Export Settings
   monthlyPayrollEmail?: boolean;
@@ -266,6 +276,14 @@ export interface UpdateTenantSettingsDto {
   missingOutReminderBeforeClosing?: number;
   enableMissingOutPatternDetection?: boolean;
   missingOutPatternAlertThreshold?: number;
+
+  // Wrong Type Detection
+  enableWrongTypeDetection?: boolean;
+  wrongTypeAutoCorrect?: boolean;
+  wrongTypeDetectionMethod?: string;
+  wrongTypeShiftMarginMinutes?: number;
+  wrongTypeConfidenceThreshold?: number;
+  wrongTypeRequiresValidation?: boolean;
 }
 
 export const TenantsAPI = {

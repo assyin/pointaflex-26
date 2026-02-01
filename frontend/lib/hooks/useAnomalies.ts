@@ -127,6 +127,47 @@ export function useCorrectAnomaly() {
 }
 
 /**
+ * Hook pour inverser le type d'un pointage (IN→OUT ou OUT→IN)
+ */
+export function useInvertType() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, note }: { id: string; note?: string }) =>
+      anomaliesApi.invertType(id, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ANOMALIES_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success('Type inversé avec succès');
+    },
+    onError: (error: any) => {
+      toast.error(
+        error.response?.data?.message || 'Erreur lors de l\'inversion du type'
+      );
+    },
+  });
+}
+
+export function useCreateMissing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, suggestedTimestamp, note }: { id: string; suggestedTimestamp?: string; note?: string }) =>
+      anomaliesApi.createMissing(id, suggestedTimestamp, note),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ANOMALIES_KEYS.all });
+      queryClient.invalidateQueries({ queryKey: ['attendance'] });
+      toast.success('Pointage manquant créé avec succès');
+    },
+    onError: (error: any) => {
+      toast.error(
+        error.response?.data?.message || 'Erreur lors de la création du pointage manquant'
+      );
+    },
+  });
+}
+
+/**
  * Hook pour corriger plusieurs anomalies en masse
  */
 export function useBulkCorrectAnomalies() {

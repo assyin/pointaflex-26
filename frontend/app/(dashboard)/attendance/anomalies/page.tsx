@@ -19,7 +19,10 @@ import {
   useCorrectAnomaly,
   useBulkCorrectAnomalies,
   useExportAnomalies,
+  useInvertType,
+  useCreateMissing,
 } from '@/lib/hooks/useAnomalies';
+import { useApproveAttendanceCorrection } from '@/lib/hooks/useAttendance';
 import type { AnomalyRecord, AnomaliesFilters } from '@/lib/api/anomalies';
 import {
   AnomaliesSummaryCards,
@@ -115,6 +118,9 @@ export default function AnomaliesPage() {
   const correctMutation = useCorrectAnomaly();
   const bulkCorrectMutation = useBulkCorrectAnomalies();
   const exportMutation = useExportAnomalies();
+  const invertTypeMutation = useInvertType();
+  const createMissingMutation = useCreateMissing();
+  const approveCorrectionMutation = useApproveAttendanceCorrection();
 
   // Handlers
   const handleFiltersChange = useCallback((newFilters: AnomaliesFiltersState) => {
@@ -359,6 +365,36 @@ export default function AnomaliesPage() {
               anomaly={selectedAnomaly}
               onSubmit={handleCorrectionSubmit}
               isLoading={correctMutation.isPending}
+              onInvertType={(id) => {
+                invertTypeMutation.mutate({ id }, {
+                  onSuccess: () => {
+                    setCorrectionModalOpen(false);
+                    setSelectedAnomaly(null);
+                    handleRefresh();
+                  },
+                });
+              }}
+              isInverting={invertTypeMutation.isPending}
+              onCreateMissing={(id, suggestedTimestamp) => {
+                createMissingMutation.mutate({ id, suggestedTimestamp }, {
+                  onSuccess: () => {
+                    setCorrectionModalOpen(false);
+                    setSelectedAnomaly(null);
+                    handleRefresh();
+                  },
+                });
+              }}
+              isCreatingMissing={createMissingMutation.isPending}
+              onApproveCorrection={(id, approved) => {
+                approveCorrectionMutation.mutate({ id, approved }, {
+                  onSuccess: () => {
+                    setCorrectionModalOpen(false);
+                    setSelectedAnomaly(null);
+                    handleRefresh();
+                  },
+                });
+              }}
+              isApproving={approveCorrectionMutation.isPending}
             />
 
             {/* Modal correction en masse */}

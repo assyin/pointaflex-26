@@ -692,4 +692,53 @@ export declare class SchedulesService {
     importFromExcel(tenantId: string, fileBuffer: Buffer): Promise<ImportScheduleResultDto>;
     importFromWeeklyCalendar(tenantId: string, fileBuffer: Buffer): Promise<ImportScheduleResultDto>;
     generateWeeklyCalendarTemplate(tenantId: string): Promise<Buffer>;
+    previewRotationPlanning(tenantId: string, dto: {
+        workDays: number;
+        restDays: number;
+        endDate: string;
+        employees: Array<{
+            employeeId: string;
+            startDate: string;
+        }>;
+    }): Promise<{
+        preview: {
+            employeeId: string;
+            matricule: string;
+            employeeName: string;
+            startDate: string;
+            schedule: Array<{
+                date: string;
+                dayOfWeek: string;
+                isWorkDay: boolean;
+            }>;
+            totalWorkDays: number;
+            totalRestDays: number;
+        }[];
+        totalSchedulesToCreate: number;
+    }>;
+    generateRotationPlanning(tenantId: string, dto: {
+        workDays: number;
+        restDays: number;
+        shiftId: string;
+        endDate: string;
+        employees: Array<{
+            employeeId: string;
+            startDate: string;
+        }>;
+        overwriteExisting?: boolean;
+        respectLeaves?: boolean;
+        respectRecoveryDays?: boolean;
+    }): Promise<{
+        success: number;
+        skipped: number;
+        failed: number;
+        details: Array<{
+            employeeId: string;
+            matricule: string;
+            employeeName: string;
+            created: number;
+            skipped: number;
+            errors: string[];
+        }>;
+    }>;
 }

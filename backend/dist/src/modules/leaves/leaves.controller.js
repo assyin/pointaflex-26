@@ -40,6 +40,15 @@ let LeavesController = class LeavesController {
             endDate,
         }, user.userId, user.permissions || []);
     }
+    getWorkflowConfig(user) {
+        return this.leavesService.getWorkflowConfig(user.tenantId);
+    }
+    calculateWorkingDays(user, startDate, endDate) {
+        if (!startDate || !endDate) {
+            return { workingDays: 0, error: 'startDate and endDate are required' };
+        }
+        return this.leavesService.calculateWorkingDays(user.tenantId, new Date(startDate), new Date(endDate));
+    }
     findOne(user, id) {
         return this.leavesService.findOne(user.tenantId, id);
     }
@@ -95,6 +104,24 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], LeavesController.prototype, "findAll", null);
+__decorate([
+    (0, common_1.Get)('workflow-config'),
+    (0, swagger_1.ApiOperation)({ summary: 'Get leave workflow configuration for tenant' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], LeavesController.prototype, "getWorkflowConfig", null);
+__decorate([
+    (0, common_1.Get)('calculate-working-days'),
+    (0, swagger_1.ApiOperation)({ summary: 'Calculate working days between two dates' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Query)('startDate')),
+    __param(2, (0, common_1.Query)('endDate')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String]),
+    __metadata("design:returntype", void 0)
+], LeavesController.prototype, "calculateWorkingDays", null);
 __decorate([
     (0, common_1.Get)(':id'),
     (0, swagger_1.ApiOperation)({ summary: 'Get leave by ID' }),

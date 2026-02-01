@@ -15,12 +15,14 @@ import { AbsenceManagerNotificationJob } from './jobs/absence-manager-notificati
 import { AbsencePartialManagerNotificationJob } from './jobs/absence-partial-manager-notification.job';
 import { AbsenceTechnicalManagerNotificationJob } from './jobs/absence-technical-manager-notification.job';
 import { PendingValidationEscalationJob } from './jobs/pending-validation-escalation.job';
+import { WrongTypeDetectionService } from './wrong-type-detection.service';
 
 @Module({
   imports: [PrismaModule, ScheduleModule, MailModule, forwardRef(() => SupplementaryDaysModule)],
   controllers: [AttendanceController],
   providers: [
     AttendanceService,
+    WrongTypeDetectionService,
     DetectAbsencesJob,
     DetectMissingOutJob,
     AutoCloseSessionsJob,
@@ -32,6 +34,6 @@ import { PendingValidationEscalationJob } from './jobs/pending-validation-escala
     AbsenceTechnicalManagerNotificationJob,
     PendingValidationEscalationJob,
   ],
-  exports: [AttendanceService],
+  exports: [AttendanceService, WrongTypeDetectionService],
 })
 export class AttendanceModule {}

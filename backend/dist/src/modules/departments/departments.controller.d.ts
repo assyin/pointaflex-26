@@ -110,4 +110,31 @@ export declare class DepartmentsController {
         description: string | null;
         managerId: string | null;
     }>;
+    getSettings(id: string, tenantId: string): Promise<{
+        departmentId: string;
+        departmentName: string;
+        settings: {
+            wrongTypeDetectionEnabled: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeShiftMarginMinutes: number;
+        };
+        tenantDefaults: {
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeShiftMarginMinutes: number;
+        };
+    }>;
+    updateSettings(id: string, tenantId: string, data: {
+        wrongTypeDetectionEnabled?: boolean | null;
+        wrongTypeAutoCorrect?: boolean | null;
+        wrongTypeShiftMarginMinutes?: number | null;
+    }): Promise<{
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        departmentId: string;
+        wrongTypeAutoCorrect: boolean | null;
+        wrongTypeShiftMarginMinutes: number | null;
+        wrongTypeDetectionEnabled: boolean | null;
+    }>;
 }

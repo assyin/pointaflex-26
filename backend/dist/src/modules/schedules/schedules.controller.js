@@ -21,6 +21,7 @@ const alerts_service_1 = require("./alerts.service");
 const create_schedule_dto_1 = require("./dto/create-schedule.dto");
 const update_schedule_dto_1 = require("./dto/update-schedule.dto");
 const create_replacement_dto_1 = require("./dto/create-replacement.dto");
+const rotation_planning_dto_1 = require("./dto/rotation-planning.dto");
 const current_user_decorator_1 = require("../../common/decorators/current-user.decorator");
 const permissions_decorator_1 = require("../../common/decorators/permissions.decorator");
 const roles_guard_1 = require("../../common/guards/roles.guard");
@@ -84,11 +85,11 @@ let SchedulesController = class SchedulesController {
     update(user, id, dto) {
         return this.schedulesService.update(user.tenantId, id, dto);
     }
-    remove(user, id) {
-        return this.schedulesService.remove(user.tenantId, id);
-    }
     removeBulk(user, body) {
         return this.schedulesService.removeBulk(user.tenantId, body.ids);
+    }
+    remove(user, id) {
+        return this.schedulesService.remove(user.tenantId, id);
     }
     async importExcel(user, file) {
         if (!file) {
@@ -169,6 +170,17 @@ let SchedulesController = class SchedulesController {
             'Content-Length': buffer.length,
         });
         res.send(buffer);
+    }
+    async previewRotationPlanning(user, dto) {
+        return this.schedulesService.previewRotationPlanning(user.tenantId, dto);
+    }
+    async generateRotationPlanning(user, dto) {
+        const result = await this.schedulesService.generateRotationPlanning(user.tenantId, dto);
+        return {
+            statusCode: common_1.HttpStatus.OK,
+            message: `Génération terminée: ${result.success} planning(s) créé(s), ${result.skipped} ignoré(s), ${result.failed} erreur(s)`,
+            data: result,
+        };
     }
 };
 exports.SchedulesController = SchedulesController;
@@ -307,16 +319,6 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], SchedulesController.prototype, "update", null);
 __decorate([
-    (0, common_1.Delete)(':id'),
-    (0, permissions_decorator_1.RequirePermissions)('schedule.delete'),
-    (0, swagger_1.ApiOperation)({ summary: 'Delete schedule' }),
-    __param(0, (0, current_user_decorator_1.CurrentUser)()),
-    __param(1, (0, common_1.Param)('id')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String]),
-    __metadata("design:returntype", void 0)
-], SchedulesController.prototype, "remove", null);
-__decorate([
     (0, common_1.Delete)('bulk'),
     (0, permissions_decorator_1.RequirePermissions)('schedule.delete'),
     (0, swagger_1.ApiOperation)({ summary: 'Delete multiple schedules' }),
@@ -326,6 +328,16 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", void 0)
 ], SchedulesController.prototype, "removeBulk", null);
+__decorate([
+    (0, common_1.Delete)(':id'),
+    (0, permissions_decorator_1.RequirePermissions)('schedule.delete'),
+    (0, swagger_1.ApiOperation)({ summary: 'Delete schedule' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], SchedulesController.prototype, "remove", null);
 __decorate([
     (0, common_1.Post)('import/excel'),
     (0, permissions_decorator_1.RequirePermissions)('schedule.create', 'schedule.import'),
@@ -369,6 +381,26 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], SchedulesController.prototype, "downloadWeeklyCalendarTemplate", null);
+__decorate([
+    (0, common_1.Post)('rotation/preview'),
+    (0, permissions_decorator_1.RequirePermissions)('schedule.create'),
+    (0, swagger_1.ApiOperation)({ summary: 'Preview rotation planning before generation' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, rotation_planning_dto_1.PreviewRotationPlanningDto]),
+    __metadata("design:returntype", Promise)
+], SchedulesController.prototype, "previewRotationPlanning", null);
+__decorate([
+    (0, common_1.Post)('rotation/generate'),
+    (0, permissions_decorator_1.RequirePermissions)('schedule.create'),
+    (0, swagger_1.ApiOperation)({ summary: 'Generate rotation planning (X days work / Y days rest)' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, rotation_planning_dto_1.GenerateRotationPlanningDto]),
+    __metadata("design:returntype", Promise)
+], SchedulesController.prototype, "generateRotationPlanning", null);
 exports.SchedulesController = SchedulesController = __decorate([
     (0, swagger_1.ApiTags)('Schedules'),
     (0, common_1.Controller)('schedules'),

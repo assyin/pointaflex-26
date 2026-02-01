@@ -154,8 +154,13 @@ async function syncOnce() {
       return;
     }
 
-    // Filtrer les nouveaux pointages
-    const newPunches = logsData.data.filter(p => p.sn > syncState.lastSn);
+    // Filtrer les nouveaux pointages (+ filtre date si START_DATE défini)
+    const startDateFilter = process.env.START_DATE ? new Date(process.env.START_DATE) : null;
+    const newPunches = logsData.data.filter(p => {
+      if (p.sn <= syncState.lastSn) return false;
+      if (startDateFilter && new Date(p.record_time) < startDateFilter) return false;
+      return true;
+    });
 
     if (newPunches.length === 0) {
       log('✓ Aucun nouveau pointage');

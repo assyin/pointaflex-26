@@ -24,6 +24,7 @@ const absence_manager_notification_job_1 = require("./jobs/absence-manager-notif
 const absence_partial_manager_notification_job_1 = require("./jobs/absence-partial-manager-notification.job");
 const absence_technical_manager_notification_job_1 = require("./jobs/absence-technical-manager-notification.job");
 const pending_validation_escalation_job_1 = require("./jobs/pending-validation-escalation.job");
+const wrong_type_detection_service_1 = require("./wrong-type-detection.service");
 let AttendanceModule = class AttendanceModule {
 };
 exports.AttendanceModule = AttendanceModule;
@@ -33,6 +34,7 @@ exports.AttendanceModule = AttendanceModule = __decorate([
         controllers: [attendance_controller_1.AttendanceController],
         providers: [
             attendance_service_1.AttendanceService,
+            wrong_type_detection_service_1.WrongTypeDetectionService,
             detect_absences_job_1.DetectAbsencesJob,
             detect_missing_out_job_1.DetectMissingOutJob,
             auto_close_sessions_job_1.AutoCloseSessionsJob,
@@ -44,7 +46,7 @@ exports.AttendanceModule = AttendanceModule = __decorate([
             absence_technical_manager_notification_job_1.AbsenceTechnicalManagerNotificationJob,
             pending_validation_escalation_job_1.PendingValidationEscalationJob,
         ],
-        exports: [attendance_service_1.AttendanceService],
+        exports: [attendance_service_1.AttendanceService, wrong_type_detection_service_1.WrongTypeDetectionService],
     })
 ], AttendanceModule);
 //# sourceMappingURL=attendance.module.js.map

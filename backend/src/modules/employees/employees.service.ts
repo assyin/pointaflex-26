@@ -639,6 +639,10 @@ export class EmployeesService {
         this.logger.error(error.stack);
         throw error;
       }
+    }).then(async (result) => {
+      // Invalider le cache après création du compte
+      await this.invalidateEmployeesCache(tenantId);
+      return result;
     });
   }
 
@@ -942,6 +946,10 @@ export class EmployeesService {
         message: 'Compte d\'accès supprimé avec succès',
         employee: updatedEmployee,
       };
+    }).then(async (result) => {
+      // Invalider le cache après suppression du compte
+      await this.invalidateEmployeesCache(tenantId);
+      return result;
     });
   }
 

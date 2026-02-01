@@ -53,6 +53,7 @@ export interface AttendanceFilters {
   type?: string;
   source?: string;
   status?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }

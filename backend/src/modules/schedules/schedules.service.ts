@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service';
-import { RecoveryDayStatus } from '@prisma/client';
+import { RecoveryDayStatus, ScheduleStatus } from '@prisma/client';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { ImportScheduleResultDto } from './dto/import-schedule.dto';
@@ -2235,5 +2235,332 @@ export class SchedulesService {
 
     // Generate buffer
     return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+  }
+
+  // ============== ROTATION PLANNING METHODS ==============
+
+  /**
+   * Preview rotation planning before generation
+   * Shows what schedules will be created for each employee
+   */
+  async previewRotationPlanning(
+    tenantId: string,
+    dto: {
+      workDays: number;
+      restDays: number;
+      endDate: string;
+      employees: Array<{ employeeId: string; startDate: string }>;
+    },
+  ) {
+    const cycleLength = dto.workDays + dto.restDays;
+    const endDate = new Date(dto.endDate);
+    endDate.setUTCHours(23, 59, 59, 999);
+
+    const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+
+    // Get employee details
+    const employeeIds = dto.employees.map((e) => e.employeeId);
+    const employees = await this.prisma.employee.findMany({
+      where: { tenantId, id: { in: employeeIds } },
+      select: { id: true, matricule: true, firstName: true, lastName: true },
+    });
+
+    const employeeMap = new Map(employees.map((e) => [e.id, e]));
+
+    const preview: Array<{
+      employeeId: string;
+      matricule: string;
+      employeeName: string;
+      startDate: string;
+      schedule: Array<{ date: string; dayOfWeek: string; isWorkDay: boolean }>;
+      totalWorkDays: number;
+      totalRestDays: number;
+    }> = [];
+
+    let totalSchedulesToCreate = 0;
+
+    for (const empDto of dto.employees) {
+      const employee = employeeMap.get(empDto.employeeId);
+      if (!employee) continue;
+
+      const startDate = new Date(empDto.startDate);
+      startDate.setUTCHours(0, 0, 0, 0);
+
+      const schedule: Array<{ date: string; dayOfWeek: string; isWorkDay: boolean }> = [];
+      let totalWorkDays = 0;
+      let totalRestDays = 0;
+
+      // Generate schedule from startDate to endDate
+      const currentDate = new Date(startDate);
+      let dayInCycle = 0; // 0 to cycleLength-1
+
+      while (currentDate <= endDate) {
+        const isWorkDay = dayInCycle < dto.workDays;
+        const dateStr = currentDate.toISOString().split('T')[0];
+        const dayOfWeek = dayNames[currentDate.getUTCDay()];
+
+        schedule.push({
+          date: dateStr,
+          dayOfWeek,
+          isWorkDay,
+        });
+
+        if (isWorkDay) {
+          totalWorkDays++;
+          totalSchedulesToCreate++;
+        } else {
+          totalRestDays++;
+        }
+
+        // Move to next day
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        dayInCycle = (dayInCycle + 1) % cycleLength;
+      }
+
+      preview.push({
+        employeeId: employee.id,
+        matricule: employee.matricule,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        startDate: empDto.startDate,
+        schedule,
+        totalWorkDays,
+        totalRestDays,
+      });
+    }
+
+    return {
+      preview,
+      totalSchedulesToCreate,
+    };
+  }
+
+  /**
+   * Generate rotation planning (X days work / Y days rest)
+   * Creates schedules for each employee based on their start date
+   */
+  async generateRotationPlanning(
+    tenantId: string,
+    dto: {
+      workDays: number;
+      restDays: number;
+      shiftId: string;
+      endDate: string;
+      employees: Array<{ employeeId: string; startDate: string }>;
+      overwriteExisting?: boolean;
+      respectLeaves?: boolean;
+      respectRecoveryDays?: boolean;
+    },
+  ) {
+    const cycleLength = dto.workDays + dto.restDays;
+    const endDate = new Date(dto.endDate);
+    endDate.setUTCHours(23, 59, 59, 999);
+
+    // Verify shift exists
+    const shift = await this.prisma.shift.findFirst({
+      where: { tenantId, id: dto.shiftId },
+    });
+
+    if (!shift) {
+      throw new NotFoundException(`Shift avec l'ID ${dto.shiftId} introuvable`);
+    }
+
+    // Get employee details
+    const employeeIds = dto.employees.map((e) => e.employeeId);
+    const employees = await this.prisma.employee.findMany({
+      where: { tenantId, id: { in: employeeIds } },
+      select: { id: true, matricule: true, firstName: true, lastName: true },
+    });
+
+    const employeeMap = new Map(employees.map((e) => [e.id, e]));
+
+    // Get approved leaves if needed
+    let leavesMap = new Map<string, Array<{ startDate: Date; endDate: Date }>>();
+    if (dto.respectLeaves !== false) {
+      const leaves = await this.prisma.leave.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: employeeIds },
+          status: 'APPROVED',
+          startDate: { lte: endDate },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      });
+
+      for (const leave of leaves) {
+        if (!leavesMap.has(leave.employeeId)) {
+          leavesMap.set(leave.employeeId, []);
+        }
+        leavesMap.get(leave.employeeId)!.push({
+          startDate: leave.startDate,
+          endDate: leave.endDate,
+        });
+      }
+    }
+
+    // Get approved recovery days if needed
+    let recoveryDaysMap = new Map<string, Array<{ startDate: Date; endDate: Date }>>();
+    if (dto.respectRecoveryDays !== false) {
+      const recoveryDays = await this.prisma.recoveryDay.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: employeeIds },
+          status: 'APPROVED',
+          startDate: { lte: endDate },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      });
+
+      for (const rd of recoveryDays) {
+        if (!recoveryDaysMap.has(rd.employeeId)) {
+          recoveryDaysMap.set(rd.employeeId, []);
+        }
+        recoveryDaysMap.get(rd.employeeId)!.push({
+          startDate: rd.startDate,
+          endDate: rd.endDate,
+        });
+      }
+    }
+
+    const result = {
+      success: 0,
+      skipped: 0,
+      failed: 0,
+      details: [] as Array<{
+        employeeId: string;
+        matricule: string;
+        employeeName: string;
+        created: number;
+        skipped: number;
+        errors: string[];
+      }>,
+    };
+
+    for (const empDto of dto.employees) {
+      const employee = employeeMap.get(empDto.employeeId);
+      if (!employee) {
+        result.failed++;
+        result.details.push({
+          employeeId: empDto.employeeId,
+          matricule: 'INCONNU',
+          employeeName: 'Employé introuvable',
+          created: 0,
+          skipped: 0,
+          errors: [`Employé avec l'ID ${empDto.employeeId} introuvable`],
+        });
+        continue;
+      }
+
+      const startDate = new Date(empDto.startDate);
+      startDate.setUTCHours(0, 0, 0, 0);
+
+      const employeeLeaves = leavesMap.get(employee.id) || [];
+      const employeeRecoveryDays = recoveryDaysMap.get(employee.id) || [];
+
+      const empResult = {
+        employeeId: employee.id,
+        matricule: employee.matricule,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        created: 0,
+        skipped: 0,
+        errors: [] as string[],
+      };
+
+      // Generate schedules
+      const currentDate = new Date(startDate);
+      let dayInCycle = 0;
+
+      const schedulesToCreate: Array<{
+        tenantId: string;
+        employeeId: string;
+        shiftId: string;
+        date: Date;
+        status: ScheduleStatus;
+      }> = [];
+
+      while (currentDate <= endDate) {
+        const isWorkDay = dayInCycle < dto.workDays;
+
+        if (isWorkDay) {
+          const dateToCheck = new Date(currentDate);
+
+          // Check if date is on leave
+          const isOnLeave = employeeLeaves.some((leave) => {
+            const leaveStart = new Date(leave.startDate);
+            leaveStart.setUTCHours(0, 0, 0, 0);
+            const leaveEnd = new Date(leave.endDate);
+            leaveEnd.setUTCHours(23, 59, 59, 999);
+            return dateToCheck >= leaveStart && dateToCheck <= leaveEnd;
+          });
+
+          // Check if date is on recovery day
+          const isOnRecovery = employeeRecoveryDays.some((rd) => {
+            const rdStart = new Date(rd.startDate);
+            rdStart.setUTCHours(0, 0, 0, 0);
+            const rdEnd = new Date(rd.endDate);
+            rdEnd.setUTCHours(23, 59, 59, 999);
+            return dateToCheck >= rdStart && dateToCheck <= rdEnd;
+          });
+
+          if (!isOnLeave && !isOnRecovery) {
+            schedulesToCreate.push({
+              tenantId,
+              employeeId: employee.id,
+              shiftId: dto.shiftId,
+              date: new Date(currentDate),
+              status: ScheduleStatus.PUBLISHED,
+            });
+          } else {
+            empResult.skipped++;
+            result.skipped++;
+          }
+        }
+
+        // Move to next day
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        dayInCycle = (dayInCycle + 1) % cycleLength;
+      }
+
+      // Delete existing schedules if overwriteExisting is true
+      // Delete ALL schedules in the date range, not just work days
+      if (dto.overwriteExisting) {
+        await this.prisma.schedule.deleteMany({
+          where: {
+            tenantId,
+            employeeId: employee.id,
+            date: {
+              gte: startDate,
+              lte: endDate,
+            },
+          },
+        });
+      }
+
+      // Create schedules in batch
+      if (schedulesToCreate.length > 0) {
+        try {
+          const createResult = await this.prisma.schedule.createMany({
+            data: schedulesToCreate,
+            skipDuplicates: !dto.overwriteExisting,
+          });
+
+          empResult.created = createResult.count;
+          result.success += createResult.count;
+
+          // If skipDuplicates was used, some might have been skipped
+          const possiblySkipped = schedulesToCreate.length - createResult.count;
+          if (possiblySkipped > 0 && !dto.overwriteExisting) {
+            empResult.skipped += possiblySkipped;
+            result.skipped += possiblySkipped;
+          }
+        } catch (error: any) {
+          empResult.errors.push(error.message);
+          result.failed += schedulesToCreate.length;
+        }
+      }
+
+      result.details.push(empResult);
+    }
+
+    return result;
   }
 }

@@ -97,13 +97,17 @@ export function useDeleteAllEmployees() {
 
 export function useCreateUserAccount() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
-    mutationFn: ({ id, userEmail }: { id: string; userEmail?: string }) => 
+    mutationFn: ({ id, userEmail }: { id: string; userEmail?: string }) =>
       employeesApi.createUserAccount(id, userEmail ? { userEmail } : undefined),
     onSuccess: (data, variables) => {
+      // Invalider toutes les requêtes d'employés
       queryClient.invalidateQueries({ queryKey: ['employees'] });
-      
+
+      // Forcer le refetch immédiat pour mettre à jour l'UI
+      queryClient.refetchQueries({ queryKey: ['employees'] });
+
       // Afficher les credentials si générés
       if ((data as any).generatedCredentials) {
         const creds = (data as any).generatedCredentials;
@@ -140,7 +144,12 @@ export function useDeleteUserAccount() {
   return useMutation({
     mutationFn: (id: string) => employeesApi.deleteUserAccount(id),
     onSuccess: () => {
+      // Invalider toutes les requêtes d'employés
       queryClient.invalidateQueries({ queryKey: ['employees'] });
+
+      // Forcer le refetch immédiat pour mettre à jour l'UI
+      queryClient.refetchQueries({ queryKey: ['employees'] });
+
       toast.success('Compte d\'accès supprimé avec succès');
     },
     onError: (error: any) => {

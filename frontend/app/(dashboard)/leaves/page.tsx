@@ -49,6 +49,7 @@ import {
   useUploadLeaveDocument,
   useDownloadLeaveDocument,
   useDeleteLeaveDocument,
+  useLeaveWorkflowConfig,
 } from '@/lib/hooks/useLeaves';
 import { FileUpload } from '@/components/leaves/FileUpload';
 import { useEmployees } from '@/lib/hooks/useEmployees';
@@ -56,6 +57,7 @@ import { useDepartments } from '@/lib/hooks/useDepartments';
 import { useSites } from '@/lib/hooks/useSites';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
+import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 
 // Create/Edit Leave Type Form Component
 function LeaveTypeForm({
@@ -202,7 +204,7 @@ function CreateLeaveForm({
   const createMutation = useCreateLeave();
   const uploadDocumentMutation = useUploadLeaveDocument();
   const { data: employeesData } = useEmployees();
-  const employees = Array.isArray(employeesData) ? employeesData : [];
+  const employees = Array.isArray(employeesData) ? employeesData : (employeesData?.data || []);
 
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -212,15 +214,45 @@ function CreateLeaveForm({
     reason: '',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [workingDaysData, setWorkingDaysData] = useState<{
+    workingDays: number;
+    excludedWeekends: number;
+    excludedHolidays: number;
+    totalCalendarDays: number;
+    includeSaturday: boolean;
+    details: Array<{ date: string; isWorking: boolean; reason?: string }>;
+  } | null>(null);
+  const [isCalculating, setIsCalculating] = useState(false);
 
-  const calculateDays = (start: string, end: string): number => {
-    if (!start || !end) return 0;
-    const startDate = new Date(start);
-    const endDate = new Date(end);
-    const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays + 1; // Include both start and end dates
-  };
+  // Calculate working days when dates change
+  useEffect(() => {
+    const fetchWorkingDays = async () => {
+      if (!formData.startDate || !formData.endDate) {
+        setWorkingDaysData(null);
+        return;
+      }
+
+      // Vérifier que la date de fin est >= date de début
+      if (new Date(formData.endDate) < new Date(formData.startDate)) {
+        setWorkingDaysData(null);
+        return;
+      }
+
+      setIsCalculating(true);
+      try {
+        const { leavesApi } = await import('@/lib/api/leaves');
+        const result = await leavesApi.calculateWorkingDays(formData.startDate, formData.endDate);
+        setWorkingDaysData(result);
+      } catch (error) {
+        console.error('Error calculating working days:', error);
+        setWorkingDaysData(null);
+      } finally {
+        setIsCalculating(false);
+      }
+    };
+
+    fetchWorkingDays();
+  }, [formData.startDate, formData.endDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,8 +261,6 @@ function CreateLeaveForm({
       alert('Veuillez remplir tous les champs obligatoires');
       return;
     }
-
-    const days = calculateDays(formData.startDate, formData.endDate);
 
     try {
       // Créer la demande de congé
@@ -264,23 +294,15 @@ function CreateLeaveForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label htmlFor="employeeId" className="block text-sm font-medium text-text-primary mb-2">
-          Employé *
-        </label>
-        <select
-          id="employeeId"
-          required
+        <SearchableEmployeeSelect
           value={formData.employeeId}
-          onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-          className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-        >
-          <option value="">Sélectionner un employé</option>
-          {employees.map((emp: any) => (
-            <option key={emp.id} value={emp.id}>
-              {emp.firstName} {emp.lastName} ({emp.matricule})
-            </option>
-          ))}
-        </select>
+          onChange={(value) => setFormData({ ...formData, employeeId: value })}
+          employees={employees}
+          isLoading={!employees.length}
+          label="Employé"
+          placeholder="Rechercher un employé..."
+          required
+        />
       </div>
 
       <div>
@@ -314,7 +336,7 @@ function CreateLeaveForm({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label htmlFor="startDate" className="block text-sm font-medium text-text-primary mb-2">
-            Date de début *
+            Date de début * <span className="text-gray-500 font-normal">(Incluse)</span>
           </label>
           <Input
             id="startDate"
@@ -327,7 +349,7 @@ function CreateLeaveForm({
 
         <div>
           <label htmlFor="endDate" className="block text-sm font-medium text-text-primary mb-2">
-            Date de fin *
+            Date de fin * <span className="text-gray-500 font-normal">(Incluse)</span>
           </label>
           <Input
             id="endDate"
@@ -340,10 +362,39 @@ function CreateLeaveForm({
       </div>
 
       {formData.startDate && formData.endDate && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-800">
-            <span className="font-semibold">Durée:</span> {calculateDays(formData.startDate, formData.endDate)} jour(s)
-          </p>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+          {isCalculating ? (
+            <p className="text-sm text-blue-800 flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Calcul des jours ouvrables...
+            </p>
+          ) : workingDaysData ? (
+            <>
+              <p className="text-sm text-blue-800">
+                <span className="font-semibold">Durée:</span> {workingDaysData.workingDays} jour(s) ouvrable(s)
+              </p>
+              <div className="text-xs text-blue-600 space-y-1">
+                <p>
+                  {workingDaysData.totalCalendarDays} jour(s) calendaire(s) total
+                  {workingDaysData.excludedWeekends > 0 && (
+                    <span> • {workingDaysData.excludedWeekends} week-end(s) exclu(s)</span>
+                  )}
+                  {workingDaysData.excludedHolidays > 0 && (
+                    <span> • {workingDaysData.excludedHolidays} jour(s) férié(s) exclu(s)</span>
+                  )}
+                </p>
+                {workingDaysData.includeSaturday && (
+                  <p className="text-blue-500">
+                    <span className="font-medium">Note:</span> Le samedi est inclus dans le calcul des congés
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-yellow-700">
+              Impossible de calculer la durée
+            </p>
+          )}
         </div>
       )}
 
@@ -413,11 +464,17 @@ export default function LeavesPage() {
   const { data: employeesData } = useEmployees();
   const { data: departmentsData } = useDepartments();
   const { data: sitesData } = useSites();
-  
-  // Normalize data structures
-  const sites = sitesData?.data || sitesData || [];
-  const departments = departmentsData || [];
-  const leaveTypes = leaveTypesData?.data || leaveTypesData || [];
+  const { data: workflowConfig } = useLeaveWorkflowConfig();
+
+  // Configuration du workflow (par défaut: 2 niveaux)
+  const twoLevelWorkflow = workflowConfig?.twoLevelWorkflow ?? true;
+  const leaveApprovalLevels = workflowConfig?.leaveApprovalLevels ?? 2;
+
+  // Normalize data structures - handle both array and { data: [...] } formats
+  const sites = Array.isArray(sitesData) ? sitesData : (sitesData?.data || []);
+  const departments = Array.isArray(departmentsData) ? departmentsData : ((departmentsData as any)?.data || []);
+  const leaveTypes = Array.isArray(leaveTypesData) ? leaveTypesData : (leaveTypesData?.data || []);
+  const employees = Array.isArray(employeesData) ? employeesData : (employeesData?.data || []);
 
   // Mutations
   const approveMutation = useApproveLeave();
@@ -518,12 +575,14 @@ export default function LeavesPage() {
     // Department filter
     const matchesDepartment =
       filterDepartment === 'all' ||
-      leave.employee?.departmentId === filterDepartment;
+      leave.employee?.departmentId === filterDepartment ||
+      leave.employee?.department?.id === filterDepartment;
 
     // Site filter
     const matchesSite =
       filterSite === 'all' ||
-      leave.employee?.siteId === filterSite;
+      leave.employee?.siteId === filterSite ||
+      leave.employee?.site?.id === filterSite;
 
     // Employee filter
     const matchesEmployee =
@@ -740,7 +799,7 @@ export default function LeavesPage() {
                         className="w-full h-11 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-gray-500 bg-white"
                       >
                         <option value="all">Tous les employés</option>
-                        {employeesData?.data?.map((emp: any) => (
+                        {employees?.map((emp: any) => (
                           <option key={emp.id} value={emp.id}>
                             {emp.firstName} {emp.lastName} ({emp.matricule})
                           </option>
@@ -788,7 +847,7 @@ export default function LeavesPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-600 mb-1">Total demandes</p>
                   <p className="text-3xl font-bold text-gray-900">
-                    {leavesData?.data?.length || 0}
+                    {leavesData?.meta?.total || leavesData?.data?.length || 0}
                   </p>
                 </div>
                 <div className="p-3 bg-blue-100 rounded-xl">
@@ -908,6 +967,7 @@ export default function LeavesPage() {
                     <tr className="bg-gray-50 border-b border-gray-200 text-left text-sm font-semibold text-gray-700">
                       <th className="px-4 py-4">Employé</th>
                       <th className="px-4 py-4">Site</th>
+                      <th className="px-4 py-4">Département</th>
                       <th className="px-4 py-4">Type de congé</th>
                       <th className="px-4 py-4">Période</th>
                       <th className="px-4 py-4">Durée</th>
@@ -930,6 +990,9 @@ export default function LeavesPage() {
                         </td>
                         <td className="px-4 py-4 text-sm text-gray-600">
                           {leave.employee?.site?.name || leave.employee?.site?.code || '-'}
+                        </td>
+                        <td className="px-4 py-4 text-sm text-gray-600">
+                          {leave.employee?.department?.name || leave.employee?.department?.code || '-'}
                         </td>
                         <td className="px-4 py-4">
                           <Badge className="bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200">
@@ -1074,16 +1137,33 @@ export default function LeavesPage() {
                             </Button>
                             <PermissionGate permission="leave.approve">
                               {(() => {
-                                // HR can only act on MANAGER_APPROVED leaves
-                                // Manager can act on PENDING leaves
-                                // SUPER_ADMIN can act on both
-                                const canApprove = 
-                                  (isHRAdmin && leave.status === 'MANAGER_APPROVED') ||
-                                  (isManager && leave.status === 'PENDING') ||
-                                  (!isHRAdmin && !isManager && (leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED'));
-                                
+                                // Logique selon la configuration du workflow
+                                let canApprove = false;
+                                let buttonLabel = 'Approuver';
+
+                                if (!twoLevelWorkflow || leaveApprovalLevels === 1) {
+                                  // Workflow à 1 niveau: tout le monde peut approuver un congé PENDING
+                                  canApprove = leave.status === 'PENDING';
+                                  buttonLabel = 'Approuver';
+                                } else {
+                                  // Workflow à 2+ niveaux
+                                  if (isHRAdmin) {
+                                    // HR peut approuver uniquement après validation manager
+                                    canApprove = leave.status === 'MANAGER_APPROVED';
+                                    buttonLabel = 'Approuver RH';
+                                  } else if (isManager) {
+                                    // Manager peut approuver les congés PENDING
+                                    canApprove = leave.status === 'PENDING';
+                                    buttonLabel = 'Approuver Manager';
+                                  } else {
+                                    // SUPER_ADMIN peut approuver à tous les niveaux
+                                    canApprove = leave.status === 'PENDING' || leave.status === 'MANAGER_APPROVED';
+                                    buttonLabel = leave.status === 'PENDING' ? 'Approuver Manager' : 'Approuver RH';
+                                  }
+                                }
+
                                 if (!canApprove) return null;
-                                
+
                                 return (
                                   <>
                                     <Button
@@ -1098,7 +1178,7 @@ export default function LeavesPage() {
                                       ) : (
                                         <CheckCircle className="h-3 w-3 mr-1" />
                                       )}
-                                      {leave.status === 'PENDING' ? 'Manager' : 'RH'}
+                                      {buttonLabel}
                                     </Button>
                                     <Button
                                       variant="outline"

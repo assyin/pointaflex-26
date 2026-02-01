@@ -335,6 +335,9 @@ export class AttendanceController {
     @Query('endDate') endDate?: string,
     @Query('hasAnomaly') hasAnomaly?: string,
     @Query('type') type?: AttendanceType,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     // DEBUG: Log de la requête au contrôleur
     console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
@@ -351,6 +354,9 @@ export class AttendanceController {
         endDate,
         hasAnomaly: hasAnomaly ? hasAnomaly === 'true' : undefined,
         type,
+        search,
+        page: page ? parseInt(page) : undefined,
+        limit: limit ? parseInt(limit) : undefined,
       },
       user.userId,
       user.permissions || [],
@@ -463,6 +469,47 @@ export class AttendanceController {
       correctionDto,
       user.userId,
       user.permissions || [],
+    );
+  }
+
+  @Post(':id/create-missing')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.correct', 'attendance.edit')
+  @ApiOperation({ summary: 'Create missing IN or OUT punch for an attendance with MISSING_IN/MISSING_OUT anomaly' })
+  @ApiResponse({ status: 201, description: 'Missing punch created successfully' })
+  createMissing(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: { suggestedTimestamp?: string; note?: string },
+  ) {
+    return this.attendanceService.createMissingPunch(
+      tenantId,
+      id,
+      user.userId,
+      body.suggestedTimestamp,
+      body.note,
+    );
+  }
+
+  @Patch(':id/invert-type')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @RequirePermissions('attendance.correct', 'attendance.edit')
+  @ApiOperation({ summary: 'Invert attendance type (IN→OUT or OUT→IN)' })
+  @ApiResponse({ status: 200, description: 'Type inverted successfully' })
+  invertType(
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+    @Param('id') id: string,
+    @Body() body: { note?: string },
+  ) {
+    return this.attendanceService.invertAttendanceType(
+      tenantId,
+      id,
+      user.userId,
+      body.note,
     );
   }
 

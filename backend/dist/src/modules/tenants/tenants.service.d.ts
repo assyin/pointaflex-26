@@ -21,6 +21,7 @@ export declare class TenantsService {
             alertMinimumStaffing: boolean;
             annualLeaveDays: number;
             leaveApprovalLevels: number;
+            leaveIncludeSaturday: boolean;
             overtimeRate: import("@prisma/client/runtime/library").Decimal;
             nightShiftRate: import("@prisma/client/runtime/library").Decimal;
             anticipatedLeave: boolean;
@@ -104,6 +105,12 @@ export declare class TenantsService {
             ambiguousPunchNotifyManager: boolean;
             ambiguousPunchNotifyHR: boolean;
             ambiguousPunchNotifyEmployee: boolean;
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeDetectionMethod: string;
+            wrongTypeShiftMarginMinutes: number;
+            wrongTypeConfidenceThreshold: number;
+            wrongTypeRequiresValidation: boolean;
         };
     } & {
         id: string;
@@ -140,6 +147,7 @@ export declare class TenantsService {
                 alertMinimumStaffing: boolean;
                 annualLeaveDays: number;
                 leaveApprovalLevels: number;
+                leaveIncludeSaturday: boolean;
                 overtimeRate: import("@prisma/client/runtime/library").Decimal;
                 nightShiftRate: import("@prisma/client/runtime/library").Decimal;
                 anticipatedLeave: boolean;
@@ -223,6 +231,12 @@ export declare class TenantsService {
                 ambiguousPunchNotifyManager: boolean;
                 ambiguousPunchNotifyHR: boolean;
                 ambiguousPunchNotifyEmployee: boolean;
+                enableWrongTypeDetection: boolean;
+                wrongTypeAutoCorrect: boolean;
+                wrongTypeDetectionMethod: string;
+                wrongTypeShiftMarginMinutes: number;
+                wrongTypeConfidenceThreshold: number;
+                wrongTypeRequiresValidation: boolean;
             };
             _count: {
                 employees: number;
@@ -269,6 +283,7 @@ export declare class TenantsService {
             alertMinimumStaffing: boolean;
             annualLeaveDays: number;
             leaveApprovalLevels: number;
+            leaveIncludeSaturday: boolean;
             overtimeRate: import("@prisma/client/runtime/library").Decimal;
             nightShiftRate: import("@prisma/client/runtime/library").Decimal;
             anticipatedLeave: boolean;
@@ -352,6 +367,12 @@ export declare class TenantsService {
             ambiguousPunchNotifyManager: boolean;
             ambiguousPunchNotifyHR: boolean;
             ambiguousPunchNotifyEmployee: boolean;
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeDetectionMethod: string;
+            wrongTypeShiftMarginMinutes: number;
+            wrongTypeConfidenceThreshold: number;
+            wrongTypeRequiresValidation: boolean;
         };
         _count: {
             employees: number;
@@ -392,6 +413,7 @@ export declare class TenantsService {
             alertMinimumStaffing: boolean;
             annualLeaveDays: number;
             leaveApprovalLevels: number;
+            leaveIncludeSaturday: boolean;
             overtimeRate: import("@prisma/client/runtime/library").Decimal;
             nightShiftRate: import("@prisma/client/runtime/library").Decimal;
             anticipatedLeave: boolean;
@@ -475,6 +497,12 @@ export declare class TenantsService {
             ambiguousPunchNotifyManager: boolean;
             ambiguousPunchNotifyHR: boolean;
             ambiguousPunchNotifyEmployee: boolean;
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeDetectionMethod: string;
+            wrongTypeShiftMarginMinutes: number;
+            wrongTypeConfidenceThreshold: number;
+            wrongTypeRequiresValidation: boolean;
         };
     } & {
         id: string;
@@ -527,6 +555,7 @@ export declare class TenantsService {
         alertMinimumStaffing?: boolean;
         annualLeaveDays?: number;
         leaveApprovalLevels?: number;
+        leaveIncludeSaturday?: boolean;
         overtimeRate?: import("@prisma/client/runtime/library").Decimal;
         nightShiftRate?: import("@prisma/client/runtime/library").Decimal;
         anticipatedLeave?: boolean;
@@ -610,6 +639,12 @@ export declare class TenantsService {
         ambiguousPunchNotifyManager?: boolean;
         ambiguousPunchNotifyHR?: boolean;
         ambiguousPunchNotifyEmployee?: boolean;
+        enableWrongTypeDetection?: boolean;
+        wrongTypeAutoCorrect?: boolean;
+        wrongTypeDetectionMethod?: string;
+        wrongTypeShiftMarginMinutes?: number;
+        wrongTypeConfidenceThreshold?: number;
+        wrongTypeRequiresValidation?: boolean;
         legalName: any;
         displayName: any;
         country: any;
@@ -634,6 +669,7 @@ export declare class TenantsService {
             alertMinimumStaffing: boolean;
             annualLeaveDays: number;
             leaveApprovalLevels: number;
+            leaveIncludeSaturday: boolean;
             overtimeRate: import("@prisma/client/runtime/library").Decimal;
             nightShiftRate: import("@prisma/client/runtime/library").Decimal;
             anticipatedLeave: boolean;
@@ -717,6 +753,12 @@ export declare class TenantsService {
             ambiguousPunchNotifyManager: boolean;
             ambiguousPunchNotifyHR: boolean;
             ambiguousPunchNotifyEmployee: boolean;
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeDetectionMethod: string;
+            wrongTypeShiftMarginMinutes: number;
+            wrongTypeConfidenceThreshold: number;
+            wrongTypeRequiresValidation: boolean;
         };
         id: string;
         createdAt: Date;
@@ -751,6 +793,7 @@ export declare class TenantsService {
             alertMinimumStaffing: boolean;
             annualLeaveDays: number;
             leaveApprovalLevels: number;
+            leaveIncludeSaturday: boolean;
             overtimeRate: import("@prisma/client/runtime/library").Decimal;
             nightShiftRate: import("@prisma/client/runtime/library").Decimal;
             anticipatedLeave: boolean;
@@ -834,6 +877,12 @@ export declare class TenantsService {
             ambiguousPunchNotifyManager: boolean;
             ambiguousPunchNotifyHR: boolean;
             ambiguousPunchNotifyEmployee: boolean;
+            enableWrongTypeDetection: boolean;
+            wrongTypeAutoCorrect: boolean;
+            wrongTypeDetectionMethod: string;
+            wrongTypeShiftMarginMinutes: number;
+            wrongTypeConfidenceThreshold: number;
+            wrongTypeRequiresValidation: boolean;
         };
     }>;
 }

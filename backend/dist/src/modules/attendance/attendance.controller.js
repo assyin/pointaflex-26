@@ -129,7 +129,7 @@ let AttendanceController = class AttendanceController {
         };
         return map[modeNum] || client_1.DeviceType.MANUAL;
     }
-    findAll(user, tenantId, employeeId, siteId, startDate, endDate, hasAnomaly, type) {
+    findAll(user, tenantId, employeeId, siteId, startDate, endDate, hasAnomaly, type, search, page, limit) {
         console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
         console.log('🔵 [AttendanceController.findAll] tenantId:', tenantId);
         console.log('🔵 [AttendanceController.findAll] user:', JSON.stringify(user));
@@ -141,6 +141,9 @@ let AttendanceController = class AttendanceController {
             endDate,
             hasAnomaly: hasAnomaly ? hasAnomaly === 'true' : undefined,
             type,
+            search,
+            page: page ? parseInt(page) : undefined,
+            limit: limit ? parseInt(limit) : undefined,
         }, user.userId, user.permissions || []);
     }
     getAnomalies(user, tenantId, startDate, endDate, employeeId, departmentId, siteId, anomalyType, isCorrected, page, limit, date) {
@@ -167,6 +170,12 @@ let AttendanceController = class AttendanceController {
     }
     correctAttendance(user, tenantId, id, correctionDto) {
         return this.attendanceService.correctAttendance(tenantId, id, correctionDto, user.userId, user.permissions || []);
+    }
+    createMissing(user, tenantId, id, body) {
+        return this.attendanceService.createMissingPunch(tenantId, id, user.userId, body.suggestedTimestamp, body.note);
+    }
+    invertType(user, tenantId, id, body) {
+        return this.attendanceService.invertAttendanceType(tenantId, id, user.userId, body.note);
     }
     approveCorrection(user, tenantId, id, body) {
         return this.attendanceService.approveCorrection(tenantId, id, user.userId, body.approved, body.comment);
@@ -428,8 +437,11 @@ __decorate([
     __param(5, (0, common_1.Query)('endDate')),
     __param(6, (0, common_1.Query)('hasAnomaly')),
     __param(7, (0, common_1.Query)('type')),
+    __param(8, (0, common_1.Query)('search')),
+    __param(9, (0, common_1.Query)('page')),
+    __param(10, (0, common_1.Query)('limit')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "findAll", null);
 __decorate([
@@ -515,6 +527,36 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, String, correct_attendance_dto_1.CorrectAttendanceDto]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "correctAttendance", null);
+__decorate([
+    (0, common_1.Post)(':id/create-missing'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.correct', 'attendance.edit'),
+    (0, swagger_1.ApiOperation)({ summary: 'Create missing IN or OUT punch for an attendance with MISSING_IN/MISSING_OUT anomaly' }),
+    (0, swagger_1.ApiResponse)({ status: 201, description: 'Missing punch created successfully' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Param)('id')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "createMissing", null);
+__decorate([
+    (0, common_1.Patch)(':id/invert-type'),
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, permissions_decorator_1.RequirePermissions)('attendance.correct', 'attendance.edit'),
+    (0, swagger_1.ApiOperation)({ summary: 'Invert attendance type (IN→OUT or OUT→IN)' }),
+    (0, swagger_1.ApiResponse)({ status: 200, description: 'Type inverted successfully' }),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, current_tenant_decorator_1.CurrentTenant)()),
+    __param(2, (0, common_1.Param)('id')),
+    __param(3, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, Object]),
+    __metadata("design:returntype", void 0)
+], AttendanceController.prototype, "invertType", null);
 __decorate([
     (0, common_1.Patch)(':id/approve-correction'),
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),

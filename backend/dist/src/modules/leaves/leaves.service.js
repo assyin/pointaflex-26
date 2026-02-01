@@ -20,6 +20,72 @@ let LeavesService = class LeavesService {
         this.prisma = prisma;
         this.fileStorageService = fileStorageService;
     }
+    async calculateWorkingDays(tenantId, startDate, endDate) {
+        const tenantSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: { workingDays: true, leaveIncludeSaturday: true },
+        });
+        let workingDaysConfig = tenantSettings?.workingDays || [1, 2, 3, 4, 5];
+        const leaveIncludeSaturday = tenantSettings?.leaveIncludeSaturday ?? false;
+        if (leaveIncludeSaturday && !workingDaysConfig.includes(6)) {
+            workingDaysConfig = [...workingDaysConfig, 6];
+        }
+        const holidays = await this.prisma.holiday.findMany({
+            where: {
+                tenantId,
+                date: {
+                    gte: startDate,
+                    lte: endDate,
+                },
+            },
+            select: { date: true, name: true },
+        });
+        const holidayDates = new Map(holidays.map((h) => [h.date.toISOString().split('T')[0], h.name]));
+        let workingDays = 0;
+        let excludedWeekends = 0;
+        let excludedHolidays = 0;
+        const details = [];
+        const currentDate = new Date(startDate);
+        currentDate.setUTCHours(0, 0, 0, 0);
+        const end = new Date(endDate);
+        end.setUTCHours(23, 59, 59, 999);
+        while (currentDate <= end) {
+            const dateStr = currentDate.toISOString().split('T')[0];
+            const dayOfWeek = currentDate.getUTCDay() === 0 ? 7 : currentDate.getUTCDay();
+            const isWorkingDay = workingDaysConfig.includes(dayOfWeek);
+            const holidayName = holidayDates.get(dateStr);
+            if (!isWorkingDay) {
+                excludedWeekends++;
+                details.push({
+                    date: dateStr,
+                    isWorking: false,
+                    reason: dayOfWeek === 7 ? 'Dimanche' : 'Samedi'
+                });
+            }
+            else if (holidayName) {
+                excludedHolidays++;
+                details.push({
+                    date: dateStr,
+                    isWorking: false,
+                    reason: `Jour férié: ${holidayName}`
+                });
+            }
+            else {
+                workingDays++;
+                details.push({ date: dateStr, isWorking: true });
+            }
+            currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        }
+        const totalCalendarDays = details.length;
+        return {
+            workingDays,
+            excludedWeekends,
+            excludedHolidays,
+            totalCalendarDays,
+            includeSaturday: leaveIncludeSaturday,
+            details,
+        };
+    }
     async suspendSchedulesForLeave(tenantId, employeeId, leaveId, startDate, endDate) {
         console.log(`[suspendSchedulesForLeave] Suspension des plannings pour le congé ${leaveId}`);
         console.log(`[suspendSchedulesForLeave] Période: ${startDate.toISOString()} - ${endDate.toISOString()}`);
@@ -122,11 +188,20 @@ let LeavesService = class LeavesService {
         if (endDate < startDate) {
             throw new common_1.BadRequestException('End date must be after start date');
         }
+        const daysCalculation = await this.calculateWorkingDays(tenantId, startDate, endDate);
         let days = dto.days;
         if (!days) {
-            const timeDiff = endDate.getTime() - startDate.getTime();
-            days = Math.ceil(timeDiff / (1000 * 60 * 60 * 24)) + 1;
+            days = daysCalculation.workingDays;
         }
+        console.log(`[Leave] Calcul des jours pour ${dto.employeeId}:`, {
+            startDate: startDate.toISOString().split('T')[0],
+            endDate: endDate.toISOString().split('T')[0],
+            totalCalendarDays: daysCalculation.totalCalendarDays,
+            workingDays: daysCalculation.workingDays,
+            excludedWeekends: daysCalculation.excludedWeekends,
+            excludedHolidays: daysCalculation.excludedHolidays,
+            includeSaturday: daysCalculation.includeSaturday,
+        });
         const overlapping = await this.prisma.leave.findFirst({
             where: {
                 employeeId: dto.employeeId,
@@ -142,7 +217,7 @@ let LeavesService = class LeavesService {
             },
         });
         if (overlapping) {
-            throw new common_1.BadRequestException('Leave request overlaps with existing leave');
+            throw new common_1.BadRequestException(`Une demande de congé existe déjà pour cette période (${overlapping.startDate.toISOString().split('T')[0]} - ${overlapping.endDate.toISOString().split('T')[0]})`);
         }
         const conflictingRecoveryDays = await this.prisma.recoveryDay.findMany({
             where: {
@@ -307,7 +382,16 @@ let LeavesService = class LeavesService {
                             firstName: true,
                             lastName: true,
                             matricule: true,
+                            siteId: true,
+                            departmentId: true,
                             site: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    code: true,
+                                },
+                            },
+                            department: {
                                 select: {
                                     id: true,
                                     name: true,
@@ -386,6 +470,47 @@ let LeavesService = class LeavesService {
             datesChanged =
                 (dto.startDate && new Date(dto.startDate).getTime() !== oldStartDate.getTime()) ||
                     (dto.endDate && new Date(dto.endDate).getTime() !== oldEndDate.getTime());
+            if (datesChanged) {
+                const overlapping = await this.prisma.leave.findFirst({
+                    where: {
+                        employeeId: leave.employeeId,
+                        id: { not: id },
+                        status: {
+                            notIn: [client_1.LeaveStatus.REJECTED, client_1.LeaveStatus.CANCELLED],
+                        },
+                        OR: [
+                            {
+                                startDate: { lte: endDate },
+                                endDate: { gte: startDate },
+                            },
+                        ],
+                    },
+                });
+                if (overlapping) {
+                    throw new common_1.BadRequestException(`Les nouvelles dates chevauchent un congé existant (${overlapping.startDate.toISOString().split('T')[0]} - ${overlapping.endDate.toISOString().split('T')[0]})`);
+                }
+                const conflictingRecoveryDays = await this.prisma.recoveryDay.findMany({
+                    where: {
+                        tenantId,
+                        employeeId: leave.employeeId,
+                        status: {
+                            in: [client_1.RecoveryDayStatus.APPROVED, client_1.RecoveryDayStatus.PENDING],
+                        },
+                        OR: [
+                            {
+                                startDate: { lte: endDate },
+                                endDate: { gte: startDate },
+                            },
+                        ],
+                    },
+                });
+                if (conflictingRecoveryDays.length > 0) {
+                    const dates = conflictingRecoveryDays
+                        .map((rd) => `${rd.startDate.toISOString().split('T')[0]} - ${rd.endDate.toISOString().split('T')[0]}`)
+                        .join(', ');
+                    throw new common_1.BadRequestException(`Conflit avec des journées de récupération existantes : ${dates}`);
+                }
+            }
         }
         const updatedLeave = await this.prisma.leave.update({
             where: { id },
@@ -417,17 +542,32 @@ let LeavesService = class LeavesService {
     }
     async approve(tenantId, id, userId, userRole, dto) {
         const leave = await this.findOne(tenantId, id);
+        const tenantSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: { twoLevelWorkflow: true, leaveApprovalLevels: true },
+        });
+        const twoLevelWorkflow = tenantSettings?.twoLevelWorkflow ?? true;
+        const leaveApprovalLevels = tenantSettings?.leaveApprovalLevels ?? 2;
+        console.log(`[approve] Workflow config: twoLevelWorkflow=${twoLevelWorkflow}, leaveApprovalLevels=${leaveApprovalLevels}`);
         const allowedStatuses = [client_1.LeaveStatus.PENDING, client_1.LeaveStatus.MANAGER_APPROVED];
         if (!allowedStatuses.includes(leave.status)) {
-            throw new common_1.BadRequestException('Leave cannot be approved at this stage');
+            throw new common_1.BadRequestException('Le congé ne peut pas être approuvé à ce stade');
         }
         const updateData = {};
         if (userRole === client_1.LegacyRole.SUPER_ADMIN) {
             if (dto.status === client_1.LeaveStatus.MANAGER_APPROVED) {
-                updateData.status = client_1.LeaveStatus.MANAGER_APPROVED;
-                updateData.managerApprovedBy = userId;
-                updateData.managerApprovedAt = new Date();
-                updateData.managerComment = dto.comment;
+                if (!twoLevelWorkflow || leaveApprovalLevels === 1) {
+                    updateData.status = client_1.LeaveStatus.APPROVED;
+                    updateData.managerApprovedBy = userId;
+                    updateData.managerApprovedAt = new Date();
+                    updateData.managerComment = dto.comment;
+                }
+                else {
+                    updateData.status = client_1.LeaveStatus.MANAGER_APPROVED;
+                    updateData.managerApprovedBy = userId;
+                    updateData.managerApprovedAt = new Date();
+                    updateData.managerComment = dto.comment;
+                }
             }
             else if (dto.status === client_1.LeaveStatus.APPROVED || dto.status === client_1.LeaveStatus.HR_APPROVED) {
                 updateData.status = client_1.LeaveStatus.APPROVED;
@@ -441,11 +581,21 @@ let LeavesService = class LeavesService {
             }
         }
         else if (userRole === client_1.LegacyRole.MANAGER) {
-            if (dto.status === client_1.LeaveStatus.MANAGER_APPROVED) {
-                updateData.status = client_1.LeaveStatus.MANAGER_APPROVED;
-                updateData.managerApprovedBy = userId;
-                updateData.managerApprovedAt = new Date();
-                updateData.managerComment = dto.comment;
+            if (dto.status === client_1.LeaveStatus.MANAGER_APPROVED || dto.status === client_1.LeaveStatus.APPROVED) {
+                if (!twoLevelWorkflow || leaveApprovalLevels === 1) {
+                    updateData.status = client_1.LeaveStatus.APPROVED;
+                    updateData.managerApprovedBy = userId;
+                    updateData.managerApprovedAt = new Date();
+                    updateData.managerComment = dto.comment;
+                    console.log(`[approve] Workflow 1 niveau: Manager finalise l'approbation`);
+                }
+                else {
+                    updateData.status = client_1.LeaveStatus.MANAGER_APPROVED;
+                    updateData.managerApprovedBy = userId;
+                    updateData.managerApprovedAt = new Date();
+                    updateData.managerComment = dto.comment;
+                    console.log(`[approve] Workflow ${leaveApprovalLevels} niveaux: En attente validation RH`);
+                }
             }
             else if (dto.status === client_1.LeaveStatus.REJECTED) {
                 updateData.status = client_1.LeaveStatus.REJECTED;
@@ -453,18 +603,32 @@ let LeavesService = class LeavesService {
             }
         }
         else if (userRole === client_1.LegacyRole.ADMIN_RH) {
-            if (leave.status !== client_1.LeaveStatus.MANAGER_APPROVED) {
-                throw new common_1.ForbiddenException('Vous ne pouvez pas approuver ou rejeter ce congé. Le manager doit d\'abord approuver la demande.');
+            if (!twoLevelWorkflow || leaveApprovalLevels === 1) {
+                if (dto.status === client_1.LeaveStatus.APPROVED || dto.status === client_1.LeaveStatus.HR_APPROVED) {
+                    updateData.status = client_1.LeaveStatus.APPROVED;
+                    updateData.hrApprovedBy = userId;
+                    updateData.hrApprovedAt = new Date();
+                    updateData.hrComment = dto.comment;
+                }
+                else if (dto.status === client_1.LeaveStatus.REJECTED) {
+                    updateData.status = client_1.LeaveStatus.REJECTED;
+                    updateData.hrComment = dto.comment;
+                }
             }
-            if (dto.status === client_1.LeaveStatus.APPROVED || dto.status === client_1.LeaveStatus.HR_APPROVED) {
-                updateData.status = client_1.LeaveStatus.APPROVED;
-                updateData.hrApprovedBy = userId;
-                updateData.hrApprovedAt = new Date();
-                updateData.hrComment = dto.comment;
-            }
-            else if (dto.status === client_1.LeaveStatus.REJECTED) {
-                updateData.status = client_1.LeaveStatus.REJECTED;
-                updateData.hrComment = dto.comment;
+            else {
+                if (leave.status !== client_1.LeaveStatus.MANAGER_APPROVED) {
+                    throw new common_1.ForbiddenException('Vous ne pouvez pas approuver ou rejeter ce congé. Le manager doit d\'abord approuver la demande.');
+                }
+                if (dto.status === client_1.LeaveStatus.APPROVED || dto.status === client_1.LeaveStatus.HR_APPROVED) {
+                    updateData.status = client_1.LeaveStatus.APPROVED;
+                    updateData.hrApprovedBy = userId;
+                    updateData.hrApprovedAt = new Date();
+                    updateData.hrComment = dto.comment;
+                }
+                else if (dto.status === client_1.LeaveStatus.REJECTED) {
+                    updateData.status = client_1.LeaveStatus.REJECTED;
+                    updateData.hrComment = dto.comment;
+                }
             }
         }
         if (Object.keys(updateData).length === 0) {
@@ -529,6 +693,25 @@ let LeavesService = class LeavesService {
         return this.prisma.leave.delete({
             where: { id },
         });
+    }
+    async getWorkflowConfig(tenantId) {
+        const tenantSettings = await this.prisma.tenantSettings.findUnique({
+            where: { tenantId },
+            select: {
+                twoLevelWorkflow: true,
+                leaveApprovalLevels: true,
+                annualLeaveDays: true,
+                anticipatedLeave: true,
+                leaveIncludeSaturday: true,
+            },
+        });
+        return {
+            twoLevelWorkflow: tenantSettings?.twoLevelWorkflow ?? true,
+            leaveApprovalLevels: tenantSettings?.leaveApprovalLevels ?? 2,
+            annualLeaveDays: tenantSettings?.annualLeaveDays ?? 18,
+            anticipatedLeave: tenantSettings?.anticipatedLeave ?? false,
+            leaveIncludeSaturday: tenantSettings?.leaveIncludeSaturday ?? false,
+        };
     }
     async getLeaveTypes(tenantId) {
         return this.prisma.leaveType.findMany({

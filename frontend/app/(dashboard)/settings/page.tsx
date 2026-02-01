@@ -106,6 +106,7 @@ export default function SettingsPage() {
     // Conges
     twoLevelWorkflow: true,
     anticipatedLeave: false,
+    leaveIncludeSaturday: false,
     annualLeaveDays: 18,
     leaveApprovalLevels: 2,
     recoveryExpiryDays: 90,
@@ -166,6 +167,14 @@ export default function SettingsPage() {
     missingOutReminderBeforeClosing: 30,
     enableMissingOutPatternDetection: true,
     missingOutPatternAlertThreshold: 3,
+
+    // Wrong Type Detection
+    enableWrongTypeDetection: false,
+    wrongTypeAutoCorrect: false,
+    wrongTypeDetectionMethod: 'SHIFT_BASED',
+    wrongTypeShiftMarginMinutes: 120,
+    wrongTypeConfidenceThreshold: 80,
+    wrongTypeRequiresValidation: true,
   });
 
   // Update form when settings load
@@ -221,6 +230,7 @@ export default function SettingsPage() {
         // Conges
         twoLevelWorkflow: settings.twoLevelWorkflow ?? true,
         anticipatedLeave: settings.anticipatedLeave ?? false,
+        leaveIncludeSaturday: settings.leaveIncludeSaturday ?? false,
         annualLeaveDays: settings.annualLeaveDays ?? 18,
         leaveApprovalLevels: settings.leaveApprovalLevels ?? 2,
         recoveryExpiryDays: settings.recoveryExpiryDays ?? 90,
@@ -281,6 +291,14 @@ export default function SettingsPage() {
         missingOutReminderBeforeClosing: settings.missingOutReminderBeforeClosing ?? 30,
         enableMissingOutPatternDetection: settings.enableMissingOutPatternDetection ?? true,
         missingOutPatternAlertThreshold: settings.missingOutPatternAlertThreshold ?? 3,
+
+        // Wrong Type Detection
+        enableWrongTypeDetection: settings.enableWrongTypeDetection ?? false,
+        wrongTypeAutoCorrect: settings.wrongTypeAutoCorrect ?? false,
+        wrongTypeDetectionMethod: settings.wrongTypeDetectionMethod ?? 'SHIFT_BASED',
+        wrongTypeShiftMarginMinutes: settings.wrongTypeShiftMarginMinutes ?? 120,
+        wrongTypeConfidenceThreshold: settings.wrongTypeConfidenceThreshold ?? 80,
+        wrongTypeRequiresValidation: settings.wrongTypeRequiresValidation ?? true,
       });
     }
   }, [settings]);

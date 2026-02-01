@@ -70,4 +70,22 @@ export class DepartmentsController {
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
     return this.departmentsService.remove(id, tenantId);
   }
+
+  @Get(':id/settings')
+  getSettings(@Param('id') id: string, @CurrentTenant() tenantId: string) {
+    return this.departmentsService.getSettings(id, tenantId);
+  }
+
+  @Patch(':id/settings')
+  updateSettings(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() data: {
+      wrongTypeDetectionEnabled?: boolean | null;
+      wrongTypeAutoCorrect?: boolean | null;
+      wrongTypeShiftMarginMinutes?: number | null;
+    },
+  ) {
+    return this.departmentsService.updateSettings(id, tenantId, data);
+  }
 }

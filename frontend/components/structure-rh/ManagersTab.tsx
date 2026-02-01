@@ -45,6 +45,7 @@ import { Plus, Pencil, Trash2, Users, Search, Loader2, MapPin, Building2 } from 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ManagersAdvancedFilters, type ManagersFilters } from './ManagersAdvancedFilters';
+import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 
 export function ManagersTab() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -384,27 +385,15 @@ export function ManagersTab() {
               </div>
 
               <div>
-                <Label htmlFor="managerId">Manager *</Label>
-                <select
-                  id="managerId"
+                <SearchableEmployeeSelect
+                  label="Manager"
                   value={formData.managerId}
-                  onChange={(e) => setFormData({ ...formData, managerId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                  onChange={(value) => setFormData({ ...formData, managerId: value })}
+                  employees={availableManagers}
+                  placeholder="Rechercher un manager..."
                   required
-                  disabled={!formData.departmentId}
-                >
-                  <option value="">Sélectionner un manager</option>
-                  {availableManagers.map((emp: any) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.firstName} {emp.lastName} ({emp.matricule})
-                    </option>
-                  ))}
-                </select>
-                {formData.departmentId && availableManagers.length === 0 && (
-                  <p className="text-xs text-red-500 mt-1">
-                    Aucun employé actif trouvé dans ce département
-                  </p>
-                )}
+                  error={formData.departmentId && availableManagers.length === 0 ? 'Aucun employé actif trouvé dans ce département' : undefined}
+                />
               </div>
             </div>
             <DialogFooter>
@@ -457,21 +446,14 @@ export function ManagersTab() {
               </div>
 
               <div>
-                <Label htmlFor="edit-managerId">Manager *</Label>
-                <select
-                  id="edit-managerId"
+                <SearchableEmployeeSelect
+                  label="Manager"
                   value={formData.managerId}
-                  onChange={(e) => setFormData({ ...formData, managerId: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                  onChange={(value) => setFormData({ ...formData, managerId: value })}
+                  employees={availableManagers}
+                  placeholder="Rechercher un manager..."
                   required
-                >
-                  <option value="">Sélectionner un manager</option>
-                  {availableManagers.map((emp: any) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.firstName} {emp.lastName} ({emp.matricule})
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
             <DialogFooter>
