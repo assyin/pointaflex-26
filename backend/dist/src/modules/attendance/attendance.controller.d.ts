@@ -441,7 +441,7 @@ export declare class AttendanceController {
     }>;
     private mapAttendanceType;
     private mapVerifyMode;
-    findAll(user: any, tenantId: string, employeeId?: string, siteId?: string, startDate?: string, endDate?: string, hasAnomaly?: string, type?: AttendanceType, search?: string, page?: string, limit?: string): Promise<{
+    findAll(user: any, tenantId: string, employeeId?: string, siteId?: string, startDate?: string, endDate?: string, hasAnomaly?: string, type?: AttendanceType, search?: string, page?: string, limit?: string, departmentId?: string, anomalyType?: string, source?: string, status?: string, shiftId?: string): Promise<{
         hoursWorked: number;
         effectiveShift: any;
         id: string;
@@ -571,6 +571,9 @@ export declare class AttendanceController {
         }[];
         meta: {
             total: number;
+            totalIN: number;
+            totalOUT: number;
+            totalAnomalies: number;
             page: number;
             limit: number;
             totalPages: number;

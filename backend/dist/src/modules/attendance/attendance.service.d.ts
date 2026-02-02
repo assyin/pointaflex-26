@@ -376,6 +376,11 @@ export declare class AttendanceService {
         search?: string;
         page?: number;
         limit?: number;
+        departmentId?: string;
+        anomalyType?: string;
+        source?: string;
+        status?: string;
+        shiftId?: string;
     }, userId?: string, userPermissions?: string[]): Promise<{
         hoursWorked: number;
         effectiveShift: any;
@@ -506,6 +511,9 @@ export declare class AttendanceService {
         }[];
         meta: {
             total: number;
+            totalIN: number;
+            totalOUT: number;
+            totalAnomalies: number;
             page: number;
             limit: number;
             totalPages: number;

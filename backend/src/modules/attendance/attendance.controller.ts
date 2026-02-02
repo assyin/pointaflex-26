@@ -338,13 +338,12 @@ export class AttendanceController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('anomalyType') anomalyType?: string,
+    @Query('source') source?: string,
+    @Query('status') status?: string,
+    @Query('shiftId') shiftId?: string,
   ) {
-    // DEBUG: Log de la requête au contrôleur
-    console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
-    console.log('🔵 [AttendanceController.findAll] tenantId:', tenantId);
-    console.log('🔵 [AttendanceController.findAll] user:', JSON.stringify(user));
-    console.log('🔵 [AttendanceController.findAll] startDate:', startDate, 'endDate:', endDate);
-
     return this.attendanceService.findAll(
       tenantId,
       {
@@ -357,6 +356,11 @@ export class AttendanceController {
         search,
         page: page ? parseInt(page) : undefined,
         limit: limit ? parseInt(limit) : undefined,
+        departmentId,
+        anomalyType,
+        source,
+        status,
+        shiftId,
       },
       user.userId,
       user.permissions || [],

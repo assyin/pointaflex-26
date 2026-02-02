@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { DashboardLayout } from '@/components/layout/dashboard-layout';
@@ -97,6 +97,11 @@ export default function AttendancePage() {
   const [sortBy, setSortBy] = useState<'timestamp' | 'matricule'>('timestamp');
   const [groupByMatricule, setGroupByMatricule] = useState<boolean>(false);
 
+  // Reset page quand les filtres changent
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [startDate, endDate, selectedEmployee, selectedSite, showAnomaliesOnly, selectedType, searchQuery, selectedDepartment, selectedAnomalyType, selectedSource, selectedStatus, selectedShift]);
+
   const approveMutation = useApproveAttendanceCorrection();
   const createMutation = useCreateAttendance();
   const deleteMutation = useDeleteAttendance();
@@ -146,20 +151,29 @@ export default function AttendancePage() {
   }, [employeesData]);
 
   // Build filters object for API
+  // PERF FIX 01/02/2026: Tous les filtres envoyés au backend (avant: filtrage client sur 500 records)
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 50;
+
   const apiFilters = useMemo(() => {
     const filters: any = {
       startDate,
       endDate,
-      page: 1,
-      limit: 500,
+      page: currentPage,
+      limit: pageSize,
     };
     if (selectedEmployee !== 'all') filters.employeeId = selectedEmployee;
     if (selectedSite !== 'all') filters.siteId = selectedSite;
     if (showAnomaliesOnly) filters.hasAnomaly = true;
     if (selectedType !== 'all') filters.type = selectedType;
     if (searchQuery.trim()) filters.search = searchQuery.trim();
+    if (selectedDepartment !== 'all') filters.departmentId = selectedDepartment;
+    if (selectedAnomalyType !== 'all') filters.anomalyType = selectedAnomalyType;
+    if (selectedSource !== 'all') filters.source = selectedSource;
+    if (selectedStatus !== 'all') filters.status = selectedStatus;
+    if (selectedShift !== 'all') filters.shiftId = selectedShift;
     return filters;
-  }, [startDate, endDate, selectedEmployee, selectedSite, showAnomaliesOnly, selectedType, searchQuery]);
+  }, [startDate, endDate, selectedEmployee, selectedSite, showAnomaliesOnly, selectedType, searchQuery, selectedDepartment, selectedAnomalyType, selectedSource, selectedStatus, selectedShift, currentPage]);
 
   // Helper function to convert Decimal values to numbers
   const toNumber = (value: any): number => {
@@ -174,9 +188,12 @@ export default function AttendancePage() {
   };
 
   // Fetch attendance data with auto-refresh
-  const { data: attendanceDataRaw, isLoading, error, refetch, dataUpdatedAt } = useAttendance(apiFilters);
+  const { data: attendanceDataRaw, isLoading, isFetching, error, refetch, dataUpdatedAt } = useAttendance(apiFilters);
   // Handle both paginated response {data: [], meta: {}} and raw array response
-  const attendanceData = Array.isArray(attendanceDataRaw) ? attendanceDataRaw : attendanceDataRaw?.data || [];
+  const attendanceData = Array.isArray(attendanceDataRaw) ? attendanceDataRaw : (attendanceDataRaw as any)?.data || [];
+  const paginationMeta = !Array.isArray(attendanceDataRaw) ? (attendanceDataRaw as any)?.meta : null;
+  const totalPages = paginationMeta?.totalPages || 1;
+  const totalRecords = paginationMeta?.total || attendanceData.length;
 
   // Auto-refresh notification
   const [lastCount, setLastCount] = React.useState(0);
@@ -377,46 +394,17 @@ export default function AttendancePage() {
   const filteredRecords = useMemo(() => {
     if (!Array.isArray(attendanceData)) return [];
 
+    // PERF FIX 01/02/2026: Les filtres principaux sont maintenant côté backend
+    // Seul le tri et quelques filtres légers restent côté client
     return attendanceData.filter((record: any) => {
-      // Filtre par recherche — déjà filtré côté backend via le paramètre search
       const matchesSearch = true;
+      const matchesDepartment = true; // Filtré côté backend
+      const matchesSite = true; // Filtré côté backend
+      const matchesAnomalyType = true; // Filtré côté backend
+      const matchesSource = true; // Filtré côté backend
+      const matchesStatus = true; // Filtré côté backend
 
-      // Filtre par département (côté client)
-      const matchesDepartment =
-        selectedDepartment === 'all' ||
-        record.employee?.departmentId === selectedDepartment;
-
-      // Filtre par site (côté client - vérifie aussi employee.siteId)
-      const matchesSite =
-        selectedSite === 'all' ||
-        record.siteId === selectedSite ||
-        record.employee?.siteId === selectedSite;
-
-      // Filtre par type d'anomalie (côté client)
-      // Si un type spécifique est sélectionné, ne montrer QUE les records avec ce type d'anomalie
-      const matchesAnomalyType =
-        selectedAnomalyType === 'all' ||
-        (record.hasAnomaly && record.anomalyType === selectedAnomalyType);
-
-      // Filtre par source (côté client)
-      const matchesSource =
-        selectedSource === 'all' ||
-        record.method === selectedSource ||
-        record.source === selectedSource;
-
-      // Filtre par statut (côté client)
-      const matchesStatus =
-        selectedStatus === 'all' ||
-        (selectedStatus === 'VALID' && !record.hasAnomaly && !record.isCorrected) ||
-        (selectedStatus === 'HAS_ANOMALY' && record.hasAnomaly) ||
-        (selectedStatus === 'CORRECTED' && record.isCorrected) ||
-        (selectedStatus === 'PENDING_APPROVAL' && record.approvalStatus === 'PENDING_APPROVAL');
-
-      // Filtre par shift (côté client) - FIX 17/01/2026: Utiliser effectiveShift
-      const matchesShift =
-        selectedShift === 'all' ||
-        record.effectiveShift?.id === selectedShift ||
-        record.employee?.currentShift?.id === selectedShift;
+      const matchesShift = true; // Filtré côté backend
 
       return matchesSearch && matchesDepartment && matchesSite && matchesAnomalyType && matchesSource && matchesStatus && matchesShift;
     });
@@ -638,9 +626,9 @@ export default function AttendancePage() {
                     variant="primary"
                     size="sm"
                     onClick={() => refetch()}
-                    disabled={isLoading}
+                    disabled={isFetching}
                   >
-                    <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
                     Actualiser
                   </Button>
                 </div>
@@ -649,9 +637,9 @@ export default function AttendancePage() {
               {/* Auto-refresh indicator */}
               <div className="flex items-center justify-between text-xs text-text-secondary">
                 <div className="flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${isLoading ? 'bg-primary animate-pulse' : 'bg-success'}`} />
+                  <div className={`h-2 w-2 rounded-full ${isFetching ? 'bg-primary animate-pulse' : 'bg-success'}`} />
                   <span>
-                    {isLoading ? 'Chargement en cours...' : `Dernière actualisation: ${format(new Date(dataUpdatedAt), 'HH:mm:ss')}`}
+                    {isFetching ? 'Chargement en cours...' : `Dernière actualisation: ${format(new Date(dataUpdatedAt), 'HH:mm:ss')}`}
                   </span>
                 </div>
                 <span className="text-text-secondary">
@@ -865,10 +853,10 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-medium text-text-secondary">Total pointages</p>
                   <p className="text-3xl font-bold text-text-primary mt-1">
-                    {filteredRecords.length}
+                    {totalRecords}
                   </p>
                   <p className="text-xs text-text-secondary mt-1">
-                    {Array.isArray(attendanceData) ? attendanceData.length : 0} au total
+                    {totalRecords} au total
                   </p>
                 </div>
                 <Clock className="h-12 w-12 text-primary opacity-20" />
@@ -882,7 +870,7 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-medium text-text-secondary">Entrées</p>
                   <p className="text-3xl font-bold text-success mt-1">
-                    {filteredRecords.filter((r: any) => r.type === 'IN' || r.type === 'ENTRY').length}
+                    {paginationMeta?.totalIN ?? filteredRecords.filter((r: any) => r.type === 'IN' || r.type === 'ENTRY').length}
                   </p>
                   <p className="text-xs text-text-secondary mt-1">
                     Pointages d'entrée
@@ -899,7 +887,7 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-medium text-text-secondary">Sorties</p>
                   <p className="text-3xl font-bold text-primary mt-1">
-                    {filteredRecords.filter((r: any) => r.type === 'OUT' || r.type === 'EXIT').length}
+                    {paginationMeta?.totalOUT ?? filteredRecords.filter((r: any) => r.type === 'OUT' || r.type === 'EXIT').length}
                   </p>
                   <p className="text-xs text-text-secondary mt-1">
                     Pointages de sortie
@@ -916,7 +904,7 @@ export default function AttendancePage() {
                 <div>
                   <p className="text-sm font-medium text-text-secondary">Anomalies</p>
                   <p className="text-3xl font-bold text-danger mt-1">
-                    {filteredRecords.filter((r: any) => isRealAnomaly(r)).length}
+                    {paginationMeta?.totalAnomalies ?? filteredRecords.filter((r: any) => isRealAnomaly(r)).length}
                   </p>
                   <p className="text-xs text-text-secondary mt-1">
                     {anomaliesData?.filter((a: any) => a.anomalyType !== 'JOUR_FERIE_TRAVAILLE').length || 0} non résolues
@@ -933,7 +921,7 @@ export default function AttendancePage() {
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Liste des pointages</CardTitle>
             <div className="text-sm text-text-secondary">
-              {filteredRecords.length} pointage{filteredRecords.length > 1 ? 's' : ''} trouvé{filteredRecords.length > 1 ? 's' : ''}
+              {totalRecords} pointage{totalRecords > 1 ? 's' : ''} trouvé{totalRecords > 1 ? 's' : ''}
             </div>
           </CardHeader>
           <CardContent>
@@ -949,13 +937,20 @@ export default function AttendancePage() {
                   Erreur lors du chargement des données. Veuillez réessayer.
                 </AlertDescription>
               </Alert>
-            ) : filteredRecords.length === 0 ? (
+            ) : filteredRecords.length === 0 && !isFetching ? (
               <div className="text-center py-12 text-text-secondary">
                 <Clock className="h-12 w-12 mx-auto mb-3 opacity-20" />
                 <p>Aucun pointage trouvé pour cette période.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              {isFetching && !isLoading && (
+                <div className="flex items-center justify-center py-3 mb-2 bg-blue-50 rounded-lg border border-blue-100">
+                  <RefreshCw className="h-4 w-4 animate-spin text-primary mr-2" />
+                  <span className="text-sm text-primary font-medium">Chargement des données...</span>
+                </div>
+              )}
+              <div className={`overflow-x-auto ${isFetching && !isLoading ? 'opacity-50 pointer-events-none' : ''}`}>
                 <table className="w-full">
                   <thead>
                     <tr className="bg-table-header text-left text-sm font-semibold text-text-primary border-b-2 border-table-border">
@@ -1230,6 +1225,61 @@ export default function AttendancePage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination */}
+              {totalPages > 0 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    {totalRecords} pointage(s) — Page {currentPage} / {totalPages}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={currentPage <= 1}
+                    >
+                      Précédent
+                    </Button>
+                    {totalPages <= 7 ? (
+                      Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
+                        <Button
+                          key={p}
+                          variant={p === currentPage ? 'primary' : 'outline'}
+                          size="sm"
+                          onClick={() => setCurrentPage(p)}
+                          className="min-w-[36px]"
+                        >
+                          {p}
+                        </Button>
+                      ))
+                    ) : (
+                      <>
+                        {[1, 2].map(p => (
+                          <Button key={p} variant={p === currentPage ? 'primary' : 'outline'} size="sm" onClick={() => setCurrentPage(p)} className="min-w-[36px]">{p}</Button>
+                        ))}
+                        {currentPage > 3 && <span className="px-1">...</span>}
+                        {currentPage > 2 && currentPage < totalPages - 1 && (
+                          <Button variant="primary" size="sm" className="min-w-[36px]">{currentPage}</Button>
+                        )}
+                        {currentPage < totalPages - 2 && <span className="px-1">...</span>}
+                        {[totalPages - 1, totalPages].filter(p => p > 2).map(p => (
+                          <Button key={p} variant={p === currentPage ? 'primary' : 'outline'} size="sm" onClick={() => setCurrentPage(p)} className="min-w-[36px]">{p}</Button>
+                        ))}
+                      </>
+                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={currentPage >= totalPages}
+                    >
+                      Suivant
+                    </Button>
+                  </div>
+                </div>
+              )}
+              </>
             )}
           </CardContent>
         </Card>

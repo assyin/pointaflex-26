@@ -9,7 +9,7 @@ export function useSites() {
   return useQuery({
     queryKey: ['sites', user?.id], // Include user ID to prevent cache sharing
     queryFn: () => sitesApi.getAll(),
-    staleTime: 60000, // 1 minute
+    staleTime: 300000, // 5 minutes (PERF FIX: données de référence rarement modifiées)
   });
 }
 

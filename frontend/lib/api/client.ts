@@ -65,10 +65,12 @@ apiClient.interceptors.request.use(
                           config.url?.includes('/auth/refresh');
 
       const authStatus = isAuthenticated();
+      const hasRefreshToken = !!localStorage.getItem('refreshToken');
 
-      if (!authStatus && !isAuthRoute) {
-        // Créer une promesse qui ne sera jamais résolue pour empêcher l'envoi de la requête
-        // Cela évite les erreurs 401 dans la console
+      if (!authStatus && !isAuthRoute && !hasRefreshToken) {
+        // Bloquer seulement s'il n'y a pas de refresh token disponible
+        // Si un refresh token existe, laisser la requête partir et le response interceptor
+        // gèrera le 401 en faisant un refresh automatique
         const silentError: any = Object.create(null);
         silentError.name = '';
         silentError.message = '';
@@ -77,7 +79,6 @@ apiClient.interceptors.request.use(
         silentError.config = config;
         silentError.response = { status: 401, statusText: 'Unauthorized', data: {} };
         silentError.isAxiosError = false;
-        // Rejeter silencieusement sans afficher dans la console
         return Promise.reject(silentError);
       }
 

@@ -2056,17 +2056,15 @@ export class AttendanceService {
       search?: string;
       page?: number;
       limit?: number;
+      departmentId?: string;
+      anomalyType?: string;
+      source?: string;
+      status?: string;
+      shiftId?: string;
     },
     userId?: string,
     userPermissions?: string[],
   ) {
-    // DEBUG: Log des paramètres d'entrée
-    console.log('🔍 [findAll] =====================================');
-    console.log('🔍 [findAll] tenantId:', tenantId);
-    console.log('🔍 [findAll] filters:', JSON.stringify(filters));
-    console.log('🔍 [findAll] userId:', userId);
-    console.log('🔍 [findAll] userPermissions:', userPermissions);
-
     const where: any = { tenantId };
 
     // Filtrer par employé si l'utilisateur n'a que la permission 'attendance.view_own'
@@ -2075,8 +2073,6 @@ export class AttendanceService {
     const hasViewTeam = userPermissions?.includes('attendance.view_team');
     const hasViewDepartment = userPermissions?.includes('attendance.view_department');
     const hasViewSite = userPermissions?.includes('attendance.view_site');
-
-    console.log('🔍 [findAll] Permissions - hasViewAll:', hasViewAll, 'hasViewOwn:', hasViewOwn);
 
     // IMPORTANT: Détecter si l'utilisateur est un manager, mais seulement s'il n'a pas 'view_all'
     // Les admins avec 'view_all' doivent voir toutes les données, indépendamment de leur statut de manager
@@ -2153,13 +2149,85 @@ export class AttendanceService {
       };
     }
 
+    // PERF FIX 01/02/2026: Filtres côté serveur (avant: filtrage client sur 500 records)
+    if (filters?.departmentId) {
+      where.employee = {
+        ...where.employee,
+        departmentId: filters.departmentId,
+      };
+    }
+    if (filters?.shiftId) {
+      // Filtrer par shift: employés avec ce shift par défaut OU qui ont un schedule publié avec ce shift dans la période
+      const employeesWithShift = await this.prisma.employee.findMany({
+        where: { tenantId, currentShiftId: filters.shiftId },
+        select: { id: true },
+      });
+      const scheduledEmployees = filters.startDate ? await this.prisma.schedule.findMany({
+        where: {
+          tenantId,
+          shiftId: filters.shiftId,
+          status: 'PUBLISHED',
+          ...(filters.startDate && { date: { gte: new Date(filters.startDate + 'T00:00:00.000Z') } }),
+          ...(filters.endDate && { date: { lte: new Date(filters.endDate + 'T23:59:59.999Z') } }),
+        },
+        select: { employeeId: true },
+        distinct: ['employeeId'],
+      }) : [];
+      const shiftEmployeeIds = [...new Set([
+        ...employeesWithShift.map(e => e.id),
+        ...scheduledEmployees.map(s => s.employeeId),
+      ])];
+      if (shiftEmployeeIds.length === 0) {
+        // Aucun employé avec ce shift — retourner résultat vide
+        return { data: [], meta: { total: 0, totalIN: 0, totalOUT: 0, totalAnomalies: 0, page: 1, limit: filters.limit || 50, totalPages: 0 } };
+      }
+      // Combiner avec le filtre employeeId existant
+      if (where.employeeId?.in) {
+        where.employeeId = { in: where.employeeId.in.filter((id: string) => shiftEmployeeIds.includes(id)) };
+      } else if (where.employeeId && typeof where.employeeId === 'string') {
+        if (!shiftEmployeeIds.includes(where.employeeId)) {
+          return { data: [], meta: { total: 0, totalIN: 0, totalOUT: 0, totalAnomalies: 0, page: 1, limit: filters.limit || 50, totalPages: 0 } };
+        }
+      } else {
+        where.employeeId = { in: shiftEmployeeIds };
+      }
+    }
+    if (filters?.anomalyType) {
+      where.anomalyType = filters.anomalyType;
+    }
+    if (filters?.source) {
+      where.OR = [
+        { method: filters.source },
+        { source: filters.source },
+      ];
+    }
+    if (filters?.status) {
+      if (filters.status === 'VALID') {
+        where.hasAnomaly = false;
+        where.isCorrected = false;
+      } else if (filters.status === 'HAS_ANOMALY') {
+        where.hasAnomaly = true;
+      } else if (filters.status === 'CORRECTED') {
+        where.isCorrected = true;
+      } else if (filters.status === 'PENDING_APPROVAL') {
+        where.approvalStatus = 'PENDING_APPROVAL';
+      }
+    }
+
     // Exclure les enregistrements DEBOUNCE_BLOCKED de la liste normale
-    // Ces enregistrements informatifs n'apparaissent que dans la page des anomalies
-    // NOTE: Utiliser OR pour inclure les enregistrements avec anomalyType NULL
-    where.OR = [
-      { anomalyType: null },
-      { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
-    ];
+    // NOTE: Si un filtre source a déjà mis un OR, on doit combiner avec AND
+    if (!filters?.source) {
+      where.OR = [
+        { anomalyType: null },
+        { anomalyType: { not: 'DEBOUNCE_BLOCKED' } },
+      ];
+    } else {
+      where.AND = [
+        { OR: where.OR },
+        { OR: [{ anomalyType: null }, { anomalyType: { not: 'DEBOUNCE_BLOCKED' } }] },
+      ];
+      delete where.OR;
+    }
 
     if (filters?.startDate || filters?.endDate) {
       where.timestamp = {};
@@ -2177,21 +2245,13 @@ export class AttendanceService {
 
     // Pagination par défaut pour améliorer les performances
     const page = filters?.page || 1;
-    const limit = filters?.limit || 500; // Limite par défaut de 500 éléments
+    const limit = filters?.limit || 50; // PERF FIX 01/02/2026: Limite par défaut réduite de 500 à 50
     const skip = (page - 1) * limit;
 
-    // Si pas de pagination demandée explicitement, limiter quand même à 1000 pour éviter les problèmes de performance
     const shouldPaginate = filters?.page !== undefined || filters?.limit !== undefined;
-    const maxLimit = shouldPaginate ? limit : Math.min(limit, 1000);
+    const maxLimit = shouldPaginate ? limit : Math.min(limit, 200);
 
-    // DEBUG: Log de la requête
-    console.log('🔍 [findAll] WHERE clause:', JSON.stringify(where, (key, value) => {
-      if (value instanceof Date) return value.toISOString();
-      return value;
-    }, 2));
-    console.log('🔍 [findAll] Pagination - page:', page, 'limit:', maxLimit, 'skip:', skip);
-
-    const [data, total] = await Promise.all([
+    const [data, total, totalIN, totalOUT, totalAnomalies] = await Promise.all([
       this.prisma.attendance.findMany({
         where,
         skip: shouldPaginate ? skip : undefined,
@@ -2272,13 +2332,10 @@ export class AttendanceService {
         orderBy: { timestamp: 'desc' },
       }),
       this.prisma.attendance.count({ where }),
+      this.prisma.attendance.count({ where: { AND: [where, { type: 'IN' }] } }),
+      this.prisma.attendance.count({ where: { AND: [where, { type: 'OUT' }] } }),
+      this.prisma.attendance.count({ where: { AND: [where, { hasAnomaly: true }] } }),
     ]);
-
-    // DEBUG: Log des résultats
-    console.log('🔍 [findAll] RESULTS - data.length:', data.length, 'total:', total);
-    if (data.length === 0 && total === 0) {
-      console.log('🔍 [findAll] ⚠️ AUCUN RÉSULTAT - Vérifiez la clause WHERE');
-    }
 
     // FIX 17/01/2026: Enrichir les données avec le planning effectif (personnalisé ou par défaut)
     // Récupérer tous les schedules nécessaires en une seule requête pour optimiser les performances
@@ -2291,32 +2348,41 @@ export class AttendanceService {
       employeeDatePairs.get(record.employeeId)!.add(dateStr);
     }
 
-    // Récupérer les schedules pour toutes les combinaisons employé-date
+    // PERF FIX 01/02/2026: Batch query au lieu de N+1 queries
+    // Avant: 1 requête par (employeeId, date) = ~500 requêtes séquentielles (~5s)
+    // Après: 1 seule requête batch (~50-100ms)
     const scheduleMap = new Map<string, any>();
-    for (const [employeeId, dates] of employeeDatePairs.entries()) {
-      for (const dateStr of dates) {
-        const dateOnly = new Date(dateStr + 'T00:00:00.000Z');
-        const schedule = await this.prisma.schedule.findFirst({
-          where: {
-            tenantId,
-            employeeId,
-            date: dateOnly,
-            status: 'PUBLISHED',
-          },
-          include: {
-            shift: {
-              select: {
-                id: true,
-                name: true,
-                code: true,
-                startTime: true,
-                endTime: true,
-              },
+    const orConditions = Array.from(employeeDatePairs.entries()).flatMap(([employeeId, dates]) =>
+      Array.from(dates).map(dateStr => ({
+        employeeId,
+        date: new Date(dateStr + 'T00:00:00.000Z'),
+      }))
+    );
+
+    if (orConditions.length > 0) {
+      const allSchedules = await this.prisma.schedule.findMany({
+        where: {
+          tenantId,
+          status: 'PUBLISHED',
+          OR: orConditions,
+        },
+        include: {
+          shift: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              startTime: true,
+              endTime: true,
             },
           },
-        });
-        if (schedule?.shift) {
-          scheduleMap.set(`${employeeId}_${dateStr}`, schedule.shift);
+        },
+      });
+
+      for (const schedule of allSchedules) {
+        if (schedule.shift) {
+          const dateStr = schedule.date.toISOString().split('T')[0];
+          scheduleMap.set(`${schedule.employeeId}_${dateStr}`, schedule.shift);
         }
       }
     }
@@ -2338,15 +2404,19 @@ export class AttendanceService {
 
     // Si pagination demandée, retourner avec métadonnées
     if (shouldPaginate) {
-      return {
+      const result = {
         data: transformedData,
         meta: {
           total,
+          totalIN,
+          totalOUT,
+          totalAnomalies,
           page,
           limit,
           totalPages: Math.ceil(total / limit),
         },
       };
+      return result;
     }
 
     // Sinon, retourner juste les données (compatibilité avec l'ancien code)
@@ -8733,7 +8803,7 @@ export class AttendanceService {
         where: { tenantId },
         select: { doublePunchToleranceMinutes: true, workingDays: true },
       });
-      const toleranceMinutes = tenantSettings?.doublePunchToleranceMinutes ?? 2; // Défaut: 2 minutes
+      const toleranceMinutes = tenantSettings?.doublePunchToleranceMinutes ?? 4; // Défaut: 4 minutes
       const workingDays = (tenantSettings?.workingDays as number[]) || [1, 2, 3, 4, 5]; // Défaut: Lundi-Vendredi
       const toleranceMs = toleranceMinutes * 60 * 1000;
 
@@ -8863,7 +8933,9 @@ export class AttendanceService {
       // Cela évite la cascade MISSING_IN + DOUBLE_OUT + heures sup absurdes
       // ═══════════════════════════════════════════════════════════════
       if (webhookData.type === 'OUT' && shift?.startTime) {
-        const punchMins = punchTime.getHours() * 60 + punchTime.getMinutes();
+        // Convertir en heure locale (UTC+1 pour le Maroc)
+        const localPunchTime = new Date(punchTime.getTime() + 60 * 60 * 1000);
+        const punchMins = localPunchTime.getUTCHours() * 60 + localPunchTime.getUTCMinutes();
         const shiftStartParts = shift.startTime.split(':');
         const shiftStartMins = parseInt(shiftStartParts[0]) * 60 + parseInt(shiftStartParts[1] || '0');
         const diffFromStart = Math.abs(punchMins - shiftStartMins);
@@ -8893,7 +8965,16 @@ export class AttendanceService {
             // Pas d'IN récent → c'est un mauvais bouton, auto-corriger OUT→IN
             isAutoCorrectedWrongType = true;
             effectiveType = 'IN';
-            console.log(`   🔄 AUTO-CORRECTION: OUT→IN (bouton OUT à ${diffFromStartWrapped} min du début shift ${shift.startTime}). En attente validation manager.`);
+            console.log(`   🔄 AUTO-CORRECTION: OUT→IN (bouton OUT à ${diffFromStartWrapped} min du début shift ${shift.startTime}, pas d'IN récent). En attente validation manager.`);
+          } else {
+            // Il y a un IN récent, mais si c'est dans la tolérance double badgeage c'est un double-appui (IN puis OUT par erreur)
+            const timeSinceIn = punchTime.getTime() - recentIn.timestamp.getTime();
+            const minutesSinceIn = timeSinceIn / (60 * 1000);
+            if (minutesSinceIn <= toleranceMinutes) {
+              isAutoCorrectedWrongType = true;
+              effectiveType = 'IN';
+              console.log(`   🔄 AUTO-CORRECTION: OUT→IN (OUT à ${minutesSinceIn.toFixed(1)} min après IN, tolérance double badgeage: ${toleranceMinutes} min, près du début shift ${shift.startTime}).`);
+            }
           }
         }
       }
@@ -8904,7 +8985,9 @@ export class AttendanceService {
       // Cas: employé quitte son poste mais appuie sur IN au lieu de OUT
       // ═══════════════════════════════════════════════════════════════
       if (!isAutoCorrectedWrongType && webhookData.type === 'IN' && shift?.endTime) {
-        const punchMins = punchTime.getHours() * 60 + punchTime.getMinutes();
+        // Convertir en heure locale (UTC+1 pour le Maroc)
+        const localPunchTime2 = new Date(punchTime.getTime() + 60 * 60 * 1000);
+        const punchMins = localPunchTime2.getUTCHours() * 60 + localPunchTime2.getUTCMinutes();
         const shiftEndParts = shift.endTime.split(':');
         const shiftEndMins = parseInt(shiftEndParts[0]) * 60 + parseInt(shiftEndParts[1] || '0');
         const diffFromEnd = Math.abs(punchMins - shiftEndMins);
@@ -8934,6 +9017,26 @@ export class AttendanceService {
             isAutoCorrectedWrongType = true;
             effectiveType = 'OUT';
             console.log(`   🔄 AUTO-CORRECTION: IN→OUT (bouton IN à ${diffFromEndWrapped} min de la fin shift ${shift.endTime}). En attente validation manager.`);
+          } else {
+            // Pas d'IN récent, mais vérifier s'il y a un OUT récent dans la tolérance double badgeage (double-appui OUT puis IN)
+            const recentOut = await this.prisma.attendance.findFirst({
+              where: {
+                tenantId,
+                employeeId: employee.id,
+                type: 'OUT',
+                timestamp: {
+                  gte: new Date(punchTime.getTime() - toleranceMs),
+                  lt: punchTime,
+                },
+              },
+              orderBy: { timestamp: 'desc' },
+            });
+            if (recentOut) {
+              isAutoCorrectedWrongType = true;
+              effectiveType = 'OUT';
+              const minutesSinceOut = (punchTime.getTime() - recentOut.timestamp.getTime()) / (60 * 1000);
+              console.log(`   🔄 AUTO-CORRECTION: IN→OUT (IN à ${minutesSinceOut.toFixed(1)} min après OUT, tolérance double badgeage: ${toleranceMinutes} min, près de la fin shift ${shift.endTime}).`);
+            }
           }
         }
       }

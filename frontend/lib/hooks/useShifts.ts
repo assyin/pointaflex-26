@@ -12,7 +12,7 @@ export function useShifts() {
     queryKey: ['shifts', user?.id], // Include user ID to prevent cache sharing
     queryFn: () => shiftsApi.getAll(),
     enabled: isAuthenticated(),
-    staleTime: 60000, // 1 minute
+    staleTime: 300000, // 5 minutes (PERF FIX: données de référence rarement modifiées)
     retry: (failureCount, error: any) => {
       // Ne pas retry si c'est une erreur 401
       if (error?.response?.status === 401) return false;

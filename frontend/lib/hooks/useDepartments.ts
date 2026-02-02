@@ -11,7 +11,7 @@ export function useDepartments() {
     queryKey: ['departments', user?.id], // Include user ID to prevent cache sharing
     queryFn: () => departmentsApi.getAll(),
     enabled: isAuthenticated(),
-    staleTime: 60000, // 1 minute
+    staleTime: 300000, // 5 minutes (PERF FIX: données de référence rarement modifiées)
     retry: (failureCount, error: any) => {
       if (error?.response?.status === 401) return false;
       return failureCount < 3;

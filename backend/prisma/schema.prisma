@@ -535,6 +535,7 @@ model Schedule {
   @@index([employeeId])
   @@index([status])
   @@index([suspendedByLeaveId])
+  @@index([tenantId, employeeId, date, status])
 }
 
 model ShiftReplacement {
@@ -704,6 +705,7 @@ model Attendance {
   @@index([isAmbiguous])
   @@index([tenantId, employeeId, timestamp])
   @@index([source])
+  @@index([tenantId, timestamp, hasAnomaly])
 }
 
 model AttendanceAttempt {

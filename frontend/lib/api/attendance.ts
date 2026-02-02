@@ -56,6 +56,9 @@ export interface AttendanceFilters {
   search?: string;
   page?: number;
   limit?: number;
+  departmentId?: string;
+  anomalyType?: string;
+  shiftId?: string;
 }
 
 export const attendanceApi = {

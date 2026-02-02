@@ -4,12 +4,13 @@ import { toast } from 'sonner';
 
 // Fetch attendance records with filters
 export function useAttendance(filters?: AttendanceFilters) {
-  return useQuery({
+  return useQuery<any>({
     queryKey: ['attendance', filters],
     queryFn: () => attendanceApi.getAll(filters),
-    staleTime: 60000, // 60 seconds
-    refetchInterval: 60000, // Auto-refresh every 60 seconds (optimisé pour réduire la charge serveur)
-    refetchIntervalInBackground: false, // Don't refresh when tab is not active
+    staleTime: 120000, // 2 minutes (PERF FIX: avant 60s)
+    refetchInterval: 120000, // Auto-refresh toutes les 2 minutes (PERF FIX: avant 60s)
+    refetchIntervalInBackground: false,
+    placeholderData: (prev: any) => prev, // Garder les anciennes données pendant le chargement (pagination fluide)
   });
 }
 

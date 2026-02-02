@@ -129,11 +129,7 @@ let AttendanceController = class AttendanceController {
         };
         return map[modeNum] || client_1.DeviceType.MANUAL;
     }
-    findAll(user, tenantId, employeeId, siteId, startDate, endDate, hasAnomaly, type, search, page, limit) {
-        console.log('🔵 [AttendanceController.findAll] REQUÊTE REÇUE');
-        console.log('🔵 [AttendanceController.findAll] tenantId:', tenantId);
-        console.log('🔵 [AttendanceController.findAll] user:', JSON.stringify(user));
-        console.log('🔵 [AttendanceController.findAll] startDate:', startDate, 'endDate:', endDate);
+    findAll(user, tenantId, employeeId, siteId, startDate, endDate, hasAnomaly, type, search, page, limit, departmentId, anomalyType, source, status, shiftId) {
         return this.attendanceService.findAll(tenantId, {
             employeeId,
             siteId,
@@ -144,6 +140,11 @@ let AttendanceController = class AttendanceController {
             search,
             page: page ? parseInt(page) : undefined,
             limit: limit ? parseInt(limit) : undefined,
+            departmentId,
+            anomalyType,
+            source,
+            status,
+            shiftId,
         }, user.userId, user.permissions || []);
     }
     getAnomalies(user, tenantId, startDate, endDate, employeeId, departmentId, siteId, anomalyType, isCorrected, page, limit, date) {
@@ -440,8 +441,13 @@ __decorate([
     __param(8, (0, common_1.Query)('search')),
     __param(9, (0, common_1.Query)('page')),
     __param(10, (0, common_1.Query)('limit')),
+    __param(11, (0, common_1.Query)('departmentId')),
+    __param(12, (0, common_1.Query)('anomalyType')),
+    __param(13, (0, common_1.Query)('source')),
+    __param(14, (0, common_1.Query)('status')),
+    __param(15, (0, common_1.Query)('shiftId')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String]),
+    __metadata("design:paramtypes", [Object, String, String, String, String, String, String, String, String, String, String, String, String, String, String, String]),
     __metadata("design:returntype", void 0)
 ], AttendanceController.prototype, "findAll", null);
 __decorate([

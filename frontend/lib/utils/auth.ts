@@ -14,9 +14,9 @@ export function isAuthenticated(): boolean {
     const now = Date.now();
     
     // Si le token est expiré, retourner false
+    // NOTE: Ne PAS supprimer le token ici — le mécanisme de refresh token
+    // dans client.ts s'en charge automatiquement via le response interceptor
     if (exp < now) {
-      // Nettoyer le token expiré
-      localStorage.removeItem('accessToken');
       return false;
     }
     

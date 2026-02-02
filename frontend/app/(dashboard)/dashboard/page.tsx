@@ -1270,9 +1270,9 @@ export default function DashboardPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-6">
-                {recentAttendance?.data && recentAttendance.data.length > 0 ? (
+                {(recentAttendance as any)?.data && (recentAttendance as any).data.length > 0 ? (
                   <div className="space-y-3">
-                    {recentAttendance.data.slice(0, 10).map((record: any) => (
+                    {(recentAttendance as any).data.slice(0, 10).map((record: any) => (
                       <div
                         key={record.id}
                         className="flex items-center justify-between p-4 hover:bg-gray-50 rounded-lg transition-colors border border-gray-100"
