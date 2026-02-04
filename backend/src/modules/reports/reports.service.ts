@@ -2081,7 +2081,7 @@ export class ReportsService {
       employeeWhere.teamId = dto.teamId;
     }
 
-    // Récupérer les employés concernés
+    // Récupérer les employés concernés (avec leur shift par défaut)
     const employees = await this.prisma.employee.findMany({
       where: employeeWhere,
       select: {
@@ -2089,6 +2089,14 @@ export class ReportsService {
         firstName: true,
         lastName: true,
         matricule: true,
+        currentShiftId: true,
+        currentShift: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+          },
+        },
         department: {
           select: {
             name: true,
@@ -2203,25 +2211,144 @@ export class ReportsService {
       }
     });
 
-    // Identifier les absences (jours sans entrée)
+    // Récupérer les plannings pour vérifier qui était censé travailler
+    const schedules = await this.prisma.schedule.findMany({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId ? dto.employeeId : { in: employeeIds },
+        date: {
+          gte: startDate,
+          lte: endDate,
+        },
+        status: { not: 'CANCELLED' },
+      },
+      select: {
+        employeeId: true,
+        date: true,
+      },
+    });
+
+    // Créer un map des plannings par employé et date
+    const schedulesMap = new Map<string, Set<string>>();
+    schedules.forEach(schedule => {
+      if (!schedulesMap.has(schedule.employeeId)) {
+        schedulesMap.set(schedule.employeeId, new Set());
+      }
+      schedulesMap.get(schedule.employeeId)!.add(formatDate(new Date(schedule.date)));
+    });
+
+    // Récupérer TOUS les pointages d'entrée (pas seulement ceux avec anomalies)
+    const allAttendances = await this.prisma.attendance.findMany({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId ? dto.employeeId : { in: employeeIds },
+        timestamp: {
+          gte: startDate,
+          lte: endDate,
+        },
+        type: 'IN', // Seulement les entrées
+      },
+      select: {
+        employeeId: true,
+        timestamp: true,
+      },
+    });
+
+    // Map des jours où l'employé a pointé (entrée)
+    const attendanceDaysMap = new Map<string, Set<string>>();
+    allAttendances.forEach(att => {
+      if (!attendanceDaysMap.has(att.employeeId)) {
+        attendanceDaysMap.set(att.employeeId, new Set());
+      }
+      attendanceDaysMap.get(att.employeeId)!.add(formatDate(new Date(att.timestamp)));
+    });
+
+    // Récupérer les congés approuvés
+    const leaves = await this.prisma.leave.findMany({
+      where: {
+        tenantId,
+        employeeId: dto.employeeId ? dto.employeeId : { in: employeeIds },
+        status: 'APPROVED',
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      select: {
+        employeeId: true,
+        startDate: true,
+        endDate: true,
+      },
+    });
+
+    // Map des jours de congé par employé
+    const leavesMap = new Map<string, Set<string>>();
+    leaves.forEach(leave => {
+      if (!leavesMap.has(leave.employeeId)) {
+        leavesMap.set(leave.employeeId, new Set());
+      }
+      const leaveStart = new Date(leave.startDate);
+      const leaveEnd = new Date(leave.endDate);
+      const currentDate = new Date(leaveStart);
+      while (currentDate <= leaveEnd) {
+        leavesMap.get(leave.employeeId)!.add(formatDate(currentDate));
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+    });
+
+    // Récupérer les jours ouvrables du tenant
+    const tenantSettings = await this.prisma.tenantSettings.findFirst({
+      where: { tenantId },
+      select: { workingDays: true },
+    });
+    const workingDays: number[] = Array.isArray(tenantSettings?.workingDays)
+      ? (tenantSettings.workingDays as number[])
+      : [1, 2, 3, 4, 5]; // Par défaut Lun-Ven
+
+    // Identifier les absences (employé planifié OU avec shift par défaut mais n'a pas pointé)
     employees.forEach(emp => {
-      allDays.forEach(day => {
-        const dateKey = formatDate(day);
-        const hasEntry = employeeAttendanceMap.get(emp.id)?.has(dateKey);
-        const isRecoveryDay = recoveryDaysMap.get(emp.id)?.has(dateKey);
-        
-        if (!hasEntry && !isRecoveryDay) {
-          // Vérifier si c'est un jour ouvrable (simplifié - à améliorer)
-          const dayOfWeek = day.getDay();
-          if (dayOfWeek !== 0 && dayOfWeek !== 6) { // Pas dimanche ni samedi
+      const empSchedules = schedulesMap.get(emp.id);
+
+      // CAS 1: Employé avec planning personnalisé (Schedule)
+      if (empSchedules && empSchedules.size > 0) {
+        empSchedules.forEach(dateKey => {
+          const hasEntry = attendanceDaysMap.get(emp.id)?.has(dateKey);
+          const isRecoveryDay = recoveryDaysMap.get(emp.id)?.has(dateKey);
+          const isOnLeave = leavesMap.get(emp.id)?.has(dateKey);
+
+          if (!hasEntry && !isRecoveryDay && !isOnLeave) {
             absences.push({
               employee: emp,
               date: dateKey,
               type: 'ABSENCE',
+              shiftName: 'Planning personnalisé',
             });
           }
-        }
-      });
+        });
+      }
+      // CAS 2: Employé avec shift par défaut (sans planning personnalisé)
+      else if (emp.currentShiftId) {
+        allDays.forEach(day => {
+          const dateKey = formatDate(day);
+          const dayOfWeek = day.getDay();
+          const normalizedDay = dayOfWeek === 0 ? 7 : dayOfWeek; // Dimanche = 7
+
+          // Vérifier si c'est un jour ouvrable
+          if (!workingDays.includes(normalizedDay)) return;
+
+          const hasEntry = attendanceDaysMap.get(emp.id)?.has(dateKey);
+          const isRecoveryDay = recoveryDaysMap.get(emp.id)?.has(dateKey);
+          const isOnLeave = leavesMap.get(emp.id)?.has(dateKey);
+
+          if (!hasEntry && !isRecoveryDay && !isOnLeave) {
+            absences.push({
+              employee: emp,
+              date: dateKey,
+              type: 'ABSENCE',
+              shiftName: emp.currentShift?.name || 'Shift par défaut',
+            });
+          }
+        });
+      }
+      // CAS 3: Employé sans planning et sans shift par défaut = pas d'absence comptée
     });
 
     // Statistiques

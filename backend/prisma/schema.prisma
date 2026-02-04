@@ -306,6 +306,9 @@ model Employee {
   maxOvertimeHoursPerMonth  Decimal?
   maxOvertimeHoursPerWeek   Decimal?
   overtimeEligibilityNotes  String?
+  // Gestion des congés
+  leaveQuota                Int?                       // Quota annuel personnalisé (null = utiliser tenant default)
+  leaveBalanceYear          Int?                       // Année de référence du solde
   userId                    String?                    @unique
   attendance                Attendance[]
   attendanceAttempts        AttendanceAttempt[]

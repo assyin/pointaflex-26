@@ -16,13 +16,23 @@ export class LeavesService {
 
   /**
    * Calcule le nombre de jours ouvrables entre deux dates
-   * Exclut les jours non-ouvrables (selon TenantSettings.workingDays) et les jours fériés
+   *
+   * LOGIQUE :
+   * 1. Si employeeId fourni ET l'employé a des plannings personnalisés (Schedule) :
+   *    → Compter UNIQUEMENT les jours avec Schedule PUBLISHED
+   *    → NE PAS exclure les jours fériés ni les weekends (le planning prime)
+   *
+   * 2. Sinon (pas de planning personnalisé) :
+   *    → Utiliser TenantSettings.workingDays
+   *    → Exclure les jours fériés et weekends
+   *
    * Option: leaveIncludeSaturday permet d'inclure le samedi même s'il n'est pas jour ouvrable
    */
   async calculateWorkingDays(
     tenantId: string,
     startDate: Date,
     endDate: Date,
+    employeeId?: string, // NOUVEAU: Paramètre optionnel pour vérifier le planning personnalisé
   ): Promise<{
     workingDays: number;
     excludedWeekends: number;
@@ -30,7 +40,68 @@ export class LeavesService {
     totalCalendarDays: number;
     includeSaturday: boolean;
     details: Array<{ date: string; isWorking: boolean; reason?: string }>;
+    isPersonalizedSchedule?: boolean; // NOUVEAU: Flag indiquant si le calcul est basé sur un planning personnalisé
   }> {
+    // ============================================
+    // CAS 1 : Vérifier si l'employé a un planning personnalisé
+    // ============================================
+    if (employeeId) {
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          tenantId,
+          employeeId,
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
+          status: 'PUBLISHED',
+        },
+        select: {
+          date: true,
+          shift: {
+            select: { name: true },
+          },
+        },
+        orderBy: { date: 'asc' },
+      });
+
+      if (schedules.length > 0) {
+        // L'employé a un planning personnalisé
+        // → Compter UNIQUEMENT les jours planifiés
+        // → NE PAS exclure les jours fériés ni weekends
+        const details = schedules.map((s) => ({
+          date: s.date.toISOString().split('T')[0],
+          isWorking: true,
+          reason: `Planning: ${s.shift?.name || 'Shift personnalisé'}`,
+        }));
+
+        // Calculer les jours calendaires totaux
+        const totalDays = Math.ceil(
+          (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
+        ) + 1;
+
+        console.log(`[calculateWorkingDays] Mode: Planning personnalisé pour employé ${employeeId}`);
+        console.log(`[calculateWorkingDays] Période: ${startDate.toISOString().split('T')[0]} - ${endDate.toISOString().split('T')[0]}`);
+        console.log(`[calculateWorkingDays] Jours planifiés trouvés: ${schedules.length}`);
+        console.log(`[calculateWorkingDays] Jours fériés/weekends NON exclus (planning prime)`);
+
+        return {
+          workingDays: schedules.length,
+          excludedWeekends: 0, // Pas d'exclusion pour planning personnalisé
+          excludedHolidays: 0, // Pas d'exclusion pour planning personnalisé
+          totalCalendarDays: totalDays,
+          includeSaturday: false,
+          details,
+          isPersonalizedSchedule: true,
+        };
+      }
+    }
+
+    // ============================================
+    // CAS 2 : Calcul standard (pas de planning personnalisé)
+    // ============================================
+    console.log(`[calculateWorkingDays] Mode: Standard (pas de planning personnalisé)`);
+
     // Get tenant settings for working days configuration
     const tenantSettings = await this.prisma.tenantSettings.findUnique({
       where: { tenantId },
@@ -107,6 +178,9 @@ export class LeavesService {
 
     const totalCalendarDays = details.length;
 
+    console.log(`[calculateWorkingDays] Jours ouvrables calculés: ${workingDays}`);
+    console.log(`[calculateWorkingDays] Weekends exclus: ${excludedWeekends}, Fériés exclus: ${excludedHolidays}`);
+
     return {
       workingDays,
       excludedWeekends,
@@ -114,6 +188,7 @@ export class LeavesService {
       totalCalendarDays,
       includeSaturday: leaveIncludeSaturday,
       details,
+      isPersonalizedSchedule: false,
     };
   }
 
@@ -276,7 +351,8 @@ export class LeavesService {
     }
 
     // Calculate working days (excluding weekends and holidays)
-    const daysCalculation = await this.calculateWorkingDays(tenantId, startDate, endDate);
+    // NOUVEAU: Passer employeeId pour vérifier le planning personnalisé
+    const daysCalculation = await this.calculateWorkingDays(tenantId, startDate, endDate, dto.employeeId);
     let days = dto.days;
     if (!days) {
       // Use calculated working days instead of calendar days
@@ -291,6 +367,7 @@ export class LeavesService {
       excludedWeekends: daysCalculation.excludedWeekends,
       excludedHolidays: daysCalculation.excludedHolidays,
       includeSaturday: daysCalculation.includeSaturday,
+      isPersonalizedSchedule: daysCalculation.isPersonalizedSchedule, // NOUVEAU
     });
 
     // Check for overlapping leaves

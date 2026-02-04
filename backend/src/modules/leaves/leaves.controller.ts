@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { Response } from 'express';
 import { LeavesService } from './leaves.service';
+import { LeaveBalanceService } from './services/leave-balance.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { UpdateLeaveDto } from './dto/update-leave.dto';
 import { ApproveLeaveDto } from './dto/approve-leave.dto';
@@ -31,7 +32,10 @@ import { LegacyRole, LeaveStatus } from '@prisma/client';
 @ApiBearerAuth()
 @UseGuards(RolesGuard)
 export class LeavesController {
-  constructor(private leavesService: LeavesService) {}
+  constructor(
+    private leavesService: LeavesService,
+    private leaveBalanceService: LeaveBalanceService,
+  ) {}
 
   @Post()
   @RequirePermissions('leave.create')
@@ -76,11 +80,12 @@ export class LeavesController {
   }
 
   @Get('calculate-working-days')
-  @ApiOperation({ summary: 'Calculate working days between two dates' })
+  @ApiOperation({ summary: 'Calculate working days between two dates (with optional employee schedule check)' })
   calculateWorkingDays(
     @CurrentUser() user: any,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
+    @Query('employeeId') employeeId?: string, // NOUVEAU: Pour vérifier le planning personnalisé
   ) {
     if (!startDate || !endDate) {
       return { workingDays: 0, error: 'startDate and endDate are required' };
@@ -89,6 +94,85 @@ export class LeavesController {
       user.tenantId,
       new Date(startDate),
       new Date(endDate),
+      employeeId, // NOUVEAU: Passer l'employeeId pour le calcul personnalisé
+    );
+  }
+
+  // ============================================
+  // ENDPOINTS SOLDE DE CONGÉS
+  // ============================================
+
+  @Get('balance/all')
+  @RequirePermissions('leave.view_all')
+  @ApiOperation({ summary: 'Get leave balances for all employees (for report)' })
+  async getAllBalances(
+    @CurrentUser() user: any,
+    @Query('year') year?: string,
+    @Query('siteId') siteId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('teamId') teamId?: string,
+  ) {
+    console.log('[LeaveBalance] getAllBalances called with:', {
+      tenantId: user.tenantId,
+      year: year ? parseInt(year) : 'current',
+      filters: { siteId, departmentId, teamId },
+    });
+    try {
+      const result = await this.leaveBalanceService.getAllBalances(
+        user.tenantId,
+        year ? parseInt(year) : undefined,
+        { siteId, departmentId, teamId },
+      );
+      console.log('[LeaveBalance] Returning', result.length, 'employees');
+      return result;
+    } catch (error) {
+      console.error('[LeaveBalance] Error:', error);
+      throw error;
+    }
+  }
+
+  @Get('balance/:employeeId')
+  @RequirePermissions('leave.view_all', 'leave.view_own')
+  @ApiOperation({ summary: 'Get leave balance for a specific employee' })
+  getEmployeeBalance(
+    @CurrentUser() user: any,
+    @Param('employeeId') employeeId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.leaveBalanceService.calculateBalance(
+      user.tenantId,
+      employeeId,
+      year ? parseInt(year) : undefined,
+    );
+  }
+
+  @Get('balance/:employeeId/quick')
+  @RequirePermissions('leave.view_all', 'leave.view_own', 'leave.create')
+  @ApiOperation({ summary: 'Get quick leave balance summary (for modal display)' })
+  getQuickBalance(
+    @CurrentUser() user: any,
+    @Param('employeeId') employeeId: string,
+    @Query('year') year?: string,
+  ) {
+    return this.leaveBalanceService.getQuickBalance(
+      user.tenantId,
+      employeeId,
+      year ? parseInt(year) : undefined,
+    );
+  }
+
+  @Patch('balance/:employeeId/quota')
+  @RequirePermissions('leave.update', 'employee.update')
+  @ApiOperation({ summary: 'Update employee leave quota' })
+  updateEmployeeQuota(
+    @CurrentUser() user: any,
+    @Param('employeeId') employeeId: string,
+    @Body() body: { quota: number | null },
+  ) {
+    return this.leaveBalanceService.updateEmployeeQuota(
+      user.tenantId,
+      employeeId,
+      body.quota,
     );
   }
 

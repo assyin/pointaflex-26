@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, ReactNode } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAuthenticated } from '@/lib/utils/auth';
+import { isTokenRefreshing } from '@/lib/api/client';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -37,15 +38,16 @@ export function ProtectedRoute({
   redirectTo = '/403',
 }: ProtectedRouteProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { hasPermission, hasAnyPermission, hasAllPermissions, isLoading } = useAuth();
 
   useEffect(() => {
     // Attendre que le contexte soit chargé
     if (isLoading) return;
 
-    // Vérifier l'authentification
-    if (!isAuthenticated()) {
-      router.push('/login');
+    // Vérifier l'authentification — ne pas rediriger si un refresh token est en cours
+    if (!isAuthenticated() && !isTokenRefreshing()) {
+      router.push(`/login?redirect=${encodeURIComponent(pathname || '/')}`);
       return;
     }
 

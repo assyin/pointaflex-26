@@ -170,8 +170,35 @@ export class DetectOvertimeJob {
           continue;
         }
 
+        // FIX 03/02/2026: Trouver le IN correspondant pour utiliser sa date comme date de travail
+        // Pour les shifts de nuit, le OUT peut être le lendemain du IN
+        const outTimestamp = new Date(attendance.timestamp);
+        const searchStart = new Date(outTimestamp);
+        searchStart.setHours(searchStart.getHours() - 24); // Chercher jusqu'à 24h avant
+
+        const matchingIn = await this.prisma.attendance.findFirst({
+          where: {
+            tenantId,
+            employeeId: attendance.employeeId,
+            type: AttendanceType.IN,
+            timestamp: {
+              gte: searchStart,
+              lt: outTimestamp,
+            },
+            NOT: {
+              anomalyType: { in: ['DEBOUNCE_BLOCKED', 'ABSENCE'] },
+            },
+          },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        // Utiliser la date du IN si trouvé, sinon la date du OUT
+        const workDate = matchingIn
+          ? new Date(matchingIn.timestamp.toISOString().split('T')[0])
+          : new Date(outTimestamp.toISOString().split('T')[0]);
+
         // Vérifier si l'employé est en congé ou en récupération
-        const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+        const attendanceDate = workDate;
         const leaveCheck = await this.isEmployeeOnLeaveOrRecovery(
           tenantId,
           attendance.employeeId,
@@ -191,7 +218,7 @@ export class DetectOvertimeJob {
           where: {
             tenantId,
             employeeId: attendance.employeeId,
-            date: new Date(attendance.timestamp.toISOString().split('T')[0]),
+            date: workDate,
           },
         });
 
@@ -202,8 +229,9 @@ export class DetectOvertimeJob {
         }
 
         // ⚠️ FILET DE SÉCURITÉ: Overtime manquant détecté
+        const workDateStr = workDate.toISOString().split('T')[0];
         this.logger.warn(
-          `⚠️ [CONSOLIDATION] Overtime manquant détecté pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${attendance.timestamp.toISOString().split('T')[0]} - Création...`,
+          `⚠️ [CONSOLIDATION] Overtime manquant détecté pour ${attendance.employee.firstName} ${attendance.employee.lastName} le ${workDateStr} - Création...`,
         );
 
         // Convertir overtimeMinutes en heures
@@ -219,7 +247,7 @@ export class DetectOvertimeJob {
             tenantId,
             attendance.employeeId,
             overtimeHours,
-            new Date(attendance.timestamp.toISOString().split('T')[0]),
+            workDate,
           );
 
           if (limitsCheck.exceedsLimit) {
@@ -241,13 +269,12 @@ export class DetectOvertimeJob {
 
         // Détecter le type d'overtime si l'option est activée
         let overtimeType: 'STANDARD' | 'NIGHT' | 'HOLIDAY' | 'EMERGENCY' = 'STANDARD';
-        const dateStr = attendance.timestamp.toISOString().split('T')[0];
 
         if (autoDetectType) {
-          // Vérifier si c'est un jour férié
-          if (holidays.has(dateStr)) {
+          // Vérifier si c'est un jour férié (utiliser workDateStr)
+          if (holidays.has(workDateStr)) {
             overtimeType = 'HOLIDAY';
-            this.logger.debug(`Type HOLIDAY détecté pour ${dateStr} (jour férié)`);
+            this.logger.debug(`Type HOLIDAY détecté pour ${workDateStr} (jour férié)`);
           }
           // Vérifier si c'est un shift de nuit
           else if (this.isNightShiftTime(attendance.timestamp, settings)) {
@@ -269,7 +296,7 @@ export class DetectOvertimeJob {
           data: {
             tenantId,
             employeeId: attendance.employeeId,
-            date: new Date(dateStr),
+            date: workDate,
             hours: hoursToCreate,
             approvedHours: shouldAutoApprove ? hoursToCreate : null,
             type: overtimeType,

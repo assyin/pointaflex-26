@@ -1,11 +1,66 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface RouteGuardProps {
   children: React.ReactNode;
+}
+
+function LoadingScreen() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="text-center">
+        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4"></div>
+        <p className="text-text-secondary">Vérification de l'authentification...</p>
+      </div>
+    </div>
+  );
+}
+
+function RouteGuardInner({ children }: RouteGuardProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const { user, isLoading } = useAuth();
+  const [isAuthorized, setIsAuthorized] = useState(false);
+
+  useEffect(() => {
+    const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
+    const isPublicRoute = publicRoutes.some(route => pathname?.startsWith(route));
+
+    if (isLoading) {
+      setIsAuthorized(false);
+      return;
+    }
+
+    if (user && pathname === '/login') {
+      const redirect = searchParams?.get('redirect');
+      router.push(redirect && redirect !== '/login' ? redirect : '/dashboard');
+      setIsAuthorized(false);
+      return;
+    }
+
+    if (isPublicRoute) {
+      setIsAuthorized(true);
+      return;
+    }
+
+    if (user) {
+      setIsAuthorized(true);
+      return;
+    }
+
+    router.push(`/login?redirect=${encodeURIComponent(pathname || '/')}`);
+    setIsAuthorized(false);
+  }, [user, isLoading, pathname, router, searchParams]);
+
+  if (isLoading || !isAuthorized) {
+    return <LoadingScreen />;
+  }
+
+  return <>{children}</>;
 }
 
 /**
@@ -13,63 +68,9 @@ interface RouteGuardProps {
  * Vérifie l'authentification et redirige vers /login si nécessaire
  */
 export function RouteGuard({ children }: RouteGuardProps) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const { user, isLoading } = useAuth();
-  const [isAuthorized, setIsAuthorized] = useState(false);
-
-  useEffect(() => {
-    // Routes publiques qui ne nécessitent pas d'authentification
-    const publicRoutes = ['/login', '/register', '/forgot-password', '/reset-password'];
-    const isPublicRoute = publicRoutes.some(route => pathname?.startsWith(route));
-
-    // Attendre que le loading soit terminé
-    if (isLoading) {
-      setIsAuthorized(false);
-      return;
-    }
-
-    // Si utilisateur connecté essaie d'accéder à /login, rediriger vers dashboard
-    if (user && pathname === '/login') {
-      router.push('/dashboard');
-      setIsAuthorized(false);
-      return;
-    }
-
-    // Si utilisateur connecté essaie d'accéder à d'autres routes publiques, autoriser
-    if (user && isPublicRoute) {
-      setIsAuthorized(true);
-      return;
-    }
-
-    // Si pas d'utilisateur et sur une route publique, autoriser l'accès
-    if (!user && isPublicRoute) {
-      setIsAuthorized(true);
-      return;
-    }
-
-    // Si pas d'utilisateur et pas sur une route publique, rediriger vers login
-    if (!user && !isPublicRoute) {
-      router.push(`/login?redirect=${pathname}`);
-      setIsAuthorized(false);
-      return;
-    }
-
-    // Utilisateur authentifié sur route protégée, autoriser l'accès
-    setIsAuthorized(true);
-  }, [user, isLoading, pathname, router]);
-
-  // Afficher un loader pendant la vérification
-  if (isLoading || !isAuthorized) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent mb-4"></div>
-          <p className="text-text-secondary">Vérification de l'authentification...</p>
-        </div>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <RouteGuardInner>{children}</RouteGuardInner>
+    </Suspense>
+  );
 }

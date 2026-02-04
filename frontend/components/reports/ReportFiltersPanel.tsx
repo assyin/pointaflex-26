@@ -134,7 +134,21 @@ export function ReportFiltersPanel({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = format(yesterday, 'yyyy-MM-dd');
+            onStartDateChange(yesterdayStr);
+            onEndDateChange(yesterdayStr);
+          }}
+        >
+          <Calendar className="h-4 w-4 mr-2" />
+          Hier
+        </Button>
         <Button
           variant="outline"
           size="sm"

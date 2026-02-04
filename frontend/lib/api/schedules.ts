@@ -112,6 +112,71 @@ export interface RotationGenerateResponse {
   }>;
 }
 
+// Extend Schedule Types
+export type ExtendMode = 'all' | 'department' | 'employees' | 'employee';
+
+export interface ExtendScheduleDto {
+  mode: ExtendMode;
+  departmentId?: string;
+  employeeIds?: string[];
+  employeeId?: string;
+  fromDate: string;
+  toDate: string;
+  respectLeaves?: boolean;
+  respectRecoveryDays?: boolean;
+  overwriteExisting?: boolean;
+}
+
+export interface ExtendPreviewEmployee {
+  employeeId: string;
+  matricule: string;
+  employeeName: string;
+  detectedPattern: {
+    workDays: number;
+    restDays: number;
+    shiftName: string;
+    phase: number;
+    lastScheduleDate: string;
+  };
+  scheduleDates: string[];
+  excludedDates: Array<{ date: string; reason: string }>;
+}
+
+export interface ExtendPreviewResponse {
+  summary: {
+    totalRotationEmployees: number;
+    groups: Array<{ phase: number; count: number }>;
+    withLeaveExclusions: number;
+    totalSchedulesToCreate: number;
+  };
+  employees: ExtendPreviewEmployee[];
+}
+
+export interface ExtendGenerateResponse {
+  success: number;
+  skipped: number;
+  failed: number;
+  message?: string;
+  details: Array<{
+    employeeId: string;
+    matricule: string;
+    employeeName: string;
+    created: number;
+    skipped: number;
+    errors: string[];
+  }>;
+}
+
+export interface DetectedPattern {
+  workDays: number;
+  restDays: number;
+  shiftId: string;
+  shiftName: string;
+  phase: number;
+  lastScheduleDate: string;
+  confidence: number;
+}
+
 export const schedulesApi = {
   getAll: async (filters?: ScheduleFilters) => {
     const response = await apiClient.get('/schedules', { params: filters });
@@ -290,5 +355,21 @@ export const schedulesApi = {
   }) => {
     const response = await apiClient.post('/schedules/rotation/generate', data);
     return response.data;
+  },
+
+  // Extend/Prolong Schedule endpoints
+  previewExtendSchedules: async (data: ExtendScheduleDto) => {
+    const response = await apiClient.post('/schedules/extend/preview', data);
+    return response.data as ExtendPreviewResponse;
+  },
+
+  extendSchedules: async (data: ExtendScheduleDto) => {
+    const response = await apiClient.post('/schedules/extend', data);
+    return response.data as ExtendGenerateResponse;
+  },
+
+  detectEmployeePattern: async (employeeId: string) => {
+    const response = await apiClient.get(`/schedules/extend/detect-pattern/${employeeId}`);
+    return response.data as { detected: boolean; pattern: DetectedPattern | null };
   },
 };

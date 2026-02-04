@@ -1035,28 +1035,34 @@ export default function AttendancePage() {
                         </td>
                         <td className="p-4">
                           <div className="space-y-1">
-                            {record.hoursWorked && (
-                              <div className="text-xs text-text-secondary">
-                                <span className="font-medium">Heures:</span> {formatHoursToHM(toNumber(record.hoursWorked))}
-                              </div>
-                            )}
-                            {record.lateMinutes && record.lateMinutes > 0 && (
-                              <div className="text-xs text-danger">
-                                <span className="font-medium">Retard:</span> {formatMinutesToHM(record.lateMinutes)}
-                              </div>
-                            )}
-                            {record.earlyLeaveMinutes && record.earlyLeaveMinutes > 0 && (
-                              <div className="text-xs text-warning">
-                                <span className="font-medium">Départ anticipé:</span> {formatMinutesToHM(record.earlyLeaveMinutes)}
-                              </div>
-                            )}
-                            {record.overtimeMinutes && record.overtimeMinutes > 0 && (
-                              <div className="text-xs text-success">
-                                <span className="font-medium">Heures sup:</span> {formatMinutesToHM(record.overtimeMinutes)}
-                              </div>
-                            )}
-                            {!record.hoursWorked && !record.lateMinutes && !record.earlyLeaveMinutes && !record.overtimeMinutes && (
+                            {['DOUBLE_IN', 'DOUBLE_OUT', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) ? (
                               <span className="text-xs text-text-secondary">—</span>
+                            ) : (
+                              <>
+                                {record.hoursWorked && (
+                                  <div className="text-xs text-text-secondary">
+                                    <span className="font-medium">Heures:</span> {formatHoursToHM(toNumber(record.hoursWorked))}
+                                  </div>
+                                )}
+                                {record.lateMinutes && record.lateMinutes > 0 && (
+                                  <div className="text-xs text-danger">
+                                    <span className="font-medium">Retard:</span> {formatMinutesToHM(record.lateMinutes)}
+                                  </div>
+                                )}
+                                {record.earlyLeaveMinutes && record.earlyLeaveMinutes > 0 && (
+                                  <div className="text-xs text-warning">
+                                    <span className="font-medium">Départ anticipé:</span> {formatMinutesToHM(record.earlyLeaveMinutes)}
+                                  </div>
+                                )}
+                                {record.overtimeMinutes && record.overtimeMinutes > 0 && (
+                                  <div className="text-xs text-success">
+                                    <span className="font-medium">Heures sup:</span> {formatMinutesToHM(record.overtimeMinutes)}
+                                  </div>
+                                )}
+                                {!record.hoursWorked && !record.lateMinutes && !record.earlyLeaveMinutes && !record.overtimeMinutes && (
+                                  <span className="text-xs text-text-secondary">—</span>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>
@@ -1094,7 +1100,7 @@ export default function AttendancePage() {
                               </>
                             ) : record.hasAnomaly || ['WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) ? (
                               <>
-                                {['JOUR_FERIE_TRAVAILLE', 'HOLIDAY_WORKED', 'WEEKEND_WORK', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED'].includes(record.anomalyType) ? (
+                                {['JOUR_FERIE_TRAVAILLE', 'HOLIDAY_WORKED', 'WEEKEND_WORK', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'AUTO_CORRECTED_WRONG_TYPE'].includes(record.anomalyType) ? (
                                   <Badge variant="info" className="flex items-center gap-1 w-fit">
                                     <AlertCircle className="h-3 w-3" />
                                     {['WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) ? 'Alerte' : 'Info'}
@@ -1149,7 +1155,7 @@ export default function AttendancePage() {
                           <div className="flex gap-2">
                             {/* Lien vers page anomalies : si anomalie non corrigée (sauf info) */}
                             {record.hasAnomaly &&
-                             !['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'WEEKEND_WORK', 'HOLIDAY_WORKED'].includes(record.anomalyType) &&
+                             !['JOUR_FERIE_TRAVAILLE', 'DOUBLE_OUT', 'DOUBLE_IN', 'DEBOUNCE_BLOCKED', 'WEEKEND_WORK', 'HOLIDAY_WORKED', 'AUTO_CORRECTED_WRONG_TYPE'].includes(record.anomalyType) &&
                              !record.isCorrected && (
                               <PermissionGate permissions={['attendance.correct', 'attendance.view_anomalies']}>
                                 <Link href="/attendance/anomalies">

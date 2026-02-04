@@ -138,8 +138,38 @@ export class AttendanceService {
         return;
       }
 
-      // 3. Vérifier si l'employé est en congé ou récupération
-      const attendanceDate = new Date(attendance.timestamp.toISOString().split('T')[0]);
+      // 3. FIX 03/02/2026: Trouver le IN correspondant pour utiliser sa date comme date de travail
+      // Pour les shifts de nuit, le OUT peut être le lendemain du IN
+      const outTimestamp = new Date(attendance.timestamp);
+      const searchStart = new Date(outTimestamp);
+      searchStart.setHours(searchStart.getHours() - 24); // Chercher jusqu'à 24h avant
+
+      const matchingIn = await this.prisma.attendance.findFirst({
+        where: {
+          tenantId,
+          employeeId: attendance.employeeId,
+          type: AttendanceType.IN,
+          timestamp: {
+            gte: searchStart,
+            lt: outTimestamp,
+          },
+          // Exclure les pointages bloqués ou générés
+          NOT: {
+            anomalyType: { in: ['DEBOUNCE_BLOCKED', 'ABSENCE'] },
+          },
+        },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      // Utiliser la date du IN si trouvé, sinon la date du OUT
+      const workDate = matchingIn
+        ? new Date(matchingIn.timestamp.toISOString().split('T')[0])
+        : new Date(outTimestamp.toISOString().split('T')[0]);
+
+      console.log(`[AutoOvertime] Date de travail déterminée: ${workDate.toISOString().split('T')[0]} (IN: ${matchingIn ? matchingIn.timestamp.toISOString() : 'non trouvé'}, OUT: ${outTimestamp.toISOString()})`);
+
+      // 4. Vérifier si l'employé est en congé ou récupération
+      const attendanceDate = workDate;
       const approvedLeaveStatuses = [LeaveStatus.APPROVED, LeaveStatus.MANAGER_APPROVED, LeaveStatus.HR_APPROVED];
 
       const leave = await this.prisma.leave.findFirst({
@@ -715,22 +745,98 @@ export class AttendanceService {
     const ambiguousWindowHours = settings?.ambiguousPunchWindowHours ?? 3;
     const enableAmbiguousDetection = settings?.enableAmbiguousPunchDetection !== false;
 
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // PRIORITÉ 1: ALTERNATION - Basé sur le dernier pointage valide
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // FIX 17/01/2026: Fenêtre de recherche étendue à 48h et prévention DOUBLE_IN
+    // Récupérer la marge pour la détection SHIFT_BASED (en minutes)
+    const shiftMarginSettings = await this.prisma.tenantSettings.findUnique({
+      where: { tenantId },
+      select: { wrongTypeShiftMarginMinutes: true },
+    });
+    const SHIFT_MARGIN_MINUTES = shiftMarginSettings?.wrongTypeShiftMarginMinutes ?? 600; // 10h par défaut
 
     // Définir la fenêtre de recherche (48h pour couvrir tous les cas de shifts de nuit)
     const searchWindowStart = new Date(punchTime);
     searchWindowStart.setUTCHours(searchWindowStart.getUTCHours() - 48);
-
     const searchWindowEnd = punchTime;
 
-    // DEBUG 18/01/2026: Log la fenêtre de recherche
-    console.log(`🔍 [determinePunchType] Recherche lastPunch pour ${employee.matricule}:`);
-    console.log(`   - punchTime: ${punchTime.toISOString()}`);
-    console.log(`   - window: ${searchWindowStart.toISOString()} → ${searchWindowEnd.toISOString()}`);
-    console.log(`   - employeeId: ${employee.id}`);
+    // DEBUG: Log la recherche
+    console.log(`🔍 [determinePunchType] Analyse pour ${employee.matricule}:`);
+    console.log(`   - punchTime: ${punchTime.toISOString()} (${punchHour}h${punchTime.getMinutes().toString().padStart(2, '0')})`);
+    console.log(`   - shift: ${shift ? `${shift.name} (${shift.startTime}-${shift.endTime})` : 'AUCUN'}`);
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PRIORITÉ 1: SHIFT_BASED - Basé sur l'horaire du shift (NOUVEAU - 03/02/2026)
+    // Plus fiable car indépendant des erreurs passées
+    // ═══════════════════════════════════════════════════════════════════════════════
+
+    if (shift) {
+      const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
+      const shiftStartMin = parseInt(shift.startTime.split(':')[1] || '0');
+      const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
+      const shiftEndMin = parseInt(shift.endTime.split(':')[1] || '0');
+      const punchMinutes = punchHour * 60 + punchTime.getMinutes();
+      const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
+      const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
+
+      // Calculer les distances avec gestion du passage à minuit
+      let distanceToStart = Math.abs(punchMinutes - shiftStartMinutes);
+      let distanceToEnd = Math.abs(punchMinutes - shiftEndMinutes);
+
+      // Gérer le wrap-around minuit
+      if (distanceToStart > 720) distanceToStart = 1440 - distanceToStart;
+      if (distanceToEnd > 720) distanceToEnd = 1440 - distanceToEnd;
+
+      // Pour les shifts de nuit, ajuster les calculs
+      if (shift.isNightShift) {
+        // Shift de nuit ex: 17:00-02:00
+        // Normaliser le punch et la fin pour comparaison
+        const normalizedPunch = punchMinutes < shiftStartMinutes ? punchMinutes + 1440 : punchMinutes;
+        const normalizedEnd = shiftEndMinutes < shiftStartMinutes ? shiftEndMinutes + 1440 : shiftEndMinutes;
+        distanceToStart = Math.abs(normalizedPunch - shiftStartMinutes);
+        if (distanceToStart > 720) distanceToStart = 1440 - distanceToStart;
+        distanceToEnd = Math.abs(normalizedPunch - normalizedEnd);
+        if (distanceToEnd > 720) distanceToEnd = 1440 - distanceToEnd;
+      }
+
+      console.log(`   📊 [SHIFT_BASED] distanceToStart: ${distanceToStart}min, distanceToEnd: ${distanceToEnd}min, margin: ${SHIFT_MARGIN_MINUTES}min`);
+
+      // Déterminer le type attendu basé sur la proximité
+      const isNearStart = distanceToStart <= SHIFT_MARGIN_MINUTES;
+      const isNearEnd = distanceToEnd <= SHIFT_MARGIN_MINUTES;
+
+      // CAS 1: Clairement proche du DÉBUT → IN
+      if (isNearStart && (!isNearEnd || distanceToStart < distanceToEnd)) {
+        // Calculer la confiance (plus proche = plus confiant)
+        const confidence = distanceToStart <= 120 ? 'HIGH' : (distanceToStart <= 300 ? 'MEDIUM' : 'LOW');
+        console.log(`   ✅ [SHIFT_BASED] Proche début shift → IN (confiance: ${confidence})`);
+        return {
+          type: 'IN',
+          method: 'SHIFT_BASED',
+          confidence,
+          reason: `Proche début shift ${shift.startTime} (distance: ${distanceToStart}min) → IN`,
+          debug: { shift, punchMinutes, shiftStartMinutes, distanceToStart, distanceToEnd },
+        };
+      }
+
+      // CAS 2: Clairement proche de la FIN → OUT
+      if (isNearEnd && (!isNearStart || distanceToEnd < distanceToStart)) {
+        const confidence = distanceToEnd <= 120 ? 'HIGH' : (distanceToEnd <= 300 ? 'MEDIUM' : 'LOW');
+        console.log(`   ✅ [SHIFT_BASED] Proche fin shift → OUT (confiance: ${confidence})`);
+        return {
+          type: 'OUT',
+          method: 'SHIFT_BASED',
+          confidence,
+          reason: `Proche fin shift ${shift.endTime} (distance: ${distanceToEnd}min) → OUT`,
+          debug: { shift, punchMinutes, shiftEndMinutes, distanceToStart, distanceToEnd },
+        };
+      }
+
+      // CAS 3: Ni proche du début ni de la fin → utiliser ALTERNATION comme fallback
+      console.log(`   ⚠️ [SHIFT_BASED] Hors marges, fallback vers ALTERNATION`);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════════
+    // PRIORITÉ 2: ALTERNATION - Basé sur le dernier pointage valide (FALLBACK)
+    // Utilisé quand pas de shift ou pointage hors marges du shift
+    // ═══════════════════════════════════════════════════════════════════════════════
 
     // Chercher le dernier pointage valide (exclure DEBOUNCE_BLOCKED)
     const lastPunch = await this.prisma.attendance.findFirst({
@@ -739,7 +845,7 @@ export class AttendanceService {
         employeeId: employee.id,
         timestamp: {
           gte: searchWindowStart,
-          lt: searchWindowEnd, // Strictement avant le pointage actuel
+          lt: searchWindowEnd,
         },
         OR: [
           { anomalyType: null },
@@ -754,85 +860,21 @@ export class AttendanceService {
       },
     });
 
-    // DEBUG 18/01/2026: Log le résultat de la recherche
-    console.log(`   - lastPunch trouvé: ${lastPunch ? `${lastPunch.type} à ${lastPunch.timestamp}` : 'AUCUN'}`);
+    console.log(`   🔄 [ALTERNATION] lastPunch: ${lastPunch ? `${lastPunch.type} à ${lastPunch.timestamp}` : 'AUCUN'}`);
 
     if (lastPunch) {
-      // ALTERNATION: Si le dernier est IN → celui-ci est OUT, et vice versa
-      const newType = lastPunch.type === 'IN' ? 'OUT' : 'IN';
-
-      // Vérification de cohérence temporelle
       const hoursSinceLastPunch = (punchTime.getTime() - lastPunch.timestamp.getTime()) / (1000 * 60 * 60);
 
-      // FIX 17/01/2026: PRÉVENTION DOUBLE_IN - Toujours respecter l'alternance
-      // Si le dernier pointage était IN, le nouveau DOIT être OUT (sauf cas très anciens)
+      // Si le dernier était IN → celui-ci est OUT
       if (lastPunch.type === 'IN') {
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // FIX 18/01/2026: SHIFT_BASED PRIORITAIRE POUR SESSIONS LONGUES
-        // Pour les sessions > 12h, vérifier le contexte horaire du shift
-        // Si l'heure actuelle est proche du DÉBUT du shift → nouvelle session (IN)
-        // Si l'heure actuelle est proche de la FIN du shift → fermeture session (OUT)
-        // ═══════════════════════════════════════════════════════════════════════════════
-        if (hoursSinceLastPunch > 12 && shift) {
-          const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
-          const shiftStartMin = parseInt(shift.startTime.split(':')[1] || '0');
-          const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
-          const shiftEndMin = parseInt(shift.endTime.split(':')[1] || '0');
-          const punchMinutes = punchHour * 60 + punchTime.getMinutes();
-          const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
-          const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
-
-          // Fenêtre autour du début du shift (±90 min)
-          const START_WINDOW = 90; // minutes
-          const isNearShiftStart = Math.abs(punchMinutes - shiftStartMinutes) <= START_WINDOW ||
-            Math.abs(punchMinutes - shiftStartMinutes + 1440) <= START_WINDOW || // Passage minuit
-            Math.abs(punchMinutes - shiftStartMinutes - 1440) <= START_WINDOW;
-
-          // Fenêtre autour de la fin du shift (±180 min pour shifts de nuit car sorties tardives)
-          const END_WINDOW = shift.isNightShift ? 240 : 120; // 4h pour nuit, 2h pour jour
-          const isNearShiftEnd = Math.abs(punchMinutes - shiftEndMinutes) <= END_WINDOW ||
-            Math.abs(punchMinutes - shiftEndMinutes + 1440) <= END_WINDOW ||
-            Math.abs(punchMinutes - shiftEndMinutes - 1440) <= END_WINDOW;
-
-          console.log(`🕐 [SHIFT_CONTEXT] Session ouverte ${hoursSinceLastPunch.toFixed(1)}h, shift ${shift.name} (${shift.startTime}-${shift.endTime})`);
-          console.log(`   - punchTime: ${punchHour}:${punchTime.getMinutes().toString().padStart(2, '0')} (${punchMinutes} min)`);
-          console.log(`   - isNearShiftStart: ${isNearShiftStart}, isNearShiftEnd: ${isNearShiftEnd}`);
-
-          // Si proche du DÉBUT du shift → nouvelle session IN
-          if (isNearShiftStart && !isNearShiftEnd) {
-            console.log(`   → NOUVELLE SESSION: IN (proche début shift)`);
-            return {
-              type: 'IN',
-              method: 'SHIFT_BASED',
-              confidence: 'HIGH',
-              reason: `Session orpheline (${hoursSinceLastPunch.toFixed(1)}h) mais proche début shift ${shift.startTime} → nouvelle session IN`,
-              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftStartMinutes, isNearShiftStart },
-            };
-          }
-
-          // Si proche de la FIN du shift → fermeture session OUT
-          if (isNearShiftEnd && !isNearShiftStart) {
-            console.log(`   → FERMETURE SESSION: OUT (proche fin shift)`);
-            return {
-              type: 'OUT',
-              method: 'SHIFT_BASED',
-              confidence: 'HIGH',
-              reason: `Session orpheline (${hoursSinceLastPunch.toFixed(1)}h), proche fin shift ${shift.endTime} → fermeture OUT`,
-              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftEndMinutes, isNearShiftEnd },
-            };
-          }
-        }
-
-        // Si la session est ouverte depuis longtemps (>16h) sans contexte shift clair
+        // Si session très longue (>16h), marquer potentiellement ambigu
         if (hoursSinceLastPunch > 16) {
-          // C'est un OUT pour une session ouverte trop longtemps
-          // Marquer comme nécessitant validation si ce n'est pas clairement un shift de nuit
           const isLikelyNightShift = punchHour < 10 || (shift?.isNightShift === true);
           return {
             type: 'OUT',
             method: 'ALTERNATION',
             confidence: isLikelyNightShift ? 'HIGH' : 'MEDIUM',
-            reason: `Session IN ouverte depuis ${hoursSinceLastPunch.toFixed(1)}h (${lastPunch.timestamp.toISOString()}) → OUT`,
+            reason: `Session IN ouverte depuis ${hoursSinceLastPunch.toFixed(1)}h → OUT (fallback ALTERNATION)`,
             debug: { lastPunch, hoursSinceLastPunch, isLikelyNightShift },
             isAmbiguous: !isLikelyNightShift && hoursSinceLastPunch > 24,
             validationStatus: (!isLikelyNightShift && hoursSinceLastPunch > 24) ? 'PENDING_VALIDATION' : 'NONE',
@@ -841,76 +883,29 @@ export class AttendanceService {
               : undefined,
           };
         }
-        // Session normale (<16h) → OUT certain
         return {
           type: 'OUT',
           method: 'ALTERNATION',
           confidence: 'HIGH',
-          reason: `Dernier pointage: IN à ${lastPunch.timestamp.toISOString()} (${hoursSinceLastPunch.toFixed(1)}h) → OUT`,
+          reason: `Dernier pointage: IN (${hoursSinceLastPunch.toFixed(1)}h) → OUT`,
           debug: { lastPunch, hoursSinceLastPunch },
         };
       }
 
-      // Si le dernier pointage était OUT, le nouveau est IN
+      // Si le dernier était OUT → celui-ci est IN
       if (lastPunch.type === 'OUT') {
-        // ═══════════════════════════════════════════════════════════════════════════════
-        // FIX 18/01/2026: SHIFT_BASED pour OUT → vérifier contexte horaire
-        // Si le dernier OUT date de longtemps et l'heure actuelle est proche de la FIN du shift,
-        // c'est peut-être une sortie (l'employé a oublié de badger IN)
-        // ═══════════════════════════════════════════════════════════════════════════════
-        if (hoursSinceLastPunch > 12 && shift) {
-          const shiftStartHour = parseInt(shift.startTime.split(':')[0]);
-          const shiftStartMin = parseInt(shift.startTime.split(':')[1] || '0');
-          const shiftEndHour = parseInt(shift.endTime.split(':')[0]);
-          const shiftEndMin = parseInt(shift.endTime.split(':')[1] || '0');
-          const punchMinutes = punchHour * 60 + punchTime.getMinutes();
-          const shiftStartMinutes = shiftStartHour * 60 + shiftStartMin;
-          const shiftEndMinutes = shiftEndHour * 60 + shiftEndMin;
-
-          // Fenêtre autour du début du shift (±90 min)
-          const START_WINDOW = 90;
-          const isNearShiftStart = Math.abs(punchMinutes - shiftStartMinutes) <= START_WINDOW ||
-            Math.abs(punchMinutes - shiftStartMinutes + 1440) <= START_WINDOW ||
-            Math.abs(punchMinutes - shiftStartMinutes - 1440) <= START_WINDOW;
-
-          // Fenêtre autour de la fin du shift (élargie pour shifts de nuit)
-          const END_WINDOW = shift.isNightShift ? 240 : 120;
-          const isNearShiftEnd = Math.abs(punchMinutes - shiftEndMinutes) <= END_WINDOW ||
-            Math.abs(punchMinutes - shiftEndMinutes + 1440) <= END_WINDOW ||
-            Math.abs(punchMinutes - shiftEndMinutes - 1440) <= END_WINDOW;
-
-          console.log(`🕐 [SHIFT_CONTEXT after OUT] Session fermée il y a ${hoursSinceLastPunch.toFixed(1)}h, shift ${shift.name}`);
-          console.log(`   - punchTime: ${punchHour}:${punchTime.getMinutes().toString().padStart(2, '0')}`);
-          console.log(`   - isNearShiftStart: ${isNearShiftStart}, isNearShiftEnd: ${isNearShiftEnd}`);
-
-          // Si proche de la FIN du shift et PAS du début → probablement un OUT (IN manquant)
-          if (isNearShiftEnd && !isNearShiftStart) {
-            console.log(`   → OUT détecté: proche fin shift, IN probablement manquant`);
-            return {
-              type: 'OUT',
-              method: 'SHIFT_BASED',
-              confidence: 'MEDIUM',
-              reason: `Proche fin shift ${shift.endTime} mais dernier pointage OUT → OUT (IN manquant probable)`,
-              debug: { lastPunch, hoursSinceLastPunch, shift, punchMinutes, shiftEndMinutes },
-              isAmbiguous: true,
-              validationStatus: 'PENDING_VALIDATION',
-              ambiguityReason: `Sortie sans entrée correspondante - Vérification recommandée`,
-            };
-          }
-        }
-
         return {
           type: 'IN',
           method: 'ALTERNATION',
           confidence: 'HIGH',
-          reason: `Dernier pointage: OUT à ${lastPunch.timestamp.toISOString()} → IN`,
+          reason: `Dernier pointage: OUT → IN`,
           debug: { lastPunch, hoursSinceLastPunch },
         };
       }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════════
-    // PRIORITÉ 2: SHIFT_BASED - Basé sur le shift de l'employé
+    // PRIORITÉ 3: SHIFT_BASED FALLBACK - Si pas de lastPunch mais shift existe
     // ═══════════════════════════════════════════════════════════════════════════════
 
     if (shift) {
@@ -1940,6 +1935,27 @@ export class AttendanceService {
       deviceId: device.id,
     };
 
+    // FIX 03/02/2026: Détecter si le type a été corrigé par l'alternance
+    // Si le terminal a envoyé IN mais l'alternance a détecté OUT (ou inversement)
+    // → marquer comme AUTO_CORRECTED_WRONG_TYPE
+    const isTypeCorrectedByAlternation = webhookData.type !== effectiveType2;
+    let finalAnomalyType = webhookData.isAmbiguous ? 'PENDING_VALIDATION' : anomaly.type;
+    let finalAnomalyNote = webhookData.ambiguityReason || anomaly.note;
+    let finalHasAnomaly = anomaly.hasAnomaly || webhookData.isAmbiguous || false;
+    let isCorrected = false;
+    let needsApproval = false;
+    let approvalStatus: string | null = null;
+
+    if (isTypeCorrectedByAlternation) {
+      console.log(`🔄 [AUTO-CORRECTION] Type corrigé par alternance: ${webhookData.type} → ${effectiveType2}`);
+      finalAnomalyType = 'AUTO_CORRECTED_WRONG_TYPE';
+      finalAnomalyNote = `Mauvais bouton auto-corrigé: terminal a envoyé ${webhookData.type}, corrigé en ${effectiveType2} par alternance (méthode: ${detectedType2.method}).`;
+      finalHasAnomaly = true;
+      isCorrected = true;
+      needsApproval = true;
+      approvalStatus = 'PENDING_APPROVAL';
+    }
+
     const attendance = await this.prisma.attendance.create({
       data: {
         tenantId,
@@ -1950,9 +1966,12 @@ export class AttendanceService {
         type: effectiveType2, // FIX 18/01/2026: Utiliser le type auto-détecté
         method: webhookData.method,
         rawData: standardizedRawDataWebhook,
-        hasAnomaly: anomaly.hasAnomaly || webhookData.isAmbiguous || false,
-        anomalyType: webhookData.isAmbiguous ? 'PENDING_VALIDATION' : anomaly.type,
-        anomalyNote: webhookData.ambiguityReason || anomaly.note,
+        hasAnomaly: finalHasAnomaly,
+        anomalyType: finalAnomalyType,
+        anomalyNote: finalAnomalyNote,
+        isCorrected,
+        needsApproval,
+        approvalStatus,
         hoursWorked: metrics.hoursWorked ? new Decimal(metrics.hoursWorked) : null,
         lateMinutes: metrics.lateMinutes,
         earlyLeaveMinutes: metrics.earlyLeaveMinutes,

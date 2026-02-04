@@ -22,6 +22,7 @@ import { CreateScheduleDto, BulkScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { CreateReplacementDto } from './dto/create-replacement.dto';
 import { GenerateRotationPlanningDto, PreviewRotationPlanningDto } from './dto/rotation-planning.dto';
+import { ExtendScheduleDto } from './dto/extend-schedule.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -373,6 +374,48 @@ export class SchedulesController {
       statusCode: HttpStatus.OK,
       message: `Génération terminée: ${result.success} planning(s) créé(s), ${result.skipped} ignoré(s), ${result.failed} erreur(s)`,
       data: result,
+    };
+  }
+
+  // ============== EXTEND/PROLONG SCHEDULE ENDPOINTS ==============
+
+  @Post('extend/preview')
+  @RequirePermissions('schedule.create')
+  @ApiOperation({ summary: 'Preview de la prolongation des plannings rotatifs (détection automatique du pattern)' })
+  async previewExtendSchedules(
+    @CurrentUser() user: any,
+    @Body() dto: ExtendScheduleDto,
+  ) {
+    return this.schedulesService.previewExtendSchedules(user.tenantId, dto);
+  }
+
+  @Post('extend')
+  @RequirePermissions('schedule.create')
+  @ApiOperation({ summary: 'Prolonger les plannings rotatifs (détection automatique du pattern)' })
+  async extendSchedules(
+    @CurrentUser() user: any,
+    @Body() dto: ExtendScheduleDto,
+  ) {
+    const result = await this.schedulesService.extendSchedules(user.tenantId, dto);
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: `Prolongation terminée: ${result.success} planning(s) créé(s), ${result.skipped} ignoré(s), ${result.failed} erreur(s)`,
+      data: result,
+    };
+  }
+
+  @Get('extend/detect-pattern/:employeeId')
+  @RequirePermissions('schedule.view_all')
+  @ApiOperation({ summary: 'Détecter le pattern de rotation d\'un employé' })
+  async detectPattern(
+    @CurrentUser() user: any,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const pattern = await this.schedulesService.detectEmployeePattern(user.tenantId, employeeId);
+    return {
+      detected: !!pattern,
+      pattern,
     };
   }
 }

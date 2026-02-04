@@ -64,13 +64,13 @@ import { ReportFiltersPanel } from '@/components/reports/ReportFiltersPanel';
 
 export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<string>('attendance');
-  // Par défaut, afficher les 7 derniers jours pour avoir des données
-  const defaultStartDate = new Date();
-  defaultStartDate.setDate(defaultStartDate.getDate() - 7);
+  // Par défaut, afficher HIER (J-1)
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
   const [startDate, setStartDate] = useState(
-    format(defaultStartDate, 'yyyy-MM-dd')
+    format(yesterday, 'yyyy-MM-dd')
   );
-  const [endDate, setEndDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [endDate, setEndDate] = useState(format(yesterday, 'yyyy-MM-dd'));
 
   // Previous period for comparison
   const [previousStartDate, setPreviousStartDate] = useState<string>('');
@@ -88,6 +88,9 @@ export default function ReportsPage() {
   const [selectedSite, setSelectedSite] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
+
+  // Sub-tab for absences report (retards, absences, early leaves)
+  const [absencesSubTab, setAbsencesSubTab] = useState<'all' | 'retards' | 'absences' | 'earlyLeaves'>('all');
 
   // Fetch data for filters
   const { data: employeesData } = useEmployees();
@@ -314,16 +317,58 @@ export default function ReportsPage() {
   const { data: currentData, loading: currentLoading } = getCurrentReportData();
   const previousData = getPreviousReportData();
 
+  // Helper to get absences report data based on sub-tab
+  const getAbsencesDisplayData = useMemo(() => {
+    if (selectedReport !== 'absences' || !currentData?.data) return [];
+
+    const { anomalies = [], absences = [] } = currentData.data;
+
+    // Filter anomalies by type
+    const retards = anomalies.filter((a: any) =>
+      a.anomalyType?.includes('LATE') || a.type?.includes('LATE')
+    );
+    const earlyLeaves = anomalies.filter((a: any) =>
+      a.anomalyType?.includes('EARLY_LEAVE') || a.type?.includes('EARLY_LEAVE')
+    );
+
+    switch (absencesSubTab) {
+      case 'retards':
+        return retards;
+      case 'absences':
+        return absences;
+      case 'earlyLeaves':
+        return earlyLeaves;
+      case 'all':
+      default:
+        // Combine all data with type indicator
+        return [
+          ...retards.map((item: any) => ({ ...item, _category: 'RETARD' })),
+          ...absences.map((item: any) => ({ ...item, _category: 'ABSENCE' })),
+          ...earlyLeaves.map((item: any) => ({ ...item, _category: 'EARLY_LEAVE' })),
+        ].sort((a, b) => {
+          const dateA = a.timestamp || a.date;
+          const dateB = b.timestamp || b.date;
+          return new Date(dateB).getTime() - new Date(dateA).getTime();
+        });
+    }
+  }, [selectedReport, currentData, absencesSubTab]);
+
+  // Count for absences report
+  const getAbsencesDataCount = useMemo(() => {
+    if (selectedReport !== 'absences' || !currentData?.data) return 0;
+    return getAbsencesDisplayData.length;
+  }, [selectedReport, currentData, getAbsencesDisplayData]);
+
   const resetFilters = () => {
     setSelectedEmployee('all');
     setSelectedSite('all');
     setSelectedDepartment('all');
     setSelectedTeam('all');
-    // Réinitialiser aux 7 derniers jours par défaut
-    const defaultStart = new Date();
-    defaultStart.setDate(defaultStart.getDate() - 7);
-    setStartDate(format(defaultStart, 'yyyy-MM-dd'));
-    setEndDate(format(new Date(), 'yyyy-MM-dd'));
+    // Réinitialiser à HIER (J-1) par défaut
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    setStartDate(format(yesterdayDate, 'yyyy-MM-dd'));
+    setEndDate(format(yesterdayDate, 'yyyy-MM-dd'));
   };
 
   const hasActiveFilters = selectedEmployee !== 'all' || selectedSite !== 'all' ||
@@ -860,23 +905,62 @@ export default function ReportsPage() {
                     </div>
                   )}
 
+                  {/* Sub-tabs for Absences Report */}
+                  {selectedReport === 'absences' && currentData?.data && (
+                    <div className="flex gap-2 mb-4">
+                      <Button
+                        variant={absencesSubTab === 'all' ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setAbsencesSubTab('all')}
+                      >
+                        Tout ({(currentData.data.anomalies?.length || 0) + (currentData.data.absences?.length || 0)})
+                      </Button>
+                      <Button
+                        variant={absencesSubTab === 'retards' ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setAbsencesSubTab('retards')}
+                        className="bg-yellow-50 border-yellow-300 text-yellow-700 hover:bg-yellow-100"
+                      >
+                        Retards ({currentData.summary?.lateCount || 0})
+                      </Button>
+                      <Button
+                        variant={absencesSubTab === 'absences' ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setAbsencesSubTab('absences')}
+                        className="bg-orange-50 border-orange-300 text-orange-700 hover:bg-orange-100"
+                      >
+                        Absences ({currentData.summary?.totalAbsences || 0})
+                      </Button>
+                      <Button
+                        variant={absencesSubTab === 'earlyLeaves' ? 'primary' : 'outline'}
+                        size="sm"
+                        onClick={() => setAbsencesSubTab('earlyLeaves')}
+                        className="bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100"
+                      >
+                        Départs anticipés ({currentData.summary?.earlyLeaveCount || 0})
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Data Table Preview */}
                     <div className="border rounded-lg overflow-hidden">
                     <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Table className="h-4 w-4 text-text-secondary" />
                         <p className="text-sm font-medium text-text-secondary">
-                          Données du rapport (aperçu - {currentData?.data?.length || 0} entrée(s))
+                          Données du rapport (aperçu - {selectedReport === 'absences' ? getAbsencesDataCount : (currentData?.data?.length || 0)} entrée(s))
                         </p>
                       </div>
-                      {currentData?.data && currentData.data.length > 10 && (
+                      {((selectedReport === 'absences' && getAbsencesDataCount > 10) ||
+                        (selectedReport !== 'absences' && currentData?.data && currentData.data.length > 10)) && (
                         <Badge variant="outline">
                           Affichage des 10 premières lignes
                         </Badge>
                       )}
                     </div>
                     <div className="overflow-x-auto">
-                      {currentData?.data && Array.isArray(currentData.data) && currentData.data.length > 0 ? (
+                      {((selectedReport === 'absences' && getAbsencesDataCount > 0) ||
+                        (selectedReport !== 'absences' && currentData?.data && Array.isArray(currentData.data) && currentData.data.length > 0)) ? (
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b">
                             <tr>
@@ -936,7 +1020,10 @@ export default function ReportsPage() {
                             </tr>
                           </thead>
                           <tbody className="divide-y">
-                            {currentData?.data?.slice(0, 10).map((item: any, index: number) => (
+                            {(selectedReport === 'absences'
+                              ? getAbsencesDisplayData.slice(0, 10)
+                              : currentData?.data?.slice(0, 10) || []
+                            ).map((item: any, index: number) => (
                               <tr key={index} className="hover:bg-gray-50">
                                 {selectedReport === 'attendance' && (
                                   <>
@@ -1033,13 +1120,26 @@ export default function ReportsPage() {
                                 {selectedReport === 'absences' && (
                                   <>
                                     <td className="px-4 py-2">
-                                      {item.employee?.firstName || item.employee?.firstName} {item.employee?.lastName || item.employee?.lastName}
+                                      {item.employee?.firstName} {item.employee?.lastName}
+                                      <div className="text-xs text-text-secondary">{item.employee?.matricule}</div>
                                     </td>
                                     <td className="px-4 py-2">
-                                      {item.timestamp ? format(new Date(item.timestamp), 'dd/MM/yyyy', { locale: fr }) : item.date}
+                                      {item.timestamp
+                                        ? format(new Date(item.timestamp), 'dd/MM/yyyy HH:mm', { locale: fr })
+                                        : item.date}
                                     </td>
                                     <td className="px-4 py-2">
-                                      <Badge variant="danger">{item.anomalyType || item.type}</Badge>
+                                      <Badge variant={
+                                        (item._category === 'RETARD' || item.anomalyType?.includes('LATE')) ? 'warning' :
+                                        (item._category === 'ABSENCE' || item.type === 'ABSENCE') ? 'danger' :
+                                        (item._category === 'EARLY_LEAVE' || item.anomalyType?.includes('EARLY')) ? 'info' :
+                                        'default'
+                                      }>
+                                        {item._category === 'RETARD' ? 'Retard' :
+                                         item._category === 'ABSENCE' ? 'Absence' :
+                                         item._category === 'EARLY_LEAVE' ? 'Départ anticipé' :
+                                         item.anomalyType || item.type}
+                                      </Badge>
                                     </td>
                                     <td className="px-4 py-2">{item.employee?.department?.name || '-'}</td>
                                   </>

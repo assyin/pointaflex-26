@@ -108,13 +108,10 @@ export class DetectAbsencesJob {
         continue;
       }
 
-      // Vérifier si c'est un jour ouvrable
-      const dayOfWeek = schedule.date.getDay();
-      const normalizedDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
-
-      if (!workingDays.includes(normalizedDayOfWeek)) {
-        continue; // Ce n'est pas un jour ouvrable
-      }
+      // NOTE: Pour les plannings personnalisés, on ne vérifie PAS les jours ouvrables.
+      // Si un employé a un planning spécifique pour un jour (même weekend/férié),
+      // et qu'il n'a pas pointé, c'est une absence.
+      // Le planning personnalisé PRIME sur la configuration des jours ouvrables.
 
       // Vérifier s'il y a un pointage IN pour cette date
       const hasAttendance = await this.prisma.attendance.findFirst({

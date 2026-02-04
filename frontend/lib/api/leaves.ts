@@ -136,16 +136,17 @@ export const leavesApi = {
     return response.data;
   },
 
-  calculateWorkingDays: async (startDate: string, endDate: string): Promise<{
+  calculateWorkingDays: async (startDate: string, endDate: string, employeeId?: string): Promise<{
     workingDays: number;
     excludedWeekends: number;
     excludedHolidays: number;
     totalCalendarDays: number;
     includeSaturday: boolean;
     details: Array<{ date: string; isWorking: boolean; reason?: string }>;
+    isPersonalizedSchedule?: boolean; // NOUVEAU: Indique si le calcul est basé sur un planning personnalisé
   }> => {
     const response = await apiClient.get('/leaves/calculate-working-days', {
-      params: { startDate, endDate },
+      params: { startDate, endDate, employeeId }, // NOUVEAU: Passer employeeId
     });
     return response.data;
   },
@@ -171,5 +172,81 @@ export const leavesApi = {
   deleteDocument: async (id: string) => {
     const response = await apiClient.delete(`/leaves/${id}/document`);
     return response.data;
+  },
+
+  // ============================================
+  // SOLDE DE CONGÉS
+  // ============================================
+
+  getQuickBalance: async (employeeId: string, year?: number): Promise<{
+    quota: number;
+    taken: number;
+    pending: number;
+    remaining: number;
+    hasPersonalizedQuota: boolean;
+  }> => {
+    const response = await apiClient.get(`/leaves/balance/${employeeId}/quick`, {
+      params: { year },
+    });
+    return response.data;
+  },
+
+  getEmployeeBalance: async (employeeId: string, year?: number): Promise<{
+    employeeId: string;
+    employeeName: string;
+    matricule: string;
+    year: number;
+    quota: number;
+    quotaSource: 'employee' | 'tenant';
+    taken: number;
+    pending: number;
+    remaining: number;
+    details: {
+      approved: Array<{
+        id: string;
+        startDate: string;
+        endDate: string;
+        days: number;
+        leaveType: string;
+        status: string;
+      }>;
+      pending: Array<{
+        id: string;
+        startDate: string;
+        endDate: string;
+        days: number;
+        leaveType: string;
+        status: string;
+      }>;
+    };
+  }> => {
+    const response = await apiClient.get(`/leaves/balance/${employeeId}`, {
+      params: { year },
+    });
+    return response.data;
+  },
+
+  getAllBalances: async (params?: {
+    year?: number;
+    siteId?: string;
+    departmentId?: string;
+    teamId?: string;
+  }): Promise<Array<{
+    employeeId: string;
+    employeeName: string;
+    matricule: string;
+    year: number;
+    quota: number;
+    quotaSource: 'employee' | 'tenant';
+    taken: number;
+    pending: number;
+    remaining: number;
+  }>> => {
+    const response = await apiClient.get('/leaves/balance/all', { params });
+    return response.data;
+  },
+
+  updateEmployeeQuota: async (employeeId: string, quota: number | null): Promise<void> => {
+    await apiClient.patch(`/leaves/balance/${employeeId}/quota`, { quota });
   },
 };

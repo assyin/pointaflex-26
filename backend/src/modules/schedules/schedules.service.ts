@@ -2563,4 +2563,469 @@ export class SchedulesService {
 
     return result;
   }
+
+  // ============== EXTEND/PROLONG ROTATION SCHEDULES ==============
+
+  /**
+   * Détecte le pattern de rotation d'un employé en analysant ses schedules existants.
+   * Retourne null si aucun pattern rotatif détecté.
+   */
+  async detectEmployeePattern(
+    tenantId: string,
+    employeeId: string,
+  ): Promise<{
+    type: 'rotation';
+    shiftId: string;
+    shiftName: string;
+    workDays: number;
+    restDays: number;
+    phase: number; // position dans le cycle au dernier jour planifié
+    lastScheduleDate: string;
+  } | null> {
+    // Récupérer les schedules PUBLISHED les plus récents (derniers 60 jours)
+    const schedules = await this.prisma.schedule.findMany({
+      where: {
+        tenantId,
+        employeeId,
+        status: ScheduleStatus.PUBLISHED,
+      },
+      orderBy: { date: 'asc' },
+      select: { date: true, shiftId: true, shift: { select: { name: true } } },
+    });
+
+    if (schedules.length < 6) return null; // pas assez de données pour détecter un cycle
+
+    // Trouver le shift le plus fréquent
+    const shiftCounts = new Map<string, number>();
+    for (const s of schedules) {
+      shiftCounts.set(s.shiftId, (shiftCounts.get(s.shiftId) || 0) + 1);
+    }
+    let mainShiftId = '';
+    let maxCount = 0;
+    for (const [shiftId, count] of shiftCounts) {
+      if (count > maxCount) {
+        mainShiftId = shiftId;
+        maxCount = count;
+      }
+    }
+
+    // Filtrer sur le shift principal
+    const mainSchedules = schedules.filter((s) => s.shiftId === mainShiftId);
+    if (mainSchedules.length < 6) return null;
+
+    const shiftName = mainSchedules[0].shift.name;
+
+    // Convertir en bitmap : pour chaque jour entre première et dernière date, 1=travail, 0=repos
+    const firstDate = new Date(mainSchedules[0].date);
+    firstDate.setUTCHours(0, 0, 0, 0);
+    const lastDate = new Date(mainSchedules[mainSchedules.length - 1].date);
+    lastDate.setUTCHours(0, 0, 0, 0);
+
+    const workDates = new Set(
+      mainSchedules.map((s) => {
+        const d = new Date(s.date);
+        d.setUTCHours(0, 0, 0, 0);
+        return d.getTime();
+      }),
+    );
+
+    const totalDays = Math.round((lastDate.getTime() - firstDate.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    const bitmap: number[] = [];
+    const cur = new Date(firstDate);
+    for (let i = 0; i < totalDays; i++) {
+      bitmap.push(workDates.has(cur.getTime()) ? 1 : 0);
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+
+    // Tester les cycles de longueur 3 à 14
+    for (let cycleLen = 3; cycleLen <= 14; cycleLen++) {
+      // Pour chaque offset de départ possible dans le cycle
+      for (let offset = 0; offset < cycleLen; offset++) {
+        // Extraire le pattern du premier cycle complet
+        let workInCycle = 0;
+        const pattern: number[] = [];
+        for (let i = 0; i < cycleLen; i++) {
+          const idx = offset + i;
+          if (idx < bitmap.length) {
+            pattern.push(bitmap[idx]);
+            if (bitmap[idx] === 1) workInCycle++;
+          }
+        }
+
+        if (pattern.length < cycleLen) continue;
+
+        // Vérifier que le pattern est N jours de travail suivis de M jours de repos
+        // (travail d'abord, repos ensuite)
+        let isValidPattern = true;
+        let transitionCount = 0;
+        for (let i = 1; i < pattern.length; i++) {
+          if (pattern[i] !== pattern[i - 1]) transitionCount++;
+        }
+        // Un cycle workDays+restDays a exactement 1 ou 2 transitions
+        if (transitionCount > 2) continue;
+
+        const restInCycle = cycleLen - workInCycle;
+        if (workInCycle < 1 || restInCycle < 1) continue;
+
+        // Vérifier la cohérence sur tout le bitmap
+        let consistent = true;
+        let mismatches = 0;
+        for (let i = 0; i < bitmap.length; i++) {
+          const posInCycle = ((i - offset) % cycleLen + cycleLen) % cycleLen;
+          const expected = posInCycle < workInCycle ? 1 : 0;
+          if (bitmap[i] !== expected) {
+            mismatches++;
+          }
+        }
+
+        // Tolérer jusqu'à 5% de mismatch (congés ponctuels)
+        const tolerance = Math.max(1, Math.floor(bitmap.length * 0.05));
+        if (mismatches <= tolerance) {
+          // Pattern trouvé !
+          // Calculer la phase au dernier jour planifié
+          const lastDayIndex = bitmap.length - 1;
+          const phase = ((lastDayIndex - offset) % cycleLen + cycleLen) % cycleLen;
+
+          return {
+            type: 'rotation',
+            shiftId: mainShiftId,
+            shiftName,
+            workDays: workInCycle,
+            restDays: restInCycle,
+            phase,
+            lastScheduleDate: this.formatDateToISO(lastDate),
+          };
+        }
+      }
+    }
+
+    return null; // Aucun pattern rotatif détecté
+  }
+
+  /**
+   * Récupère les employés à prolonger selon le mode
+   */
+  private async getEmployeeIdsForExtend(
+    tenantId: string,
+    dto: { mode: string; departmentId?: string; employeeIds?: string[]; employeeId?: string },
+  ): Promise<string[]> {
+    if (dto.mode === 'employee' && dto.employeeId) {
+      return [dto.employeeId];
+    }
+
+    if (dto.mode === 'employees' && dto.employeeIds?.length) {
+      return dto.employeeIds;
+    }
+
+    // Pour mode "all" ou "department", trouver les employés qui ont des schedules
+    const where: any = { tenantId };
+    if (dto.mode === 'department' && dto.departmentId) {
+      where.departmentId = dto.departmentId;
+    }
+
+    const employees = await this.prisma.employee.findMany({
+      where,
+      select: { id: true },
+    });
+
+    // Filtrer ceux qui ont au moins un schedule
+    const employeeIds = employees.map((e) => e.id);
+    const scheduledEmployees = await this.prisma.schedule.findMany({
+      where: {
+        tenantId,
+        employeeId: { in: employeeIds },
+        status: ScheduleStatus.PUBLISHED,
+      },
+      distinct: ['employeeId'],
+      select: { employeeId: true },
+    });
+
+    return scheduledEmployees.map((s) => s.employeeId);
+  }
+
+  /**
+   * Preview de la prolongation des plannings rotatifs
+   */
+  async previewExtendSchedules(
+    tenantId: string,
+    dto: {
+      mode: string;
+      departmentId?: string;
+      employeeIds?: string[];
+      employeeId?: string;
+      fromDate: string;
+      toDate: string;
+      respectLeaves?: boolean;
+      respectRecoveryDays?: boolean;
+    },
+  ) {
+    const employeeIds = await this.getEmployeeIdsForExtend(tenantId, dto);
+
+    const fromDate = this.parseDateString(dto.fromDate);
+    const toDate = this.parseDateString(dto.toDate);
+
+    // Détecter les patterns
+    const employees = await this.prisma.employee.findMany({
+      where: { tenantId, id: { in: employeeIds } },
+      select: { id: true, matricule: true, firstName: true, lastName: true },
+    });
+
+    const employeeMap = new Map(employees.map((e) => [e.id, e]));
+
+    const preview: Array<{
+      employeeId: string;
+      matricule: string;
+      employeeName: string;
+      detectedPattern: {
+        workDays: number;
+        restDays: number;
+        shiftName: string;
+        phase: number;
+        lastScheduleDate: string;
+      };
+      scheduleDates: string[];
+      excludedDates: Array<{ date: string; reason: string }>;
+    }> = [];
+
+    let totalSchedulesToCreate = 0;
+    const groups = new Map<number, number>(); // phase -> count
+
+    // Get leaves and recovery days
+    const leavesMap = new Map<string, Array<{ startDate: Date; endDate: Date }>>();
+    if (dto.respectLeaves !== false) {
+      const leaves = await this.prisma.leave.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: employeeIds },
+          status: 'APPROVED',
+          startDate: { lte: toDate },
+          endDate: { gte: fromDate },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      });
+      for (const leave of leaves) {
+        if (!leavesMap.has(leave.employeeId)) leavesMap.set(leave.employeeId, []);
+        leavesMap.get(leave.employeeId)!.push(leave);
+      }
+    }
+
+    const recoveryMap = new Map<string, Array<{ startDate: Date; endDate: Date }>>();
+    if (dto.respectRecoveryDays !== false) {
+      const rds = await this.prisma.recoveryDay.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: employeeIds },
+          status: RecoveryDayStatus.APPROVED,
+          startDate: { lte: toDate },
+          endDate: { gte: fromDate },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      });
+      for (const rd of rds) {
+        if (!recoveryMap.has(rd.employeeId)) recoveryMap.set(rd.employeeId, []);
+        recoveryMap.get(rd.employeeId)!.push(rd);
+      }
+    }
+
+    for (const empId of employeeIds) {
+      const pattern = await this.detectEmployeePattern(tenantId, empId);
+      if (!pattern) continue;
+
+      const employee = employeeMap.get(empId);
+      if (!employee) continue;
+
+      groups.set(pattern.phase, (groups.get(pattern.phase) || 0) + 1);
+
+      // Calculer les dates de travail pour la prolongation
+      const cycleLength = pattern.workDays + pattern.restDays;
+      const lastDate = this.parseDateString(pattern.lastScheduleDate);
+
+      // Calculer la position dans le cycle au fromDate
+      const daysSinceLast = Math.round(
+        (fromDate.getTime() - lastDate.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      let dayInCycle = ((pattern.phase + daysSinceLast) % cycleLength + cycleLength) % cycleLength;
+
+      const scheduleDates: string[] = [];
+      const excludedDates: Array<{ date: string; reason: string }> = [];
+      const currentDate = new Date(fromDate);
+
+      const empLeaves = leavesMap.get(empId) || [];
+      const empRecovery = recoveryMap.get(empId) || [];
+
+      while (currentDate <= toDate) {
+        const isWorkDay = dayInCycle < pattern.workDays;
+
+        if (isWorkDay) {
+          const dateStr = this.formatDateToISO(currentDate);
+          const dateTime = currentDate.getTime();
+
+          const isOnLeave = empLeaves.some((l) => {
+            const start = new Date(l.startDate); start.setUTCHours(0, 0, 0, 0);
+            const end = new Date(l.endDate); end.setUTCHours(23, 59, 59, 999);
+            return dateTime >= start.getTime() && dateTime <= end.getTime();
+          });
+
+          const isOnRecovery = empRecovery.some((r) => {
+            const start = new Date(r.startDate); start.setUTCHours(0, 0, 0, 0);
+            const end = new Date(r.endDate); end.setUTCHours(23, 59, 59, 999);
+            return dateTime >= start.getTime() && dateTime <= end.getTime();
+          });
+
+          if (isOnLeave) {
+            excludedDates.push({ date: dateStr, reason: 'APPROVED_LEAVE' });
+          } else if (isOnRecovery) {
+            excludedDates.push({ date: dateStr, reason: 'RECOVERY_DAY' });
+          } else {
+            scheduleDates.push(dateStr);
+          }
+        }
+
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+        dayInCycle = (dayInCycle + 1) % cycleLength;
+      }
+
+      totalSchedulesToCreate += scheduleDates.length;
+
+      preview.push({
+        employeeId: empId,
+        matricule: employee.matricule,
+        employeeName: `${employee.firstName} ${employee.lastName}`,
+        detectedPattern: {
+          workDays: pattern.workDays,
+          restDays: pattern.restDays,
+          shiftName: pattern.shiftName,
+          phase: pattern.phase,
+          lastScheduleDate: pattern.lastScheduleDate,
+        },
+        scheduleDates,
+        excludedDates,
+      });
+    }
+
+    return {
+      summary: {
+        totalRotationEmployees: preview.length,
+        groups: Array.from(groups.entries()).map(([phase, count]) => ({ phase, count })),
+        withLeaveExclusions: preview.filter((p) => p.excludedDates.length > 0).length,
+        totalSchedulesToCreate,
+      },
+      employees: preview,
+    };
+  }
+
+  /**
+   * Prolonge les plannings rotatifs en détectant automatiquement le pattern
+   */
+  async extendSchedules(
+    tenantId: string,
+    dto: {
+      mode: string;
+      departmentId?: string;
+      employeeIds?: string[];
+      employeeId?: string;
+      fromDate: string;
+      toDate: string;
+      respectLeaves?: boolean;
+      respectRecoveryDays?: boolean;
+      overwriteExisting?: boolean;
+    },
+  ) {
+    // Utiliser le preview pour obtenir toutes les données
+    const previewResult = await this.previewExtendSchedules(tenantId, dto);
+
+    if (previewResult.summary.totalSchedulesToCreate === 0) {
+      return {
+        success: 0,
+        skipped: 0,
+        failed: 0,
+        message: 'Aucun planning rotatif détecté à prolonger',
+        details: [],
+      };
+    }
+
+    const fromDate = this.parseDateString(dto.fromDate);
+    const toDate = this.parseDateString(dto.toDate);
+
+    const result = {
+      success: 0,
+      skipped: 0,
+      failed: 0,
+      details: [] as Array<{
+        employeeId: string;
+        matricule: string;
+        employeeName: string;
+        created: number;
+        skipped: number;
+        errors: string[];
+      }>,
+    };
+
+    for (const empPreview of previewResult.employees) {
+      const empResult = {
+        employeeId: empPreview.employeeId,
+        matricule: empPreview.matricule,
+        employeeName: empPreview.employeeName,
+        created: 0,
+        skipped: 0,
+        errors: [] as string[],
+      };
+
+      // Récupérer le shiftId depuis le pattern détecté
+      const pattern = await this.detectEmployeePattern(tenantId, empPreview.employeeId);
+      if (!pattern) {
+        empResult.errors.push('Pattern non détecté');
+        result.failed++;
+        result.details.push(empResult);
+        continue;
+      }
+
+      const schedulesToCreate = empPreview.scheduleDates.map((dateStr) => ({
+        tenantId,
+        employeeId: empPreview.employeeId,
+        shiftId: pattern.shiftId,
+        date: this.parseDateString(dateStr),
+        status: ScheduleStatus.PUBLISHED,
+      }));
+
+      if (schedulesToCreate.length === 0) {
+        result.details.push(empResult);
+        continue;
+      }
+
+      // Supprimer les existants si demandé
+      if (dto.overwriteExisting) {
+        await this.prisma.schedule.deleteMany({
+          where: {
+            tenantId,
+            employeeId: empPreview.employeeId,
+            date: { gte: fromDate, lte: toDate },
+          },
+        });
+      }
+
+      try {
+        const createResult = await this.prisma.schedule.createMany({
+          data: schedulesToCreate,
+          skipDuplicates: !dto.overwriteExisting,
+        });
+
+        empResult.created = createResult.count;
+        result.success += createResult.count;
+
+        const possiblySkipped = schedulesToCreate.length - createResult.count;
+        if (possiblySkipped > 0) {
+          empResult.skipped = possiblySkipped;
+          result.skipped += possiblySkipped;
+        }
+      } catch (error: any) {
+        empResult.errors.push(error.message);
+        result.failed += schedulesToCreate.length;
+      }
+
+      result.details.push(empResult);
+    }
+
+    return result;
+  }
 }

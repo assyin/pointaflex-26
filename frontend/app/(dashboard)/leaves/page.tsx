@@ -58,6 +58,7 @@ import { useSites } from '@/lib/hooks/useSites';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
+import { LeaveBalanceManager } from '@/components/leaves/LeaveBalanceManager';
 
 // Create/Edit Leave Type Form Component
 function LeaveTypeForm({
@@ -224,7 +225,42 @@ function CreateLeaveForm({
   } | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
 
-  // Calculate working days when dates change
+  // État pour le solde de congés
+  const [balanceData, setBalanceData] = useState<{
+    quota: number;
+    taken: number;
+    pending: number;
+    remaining: number;
+    hasPersonalizedQuota: boolean;
+  } | null>(null);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+
+  // Charger le solde quand l'employé change
+  useEffect(() => {
+    const fetchBalance = async () => {
+      if (!formData.employeeId) {
+        setBalanceData(null);
+        return;
+      }
+
+      setIsLoadingBalance(true);
+      try {
+        const { leavesApi } = await import('@/lib/api/leaves');
+        const result = await leavesApi.getQuickBalance(formData.employeeId);
+        setBalanceData(result);
+      } catch (error) {
+        console.error('Error fetching balance:', error);
+        setBalanceData(null);
+      } finally {
+        setIsLoadingBalance(false);
+      }
+    };
+
+    fetchBalance();
+  }, [formData.employeeId]);
+
+  // Calculate working days when dates or employee change
+  // MODIFIÉ: Passer employeeId pour vérifier le planning personnalisé (rotation 4/2, etc.)
   useEffect(() => {
     const fetchWorkingDays = async () => {
       if (!formData.startDate || !formData.endDate) {
@@ -241,7 +277,12 @@ function CreateLeaveForm({
       setIsCalculating(true);
       try {
         const { leavesApi } = await import('@/lib/api/leaves');
-        const result = await leavesApi.calculateWorkingDays(formData.startDate, formData.endDate);
+        // MODIFIÉ: Passer employeeId pour tenir compte du planning personnalisé
+        const result = await leavesApi.calculateWorkingDays(
+          formData.startDate,
+          formData.endDate,
+          formData.employeeId || undefined
+        );
         setWorkingDaysData(result);
       } catch (error) {
         console.error('Error calculating working days:', error);
@@ -252,7 +293,7 @@ function CreateLeaveForm({
     };
 
     fetchWorkingDays();
-  }, [formData.startDate, formData.endDate]);
+  }, [formData.startDate, formData.endDate, formData.employeeId]); // MODIFIÉ: Ajout de employeeId
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -304,6 +345,67 @@ function CreateLeaveForm({
           required
         />
       </div>
+
+      {/* Affichage du solde de congés */}
+      {formData.employeeId && (
+        <div className={`p-3 rounded-lg border ${
+          balanceData && balanceData.remaining <= 0
+            ? 'bg-red-50 border-red-200'
+            : balanceData && balanceData.remaining <= 5
+            ? 'bg-yellow-50 border-yellow-200'
+            : 'bg-gray-50 border-gray-200'
+        }`}>
+          {isLoadingBalance ? (
+            <p className="text-sm text-gray-600 flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Chargement du solde...
+            </p>
+          ) : balanceData ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700">Solde de congés</span>
+                {balanceData.hasPersonalizedQuota && (
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                    Quota personnalisé
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Quota:</span>{' '}
+                  <span className="font-semibold">{balanceData.quota}j</span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Pris:</span>{' '}
+                  <span className="font-semibold text-orange-600">{balanceData.taken}j</span>
+                </div>
+                {balanceData.pending > 0 && (
+                  <div>
+                    <span className="text-gray-500">En attente:</span>{' '}
+                    <span className="font-semibold text-yellow-600">{balanceData.pending}j</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-gray-500">Restant:</span>{' '}
+                  <span className={`font-semibold ${
+                    balanceData.remaining <= 0 ? 'text-red-600' :
+                    balanceData.remaining <= 5 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {balanceData.remaining}j
+                  </span>
+                </div>
+              </div>
+              {balanceData.remaining <= 0 && (
+                <p className="text-xs text-red-600 mt-1">
+                  ⚠️ Solde insuffisant. La demande pourra être refusée.
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">Impossible de charger le solde</p>
+          )}
+        </div>
+      )}
 
       <div>
         <label htmlFor="leaveTypeId" className="block text-sm font-medium text-text-primary mb-2">
@@ -362,7 +464,11 @@ function CreateLeaveForm({
       </div>
 
       {formData.startDate && formData.endDate && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+        <div className={`p-3 border rounded-lg space-y-2 ${
+          (workingDaysData as any)?.isPersonalizedSchedule
+            ? 'bg-green-50 border-green-200'
+            : 'bg-blue-50 border-blue-200'
+        }`}>
           {isCalculating ? (
             <p className="text-sm text-blue-800 flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -370,20 +476,26 @@ function CreateLeaveForm({
             </p>
           ) : workingDaysData ? (
             <>
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">Durée:</span> {workingDaysData.workingDays} jour(s) ouvrable(s)
+              <p className={`text-sm ${(workingDaysData as any)?.isPersonalizedSchedule ? 'text-green-800' : 'text-blue-800'}`}>
+                <span className="font-semibold">Durée:</span> {workingDaysData.workingDays} jour(s) {(workingDaysData as any)?.isPersonalizedSchedule ? 'planifié(s)' : 'ouvrable(s)'}
               </p>
-              <div className="text-xs text-blue-600 space-y-1">
-                <p>
-                  {workingDaysData.totalCalendarDays} jour(s) calendaire(s) total
-                  {workingDaysData.excludedWeekends > 0 && (
-                    <span> • {workingDaysData.excludedWeekends} week-end(s) exclu(s)</span>
-                  )}
-                  {workingDaysData.excludedHolidays > 0 && (
-                    <span> • {workingDaysData.excludedHolidays} jour(s) férié(s) exclu(s)</span>
-                  )}
-                </p>
-                {workingDaysData.includeSaturday && (
+              <div className={`text-xs space-y-1 ${(workingDaysData as any)?.isPersonalizedSchedule ? 'text-green-600' : 'text-blue-600'}`}>
+                {(workingDaysData as any)?.isPersonalizedSchedule ? (
+                  <p className="font-medium">
+                    ✓ Calcul basé sur le planning personnalisé de l'employé (jours fériés et weekends inclus si planifiés)
+                  </p>
+                ) : (
+                  <p>
+                    {workingDaysData.totalCalendarDays} jour(s) calendaire(s) total
+                    {workingDaysData.excludedWeekends > 0 && (
+                      <span> • {workingDaysData.excludedWeekends} week-end(s) exclu(s)</span>
+                    )}
+                    {workingDaysData.excludedHolidays > 0 && (
+                      <span> • {workingDaysData.excludedHolidays} jour(s) férié(s) exclu(s)</span>
+                    )}
+                  </p>
+                )}
+                {workingDaysData.includeSaturday && !(workingDaysData as any)?.isPersonalizedSchedule && (
                   <p className="text-blue-500">
                     <span className="font-medium">Note:</span> Le samedi est inclus dans le calcul des congés
                   </p>
@@ -439,6 +551,7 @@ export default function LeavesPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showLeaveTypesModal, setShowLeaveTypesModal] = useState(false);
   const [showLeaveTypeForm, setShowLeaveTypeForm] = useState(false);
+  const [showBalanceManager, setShowBalanceManager] = useState(false);
   const [selectedLeave, setSelectedLeave] = useState<any>(null);
   const [selectedLeaveType, setSelectedLeaveType] = useState<any>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -685,6 +798,12 @@ export default function LeavesPage() {
                     Réinitialiser
                   </Button>
                 )}
+                <PermissionGate permissions={['leave.view_all', 'leave.update']}>
+                  <Button variant="outline" size="sm" onClick={() => setShowBalanceManager(true)} className="border-gray-300 text-gray-700 hover:bg-gray-50">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Soldes
+                  </Button>
+                </PermissionGate>
                 <PermissionGate permissions={['leavetype.view_all', 'leavetype.manage']}>
                   <Button variant="outline" size="sm" onClick={() => setShowLeaveTypesModal(true)} className="border-gray-300 text-gray-700 hover:bg-gray-50">
                     <Settings className="h-4 w-4 mr-2" />
@@ -1852,6 +1971,10 @@ export default function LeavesPage() {
             </div>
           </div>
         </div>
+      )}
+      {/* Leave Balance Manager Modal */}
+      {showBalanceManager && (
+        <LeaveBalanceManager onClose={() => setShowBalanceManager(false)} />
       )}
     </DashboardLayout>
     </ProtectedRoute>

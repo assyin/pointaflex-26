@@ -152,6 +152,29 @@ export class ReportsController {
     return this.reportsService.getPlanningReport(user.tenantId, dto);
   }
 
+  @Get('export/leave-balance')
+  @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
+  @ApiOperation({ summary: 'Export leave balance report in Excel format' })
+  async exportLeaveBalance(
+    @CurrentUser() user: any,
+    @Query('year') year?: string,
+    @Query('siteId') siteId?: string,
+    @Query('departmentId') departmentId?: string,
+    @Query('teamId') teamId?: string,
+    @Res() res?: Response,
+  ) {
+    return this.exportService.exportLeaveBalance(
+      user.tenantId,
+      {
+        year: year ? parseInt(year) : undefined,
+        siteId,
+        departmentId,
+        teamId,
+      },
+      res,
+    );
+  }
+
   @Get('history')
   @Roles(LegacyRole.ADMIN_RH, LegacyRole.MANAGER)
   @ApiOperation({ summary: 'Get report generation history' })

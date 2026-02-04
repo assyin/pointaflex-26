@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Search, Download, Printer, Plus, Calendar, AlertTriangle, Clock, Loader2, Upload,
   ChevronLeft, ChevronRight, Filter, X, Users, Building2, Eye, EyeOff, Grid3x3, List,
-  Edit, Trash2, Save, RotateCcw
+  Edit, Trash2, Save, RotateCcw, TrendingUp
 } from 'lucide-react';
 import {
   useSchedules,
@@ -36,6 +36,7 @@ import { useSites } from '@/lib/hooks/useSites';
 import { useHolidays } from '@/lib/hooks/useHolidays';
 import { ImportSchedulesModal } from '@/components/schedules/ImportSchedulesModal';
 import { RotationPlanningModal } from '@/components/schedules/RotationPlanningModal';
+import { ExtendSchedulesModal } from '@/components/schedules/ExtendSchedulesModal';
 import { SearchableEmployeeSelect } from '@/components/schedules/SearchableEmployeeSelect';
 import { formatErrorAlert } from '@/lib/utils/errorMessages';
 import { toast } from 'sonner';
@@ -117,6 +118,7 @@ export default function ShiftsPlanningPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showRotationModal, setShowRotationModal] = useState(false);
+  const [showExtendModal, setShowExtendModal] = useState(false);
   
   // Shifts management state
   const [showShiftModal, setShowShiftModal] = useState(false);
@@ -724,6 +726,17 @@ export default function ShiftsPlanningPage() {
                   >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     Planning Rotatif
+                  </Button>
+                </PermissionGate>
+                <PermissionGate permissions={['schedule.create']}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowExtendModal(true)}
+                    className="bg-teal-50 border-teal-200 text-teal-700 hover:bg-teal-100"
+                  >
+                    <TrendingUp className="h-4 w-4 mr-2" />
+                    Prolonger
                   </Button>
                 </PermissionGate>
               </div>
@@ -1481,6 +1494,17 @@ export default function ShiftsPlanningPage() {
             onClose={() => setShowRotationModal(false)}
             onSuccess={() => {
               setShowRotationModal(false);
+              refetch();
+            }}
+          />
+        )}
+
+        {/* Extend Schedules Modal */}
+        {showExtendModal && (
+          <ExtendSchedulesModal
+            onClose={() => setShowExtendModal(false)}
+            onSuccess={() => {
+              setShowExtendModal(false);
               refetch();
             }}
           />

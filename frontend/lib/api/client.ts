@@ -120,6 +120,11 @@ apiClient.interceptors.request.use(
 
 // Variable globale pour éviter les refresh multiples simultanés
 let isRefreshing = false;
+
+// Exposer l'état de refresh pour que le RouteGuard puisse le consulter
+export function isTokenRefreshing(): boolean {
+  return isRefreshing;
+}
 let failedQueue: Array<{
   resolve: (value?: any) => void;
   reject: (error?: any) => void;
@@ -203,10 +208,12 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(new Error('No tokens available'));
         if (typeof window !== 'undefined') {
-          // Ne rediriger que si on n'est pas déjà sur la page de login
           if (!window.location.pathname.includes('/login')) {
-            localStorage.clear();
-            window.location.href = '/login';
+            const currentPath = window.location.pathname;
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
           }
         }
         return Promise.reject(silentError);
@@ -245,13 +252,14 @@ apiClient.interceptors.response.use(
           isRefreshing = false;
           processQueue(refreshError);
           if (typeof window !== 'undefined') {
-            // Ne rediriger que si on n'est pas déjà sur la page de login
             if (!window.location.pathname.includes('/login')) {
-              localStorage.clear();
-              window.location.href = '/login';
+              const currentPath = window.location.pathname;
+              localStorage.removeItem('accessToken');
+              localStorage.removeItem('refreshToken');
+              localStorage.removeItem('user');
+              window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
             }
           }
-          // Rejeter silencieusement
           return Promise.reject(silentError);
         }
       } else {
@@ -259,10 +267,12 @@ apiClient.interceptors.response.use(
         isRefreshing = false;
         processQueue(new Error('No refresh token available'));
         if (typeof window !== 'undefined') {
-          // Ne rediriger que si on n'est pas déjà sur la page de login
           if (!window.location.pathname.includes('/login')) {
-            localStorage.clear();
-            window.location.href = '/login';
+            const currentPath = window.location.pathname;
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('user');
+            window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
           }
         }
         return Promise.reject(silentError);
