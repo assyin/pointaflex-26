@@ -1246,123 +1246,110 @@ export class ReportsService {
     const startDate = query.startDate ? new Date(query.startDate) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const endDate = query.endDate ? new Date(query.endDate) : new Date();
 
-    // Total employees
-    const totalEmployees = await this.prisma.employee.count({
-      where: { tenantId, isActive: true },
-    });
-
-    // Récupérer les IDs des employés actifs pour le calcul des absences
-    const allActiveEmployees = await this.prisma.employee.findMany({
-      where: { tenantId, isActive: true },
-      select: { id: true },
-    });
-    const allActiveEmployeeIds = allActiveEmployees.map(e => e.id);
-
-    // Active employees today (with attendance)
+    // Dates pour les requêtes
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const activeToday = await this.prisma.attendance.groupBy({
-      by: ['employeeId'],
-      where: {
-        tenantId,
-        timestamp: {
-          gte: today,
-          lt: tomorrow,
+    // OPTIMISATION: Exécuter toutes les requêtes initiales en parallèle (10 requêtes → 1 batch)
+    const [
+      totalEmployees,
+      allActiveEmployees,
+      activeToday,
+      pendingLeaves,
+      pendingOvertime,
+      attendanceCount,
+      anomaliesCount,
+      overtimeStats,
+      leaveStats,
+      employeesOnLeaveToday,
+    ] = await Promise.all([
+      // 1. Total employees
+      this.prisma.employee.count({
+        where: { tenantId, isActive: true },
+      }),
+      // 2. All active employees (IDs)
+      this.prisma.employee.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true },
+      }),
+      // 3. Active employees today
+      this.prisma.attendance.groupBy({
+        by: ['employeeId'],
+        where: {
+          tenantId,
+          timestamp: { gte: today, lt: tomorrow },
+          type: AttendanceType.IN,
         },
-        type: AttendanceType.IN,
-      },
-    });
+      }),
+      // 4. Pending leaves
+      this.prisma.leave.count({
+        where: {
+          tenantId,
+          status: { in: [LeaveStatus.PENDING, LeaveStatus.MANAGER_APPROVED] },
+        },
+      }),
+      // 5. Pending overtime
+      this.prisma.overtime.count({
+        where: { tenantId, status: OvertimeStatus.PENDING },
+      }),
+      // 6. Attendance count for period
+      this.prisma.attendance.count({
+        where: {
+          tenantId,
+          timestamp: { gte: startDate, lte: endDate },
+        },
+      }),
+      // 7. Anomalies count
+      this.prisma.attendance.count({
+        where: {
+          tenantId,
+          hasAnomaly: true,
+          timestamp: { gte: startDate, lte: endDate },
+        },
+      }),
+      // 8. Overtime stats
+      this.prisma.overtime.aggregate({
+        where: {
+          tenantId,
+          date: { gte: startDate, lte: endDate },
+          status: OvertimeStatus.APPROVED,
+        },
+        _sum: { hours: true },
+        _count: { id: true },
+      }),
+      // 9. Leave stats
+      this.prisma.leave.aggregate({
+        where: {
+          tenantId,
+          startDate: { gte: startDate },
+          endDate: { lte: endDate },
+          status: { in: [LeaveStatus.APPROVED, LeaveStatus.HR_APPROVED] },
+        },
+        _sum: { days: true },
+        _count: { id: true },
+      }),
+      // 10. Employés en congé aujourd'hui (approuvés)
+      this.prisma.leave.groupBy({
+        by: ['employeeId'],
+        where: {
+          tenantId,
+          status: { in: [LeaveStatus.APPROVED, LeaveStatus.HR_APPROVED] },
+          startDate: { lte: today },
+          endDate: { gte: today },
+        },
+      }),
+    ]);
 
-    // Pending leaves
-    const pendingLeaves = await this.prisma.leave.count({
-      where: {
-        tenantId,
-        status: {
-          in: [LeaveStatus.PENDING, LeaveStatus.MANAGER_APPROVED],
-        },
-      },
-    });
-
-    // Pending overtime
-    const pendingOvertime = await this.prisma.overtime.count({
-      where: {
-        tenantId,
-        status: OvertimeStatus.PENDING,
-      },
-    });
-
-    // Attendance summary for period
-    const attendanceCount = await this.prisma.attendance.count({
-      where: {
-        tenantId,
-        timestamp: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    });
-
-    // Anomalies count
-    const anomaliesCount = await this.prisma.attendance.count({
-      where: {
-        tenantId,
-        hasAnomaly: true,
-        timestamp: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    });
-
-    // Overtime stats
-    const overtimeStats = await this.prisma.overtime.aggregate({
-      where: {
-        tenantId,
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-        status: OvertimeStatus.APPROVED,
-      },
-      _sum: {
-        hours: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
-
-    // Leave stats
-    const leaveStats = await this.prisma.leave.aggregate({
-      where: {
-        tenantId,
-        startDate: {
-          gte: startDate,
-        },
-        endDate: {
-          lte: endDate,
-        },
-        status: {
-          in: [LeaveStatus.APPROVED, LeaveStatus.HR_APPROVED],
-        },
-      },
-      _sum: {
-        days: true,
-      },
-      _count: {
-        id: true,
-      },
-    });
+    const allActiveEmployeeIds = allActiveEmployees.map(e => e.id);
 
     // Attendance rate calculation
     const attendanceRate = totalEmployees > 0
       ? ((activeToday.length / totalEmployees) * 100).toFixed(1)
       : 0;
 
-    // OPTIMISATION: Weekly attendance data (last 7 days) - Une seule requête au lieu de 7
+    // OPTIMISATION V2: Weekly attendance data - BATCH toutes les requêtes en amont
     const dayNames = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
     const startDate7Days = new Date();
     startDate7Days.setDate(startDate7Days.getDate() - 6);
@@ -1370,16 +1357,59 @@ export class ReportsService {
     const endDate7Days = new Date();
     endDate7Days.setHours(23, 59, 59, 999);
 
-    const all7DaysAttendance = await this.prisma.attendance.findMany({
-      where: {
-        tenantId,
-        timestamp: { gte: startDate7Days, lte: endDate7Days },
-        type: AttendanceType.IN,
-      },
-      select: { employeeId: true, hasAnomaly: true, anomalyType: true, timestamp: true },
-    });
+    // BATCH: 4 requêtes au lieu de 7 × 4 = 28 requêtes
+    const [all7DaysAttendance, all7DaysSchedules, all7DaysLeaves, all7DaysRecoveries] = await Promise.all([
+      // 1. Pointages IN des 7 derniers jours
+      this.prisma.attendance.findMany({
+        where: {
+          tenantId,
+          timestamp: { gte: startDate7Days, lte: endDate7Days },
+          type: AttendanceType.IN,
+        },
+        select: { employeeId: true, hasAnomaly: true, anomalyType: true, timestamp: true },
+      }),
+      // 2. Schedules PUBLISHED des 7 derniers jours
+      this.prisma.schedule.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: allActiveEmployeeIds },
+          date: { gte: startDate7Days, lte: endDate7Days },
+          status: 'PUBLISHED',
+          suspendedByLeaveId: null,
+        },
+        select: {
+          employeeId: true,
+          date: true,
+          customStartTime: true,
+          customEndTime: true,
+          shift: { select: { startTime: true, endTime: true } },
+        },
+      }),
+      // 3. Congés approuvés couvrant les 7 derniers jours
+      this.prisma.leave.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: allActiveEmployeeIds },
+          status: { in: [LeaveStatus.APPROVED, LeaveStatus.HR_APPROVED] },
+          startDate: { lte: endDate7Days },
+          endDate: { gte: startDate7Days },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      }),
+      // 4. Récupérations approuvées couvrant les 7 derniers jours
+      this.prisma.recoveryDay.findMany({
+        where: {
+          tenantId,
+          employeeId: { in: allActiveEmployeeIds },
+          status: RecoveryDayStatus.APPROVED,
+          startDate: { lte: endDate7Days },
+          endDate: { gte: startDate7Days },
+        },
+        select: { employeeId: true, startDate: true, endDate: true },
+      }),
+    ]);
 
-    // Grouper par jour en mémoire
+    // Grouper les pointages par jour
     const attendanceByDay = new Map<string, typeof all7DaysAttendance>();
     all7DaysAttendance.forEach((a) => {
       const dateKey = new Date(a.timestamp).toISOString().split('T')[0];
@@ -1389,30 +1419,92 @@ export class ReportsService {
       attendanceByDay.get(dateKey)!.push(a);
     });
 
+    // Grouper les schedules par jour
+    const schedulesByDay = new Map<string, typeof all7DaysSchedules>();
+    all7DaysSchedules.forEach((s) => {
+      const dateKey = new Date(s.date).toISOString().split('T')[0];
+      if (!schedulesByDay.has(dateKey)) {
+        schedulesByDay.set(dateKey, []);
+      }
+      schedulesByDay.get(dateKey)!.push(s);
+    });
+
+    // Calculer les absences en mémoire (sans requêtes supplémentaires)
+    const now = new Date();
+    const bufferMinutes = 60;
     const last7Days = [];
+
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       date.setHours(0, 0, 0, 0);
       const dateKey = date.toISOString().split('T')[0];
       const dayAttendance = attendanceByDay.get(dateKey) || [];
+      const daySchedules = schedulesByDay.get(dateKey) || [];
 
       const late = dayAttendance.filter(a => a.hasAnomaly && a.anomalyType?.includes('LATE')).length;
 
-      // Calcul correct des absences basé sur les schedules
+      // Calcul des absences EN MÉMOIRE
       const attendanceEmployeeIds = new Set(dayAttendance.map(a => a.employeeId));
-      const absent = await this.calculateAbsencesForDay(
-        tenantId,
-        allActiveEmployeeIds,
-        date,
-        attendanceEmployeeIds,
+
+      // Employés en congé ce jour
+      const employeesOnLeave = new Set(
+        all7DaysLeaves
+          .filter(l => new Date(l.startDate) <= date && new Date(l.endDate) >= date)
+          .map(l => l.employeeId)
       );
+
+      // Employés en récupération ce jour
+      const employeesOnRecovery = new Set(
+        all7DaysRecoveries
+          .filter(r => new Date(r.startDate) <= date && new Date(r.endDate) >= date)
+          .map(r => r.employeeId)
+      );
+
+      let absenceCount = 0;
+      const dateLocal = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const nowLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const isDateInPast = dateLocal.getTime() < nowLocal.getTime();
+
+      for (const schedule of daySchedules) {
+        const employeeId = schedule.employeeId;
+
+        // Exclure si en congé ou récupération
+        if (employeesOnLeave.has(employeeId) || employeesOnRecovery.has(employeeId)) {
+          continue;
+        }
+
+        // Vérifier si le shift est terminé
+        const shiftEndTime = schedule.customEndTime || schedule.shift?.endTime || '18:00';
+        const [endHour, endMinute] = shiftEndTime.split(':').map(Number);
+        const shiftEndDate = new Date(date);
+        shiftEndDate.setHours(endHour, endMinute, 0, 0);
+        const detectionTime = new Date(shiftEndDate.getTime() + bufferMinutes * 60 * 1000);
+
+        const shiftStartTime = schedule.customStartTime || schedule.shift?.startTime || '08:00';
+        const [startHour] = shiftStartTime.split(':').map(Number);
+        const isNightShift = endHour < startHour;
+
+        // Si c'est aujourd'hui et le shift n'est pas terminé, ne pas compter comme absent
+        if (!isDateInPast && now < detectionTime && !isNightShift) {
+          continue;
+        }
+
+        // Vérifier si l'employé a pointé IN
+        if (!attendanceEmployeeIds.has(employeeId)) {
+          absenceCount++;
+        }
+      }
+
+      // Nombre de présents = employés uniques ayant pointé IN ce jour
+      const presentCount = new Set(dayAttendance.map(a => a.employeeId)).size;
 
       last7Days.push({
         day: dayNames[date.getDay()],
         date: dateKey,
+        present: presentCount,
         retards: late,
-        absences: absent,
+        absences: absenceCount,
       });
     }
 
@@ -1427,45 +1519,54 @@ export class ReportsService {
       value: shift._count.employees,
     }));
 
-    // Overtime trend (last 4 weeks)
+    // OPTIMISATION: Overtime trend (last 4 weeks) - 1 requête au lieu de 4
+    const fourWeeksAgo = new Date();
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+    fourWeeksAgo.setHours(0, 0, 0, 0);
+
+    const allOvertimeRecords = await this.prisma.overtime.findMany({
+      where: {
+        tenantId,
+        date: { gte: fourWeeksAgo },
+        status: OvertimeStatus.APPROVED,
+      },
+      select: { date: true, hours: true },
+    });
+
+    // Grouper par semaine en mémoire
     const overtimeTrend = [];
     for (let i = 3; i >= 0; i--) {
       const weekStart = new Date();
       weekStart.setDate(weekStart.getDate() - (7 * (i + 1)));
+      weekStart.setHours(0, 0, 0, 0);
       const weekEnd = new Date();
       weekEnd.setDate(weekEnd.getDate() - (7 * i));
+      weekEnd.setHours(23, 59, 59, 999);
 
-      const weekOvertime = await this.prisma.overtime.aggregate({
-        where: {
-          tenantId,
-          date: { gte: weekStart, lt: weekEnd },
-          status: OvertimeStatus.APPROVED,
-        },
-        _sum: { hours: true },
-      });
+      const weekHours = allOvertimeRecords
+        .filter(o => new Date(o.date) >= weekStart && new Date(o.date) < weekEnd)
+        .reduce((sum, o) => sum + Number(o.hours || 0), 0);
 
       overtimeTrend.push({
         semaine: `S${4 - i}`,
-        heures: weekOvertime._sum.hours || 0,
+        heures: weekHours,
       });
     }
 
-    // Late count (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const lateCount = await this.prisma.attendance.count({
-      where: {
-        tenantId,
-        timestamp: { gte: sevenDaysAgo },
-        hasAnomaly: true,
-        anomalyType: { contains: 'LATE' },
-      },
-    });
+    // Late count (réutiliser les données déjà chargées)
+    const lateCount = all7DaysAttendance.filter(
+      a => a.hasAnomaly && a.anomalyType?.includes('LATE')
+    ).length;
+
+    // Extraire les données d'aujourd'hui depuis last7Days (dernier élément)
+    const todayData = last7Days[last7Days.length - 1] || { absences: 0, retards: 0 };
 
     return {
       // KPIs
       attendanceRate: Number(attendanceRate),
       lates: lateCount,
+      todayRetards: todayData.retards, // Retards d'aujourd'hui uniquement
+      todayAbsences: todayData.absences, // Absences calculées selon les schedules
       totalPointages: attendanceCount,
       overtimeHours: overtimeStats._sum.hours || 0,
 
@@ -1473,7 +1574,7 @@ export class ReportsService {
       employees: {
         total: totalEmployees,
         activeToday: activeToday.length,
-        onLeave: 0,
+        onLeave: employeesOnLeaveToday.length,
       },
       pendingApprovals: {
         leaves: pendingLeaves,
